@@ -77,5 +77,6 @@ yarn-error.log
 .vscode
 __tests__
 .bundle
+server/uploads/profiles/
 
 .env
