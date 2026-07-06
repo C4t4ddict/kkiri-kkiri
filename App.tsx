@@ -16,13 +16,19 @@ import TeamFindScreen from './src/screens/TeamFindScreen';
 import NotificationScreen from './src/screens/NotificationScreen';
 import TeamMakeScreen from './src/screens/TeamMakeScreen';
 import MatchingDetailScreen from './src/screens/MatchingDetailScreen'
+import ActivitySettingScreen from './src/screens/ActivitySettingScreen';
 
 // MyPage 관련 스크린 import 추가
 import MyPage2 from './src/screens/mypage2';
 import MyPage3 from './src/screens/mypage3';
 import MyPage4 from './src/screens/mypage4';
 
+import TodoScreen from './src/screens/TodoScreen';
+import TodoTeamScreen from './src/screens/TodoTeamScreen';
+
+
 import { User } from './src/types';
+import type { RootStackParamList } from './src/types';
 
 const Stack = createStackNavigator();
 
@@ -135,42 +141,38 @@ export default function App() {
               headerShown: false, // MyPage4에서 자체 헤더를 사용
             }}
           />
+          <Stack.Screen
+          name="TodoScreen"
+          component={TodoScreen}
+          options={{
+            title: '할 일 추가',
+            headerBackTitle: '',
+            headerTitleAlign: 'center',
+          }}
+         />
+          <Stack.Screen
+            name="TodoTeamScreen"
+            component={TodoTeamScreen}
+            options={{
+              title: '팀원 할 일',
+              headerBackTitle: '',
+              headerTitleAlign: 'center',
+            }}
+          />
+          <Stack.Screen
+            name="ActivitySettingScreen"
+            component={ActivitySettingScreen}
+            options={{
+              title: '활동 편집',
+              headerBackTitle: '',
+              headerTitleAlign: 'center',
+            }}
+          />
         </Stack.Navigator>
       </NavigationContainer>
     </AuthProvider>
   );
 }
-
-export type RootStackParamList = {
-  Login: undefined;
-  Register: undefined;
-  MainTabs: { screen?: string; params?: any };
-  InfoDetail: undefined;
-  Settings: { user: User };
-  Evaluation: undefined;
-  TeamFind: undefined;
-  Notifications: undefined;
-  MakeTeam: undefined;
-  MatchingDetail: undefined;
-  
-  // MyPage 관련 스크린 타입 추가
-  MyPage2: { 
-    user: User;
-  };
-  MyPage3: { 
-    user: User;
-    selectedMember: {
-      id: number;
-      name: string;
-      department: string;
-      activity_id: number;
-      activity_title: string;
-    };
-  };
-  MyPage4: { 
-    user: User;
-  };
-};
 
 // BottomTab 네비게이터 ParamList
 export type BottomTabParamList = {

@@ -76,3 +76,6 @@ yarn-error.log
 
 .vscode
 __tests__
+.bundle
+
+.env
