@@ -3,8 +3,8 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import HomeScreen from '../screens/HomeScreen';
 import InfoScreen from '../screens/Info/InfoScreen';
-import ActivityScreen from '../screens/ActivityScreen';
-import MatchingScreen from '../screens/MatchingScreen';
+import TodoScreen from '../TodoScreen';
+import MatchingScreen from '../MatchingScreen';
 import MyPage1 from '../screens/mypage1';
 import { Text, Platform, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -67,7 +67,7 @@ export default function BottomTabNavigator() {
     >
       <Tab.Screen name="홈" component={HomeScreen} />
       <Tab.Screen name="정보" component={InfoScreen} />
-      <Tab.Screen name="활동" component={ActivityScreen} />
+      <Tab.Screen name="활동" component={TodoScreen} />
       <Tab.Screen name="매칭" component={MatchingScreen} />
       <Tab.Screen name="마이페이지">
         {() =>

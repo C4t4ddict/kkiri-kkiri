@@ -95,6 +95,27 @@ const parseIdList = (value) => {
   return [];
 };
 
+const getRequestUserId = (req) => Number(req.get('x-user-id') || req.body?.user_id || req.query?.user_id);
+
+const formatDateOnly = (value) => {
+  if (!value) {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  return String(value).slice(0, 10);
+};
+
+const normalizeTodo = (todo, fallbackScope, fallbackStart, fallbackEnd) => ({
+  ...todo,
+  scope_type: fallbackScope || todo.scope_type,
+  scope_start_date: fallbackStart || formatDateOnly(todo.scope_start_date),
+  scope_end_date: fallbackEnd || formatDateOnly(todo.scope_end_date),
+});
+
 const toClientUser = (user) => ({
   id: user.user_id,
   user_id: user.user_id,
@@ -531,6 +552,269 @@ app.get('/api/activities/:id', (req, res) => {
 
     res.status(200).json(normalizeActivity(results[0]));
   });
+});
+
+// ===== 매칭/활동 탭 API =====
+
+app.get('/api/team-recruitments', (req, res) => {
+  if (!db || db.state === 'disconnected') {
+    return res.json([]);
+  }
+
+  const sql = `
+    SELECT
+      recruitment_id,
+      owner_user_id,
+      team_id,
+      post_name,
+      activity_name,
+      activity_type,
+      qualification_department,
+      qualification_student_number,
+      qualification_age,
+      required_members,
+      activity_period,
+      meeting_type,
+      memo,
+      status,
+      created_at
+    FROM team_recruitments
+    ORDER BY created_at DESC, recruitment_id DESC
+  `;
+
+  db.query(sql, (err, results) => {
+    if (err) {
+      console.error('팀 모집글 조회 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    res.json(results || []);
+  });
+});
+
+app.get('/api/applications', (req, res) => {
+  if (!db || db.state === 'disconnected') {
+    return res.json([]);
+  }
+
+  const sql = `
+    SELECT application_id, recruitment_id, applicant_id, memo, status, created_at
+    FROM applications
+    ORDER BY created_at DESC, application_id DESC
+  `;
+
+  db.query(sql, (err, results) => {
+    if (err) {
+      console.error('지원 목록 조회 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    res.json(results || []);
+  });
+});
+
+app.get('/my-teams', (req, res) => {
+  const userId = getRequestUserId(req);
+
+  if (!userId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+
+  const sql = `
+    SELECT t.team_id, t.team_name, tm.part
+    FROM team_members tm
+    JOIN teams t ON t.team_id = tm.team_id
+    WHERE tm.user_id = ?
+    ORDER BY t.created_at DESC, t.team_id DESC
+  `;
+
+  db.query(sql, [userId], (err, results) => {
+    if (err) {
+      console.error('내 팀 조회 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    res.json(results || []);
+  });
+});
+
+app.get('/todos/:teamId', (req, res) => {
+  const userId = getRequestUserId(req);
+  const { teamId } = req.params;
+  const { scope_type, start, end } = req.query;
+
+  if (!userId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+
+  const exactSql = `
+    SELECT todo_id, team_id, assigned_user_id, title, status, scope_type, scope_start_date, scope_end_date, created_at, updated_at
+    FROM todos
+    WHERE team_id = ?
+      AND assigned_user_id = ?
+      AND scope_type = ?
+      AND scope_start_date <= ?
+      AND scope_end_date >= ?
+    ORDER BY updated_at DESC, todo_id DESC
+  `;
+
+  db.query(exactSql, [teamId, userId, scope_type, end, start], (err, results) => {
+    if (err) {
+      console.error('투두 조회 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    if ((results || []).length > 0) {
+      return res.json(results.map(todo => normalizeTodo(todo)));
+    }
+
+    const fallbackSql = `
+      SELECT todo_id, team_id, assigned_user_id, title, status, scope_type, scope_start_date, scope_end_date, created_at, updated_at
+      FROM todos
+      WHERE team_id = ?
+        AND assigned_user_id = ?
+        AND scope_type = '전체'
+      ORDER BY updated_at DESC, todo_id DESC
+      LIMIT 30
+    `;
+
+    db.query(fallbackSql, [teamId, userId], (fallbackErr, fallbackResults) => {
+      if (fallbackErr) {
+        console.error('투두 fallback 조회 오류:', fallbackErr);
+        return res.status(500).json({ message: '서버 오류' });
+      }
+
+      res.json((fallbackResults || []).map(todo =>
+        normalizeTodo(todo, scope_type, start, end)
+      ));
+    });
+  });
+});
+
+app.post('/todos', (req, res) => {
+  const userId = getRequestUserId(req);
+  const { team_id, title, scope_type, scope_start_date, scope_end_date } = req.body;
+
+  if (!userId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+
+  if (!team_id || !title || !scope_type || !scope_start_date || !scope_end_date) {
+    return res.status(400).json({ message: '필수 값이 누락되었습니다' });
+  }
+
+  const insertSql = `
+    INSERT INTO todos (team_id, assigned_user_id, title, status, scope_type, scope_start_date, scope_end_date)
+    VALUES (?, ?, ?, '미진행', ?, ?, ?)
+  `;
+
+  db.query(insertSql, [team_id, userId, title, scope_type, scope_start_date, scope_end_date], (err, result) => {
+    if (err) {
+      console.error('투두 생성 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    const selectSql = `
+      SELECT todo_id, team_id, assigned_user_id, title, status, scope_type, scope_start_date, scope_end_date, created_at, updated_at
+      FROM todos
+      WHERE todo_id = ?
+    `;
+
+    db.query(selectSql, [result.insertId], (selectErr, rows) => {
+      if (selectErr) {
+        console.error('생성 투두 조회 오류:', selectErr);
+        return res.status(500).json({ message: '서버 오류' });
+      }
+
+      res.status(201).json(normalizeTodo(rows[0]));
+    });
+  });
+});
+
+app.put('/todos/:todoId', (req, res) => {
+  const userId = getRequestUserId(req);
+  const { todoId } = req.params;
+  const allowedFields = ['title', 'status'];
+  const updates = allowedFields.filter(field => req.body[field] !== undefined);
+
+  if (!userId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+
+  if (updates.length === 0) {
+    return res.status(400).json({ message: '수정할 값이 없습니다' });
+  }
+
+  const setClause = updates.map(field => `${field} = ?`).join(', ');
+  const values = updates.map(field => req.body[field]);
+
+  const sql = `UPDATE todos SET ${setClause} WHERE todo_id = ? AND assigned_user_id = ?`;
+
+  db.query(sql, [...values, todoId, userId], (err, result) => {
+    if (err) {
+      console.error('투두 수정 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: '투두를 찾을 수 없습니다' });
+    }
+
+    res.json({ success: true });
+  });
+});
+
+app.delete('/todos/:todoId', (req, res) => {
+  const userId = getRequestUserId(req);
+  const { todoId } = req.params;
+
+  if (!userId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+
+  db.query('DELETE FROM todos WHERE todo_id = ? AND assigned_user_id = ?', [todoId, userId], (err, result) => {
+    if (err) {
+      console.error('투두 삭제 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: '투두를 찾을 수 없습니다' });
+    }
+
+    res.json({ success: true });
+  });
+});
+
+app.put('/team-members/:teamId/part', (req, res) => {
+  const userId = getRequestUserId(req);
+  const { teamId } = req.params;
+  const { part } = req.body;
+
+  if (!userId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+
+  if (!part) {
+    return res.status(400).json({ message: '역할을 입력해주세요' });
+  }
+
+  db.query(
+    'UPDATE team_members SET part = ? WHERE team_id = ? AND user_id = ?',
+    [part, teamId, userId],
+    (err, result) => {
+      if (err) {
+        console.error('팀 역할 수정 오류:', err);
+        return res.status(500).json({ message: '서버 오류' });
+      }
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: '팀원을 찾을 수 없습니다' });
+      }
+
+      res.json({ success: true, part });
+    }
+  );
 });
 
 // ===== 사용자 관련 API =====
