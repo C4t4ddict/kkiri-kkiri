@@ -103,7 +103,11 @@ const formatDateOnly = (value) => {
   }
 
   if (value instanceof Date) {
-    return value.toISOString().slice(0, 10);
+    return [
+      value.getFullYear(),
+      String(value.getMonth() + 1).padStart(2, '0'),
+      String(value.getDate()).padStart(2, '0'),
+    ].join('-');
   }
 
   return String(value).slice(0, 10);
@@ -1348,11 +1352,13 @@ app.post('/api/users/batch', (req, res) => {
   if (!db || db.state === 'disconnected') {
     console.log('더미 배치 사용자 데이터 (MySQL 미연결)');
     const dummyUsers = user_ids.map(id => ({
+      id: parseInt(id),
       user_id: parseInt(id),
       email: `user${id}@test.com`,
       name: `사용자 ${id}`,
       department: '컴퓨터공학과',
-      student_number: `20201234${id}`
+      student_number: `20201234${id}`,
+      studentId: `20201234${id}`,
     }));
     
     return res.json({
@@ -1363,7 +1369,7 @@ app.post('/api/users/batch', (req, res) => {
 
   // 실제 DB 쿼리
   const placeholders = user_ids.map(() => '?').join(',');
-  const query = `SELECT id AS user_id, email, name, department, student_number FROM users WHERE id IN (${placeholders})`;
+  const query = `SELECT id, id AS user_id, email, name, department, student_number, student_number AS studentId, birth AS birth_date FROM users WHERE id IN (${placeholders})`;
   
   db.query(query, user_ids, (err, results) => {
     if (err) {

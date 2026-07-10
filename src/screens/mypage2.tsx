@@ -62,7 +62,8 @@ interface TeamMember {
 }
 
 interface TeamGroup {
-  id: number;
+  key: string;
+  activityId: number;
   title: string;
   members: TeamMember[];
 }
@@ -334,7 +335,8 @@ const MyPage2: React.FC = () => {
 
               if (members.length > 0) {
                 groups.push({
-                  id: participation.activity_id,
+                  key: `${participation.activity_id}-${participation.participation_id}`,
+                  activityId: Number(participation.activity_id),
                   title: activityTitle,
                   members: members
                 });
@@ -374,10 +376,10 @@ const MyPage2: React.FC = () => {
     }
   }, [user.id]);
 
-const handleMemberSelect = (groupId: number, memberId: number) => {
+const handleMemberSelect = (groupKey: string, memberId: number) => {
   setTeamGroups(prevGroups => {
     return prevGroups.map(group => (
-      group.id === groupId
+      group.key === groupKey
         ? {
             ...group,
             members: group.members.map(member => ({
@@ -396,7 +398,7 @@ const handleMemberSelect = (groupId: number, memberId: number) => {
     const selectedMembers = teamGroups.flatMap(group => 
       group.members.filter(member => member.selected).map(member => ({
         ...member,
-        activity_id: group.id,
+        activity_id: group.activityId,
         activity_title: group.title
       }))
     );
@@ -423,17 +425,17 @@ const handleMemberSelect = (groupId: number, memberId: number) => {
   };
 
   const renderTeamGroup = (group: TeamGroup) => (
-    <View key={group.id} style={styles.groupContainer}>
+    <View key={group.key} style={styles.groupContainer}>
       <Text style={styles.groupTitle}>{group.title}</Text>
       
       {group.members.map((member) => (
         <TouchableOpacity
-          key={`${group.id}-${member.id}`}
+          key={`${group.key}-${member.id}`}
           style={[
             styles.memberButton,
             member.selected && styles.selectedMemberButton
           ]}
-          onPress={() => handleMemberSelect(group.id, member.id)}
+          onPress={() => handleMemberSelect(group.key, member.id)}
         >
           <Text style={[
             styles.memberText,

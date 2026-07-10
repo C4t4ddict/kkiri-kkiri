@@ -194,7 +194,7 @@ const MyPage4: React.FC = () => {
         <View style={styles.reviewFooter}>
           <Text style={styles.reviewerName}>{review.reviewer_name}</Text>
           <Text style={styles.reviewDate}>
-            {new Date(review.created_at).toLocaleDateString('ko-KR')}
+            {review.created_at ? new Date(review.created_at).toLocaleDateString('ko-KR') : ''}
           </Text>
         </View>
       </View>

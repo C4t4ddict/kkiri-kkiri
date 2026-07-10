@@ -109,9 +109,13 @@ export default function ActivityScreen() {
   // ── API 호출 함수 ──────────────────────────────
   const fetchTeams = useCallback(async () => {
     if (!currentUserId) return [];
-    const res = await fetch(`${API_BASE}/users/${currentUserId}/teams`);
-    const data: ActivityOption[] = await res.json();
-    return data;
+    try {
+      const res = await fetch(`${API_BASE}/users/${currentUserId}/teams`);
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    } catch {
+      return [];
+    }
   }, [API_BASE, currentUserId]);
 
   const fetchAllDataForTeam = useCallback(
@@ -127,24 +131,33 @@ export default function ActivityScreen() {
         const pRes = await fetch(
           `${API_BASE}/teams/${teamId}/progress?scope_type=%EC%9B%94%EA%B0%84&start=${month.start}&end=${month.end}`
         );
-        const pData: Progress = await pRes.json();
-        setProgress(pData);
+        const pData = await pRes.json();
+        setProgress({
+          total: Number(pData?.total || 0),
+          done: Number(pData?.done || 0),
+          percent: Number(pData?.percent || 0),
+        });
 
         // 내 월간
         const mRes = await fetch(
           `${API_BASE}/todos/${teamId}?scope_type=%EC%9B%94%EA%B0%84&start=${month.start}&end=${month.end}`,
           { headers }
         );
-        setMonthlyTodos(await mRes.json());
+        const monthTodos = await mRes.json();
+        setMonthlyTodos(Array.isArray(monthTodos) ? monthTodos : []);
 
         // 내 주간
         const wRes = await fetch(
           `${API_BASE}/todos/${teamId}?scope_type=%EC%A3%BC%EA%B0%84&start=${week.start}&end=${week.end}`,
           { headers }
         );
-        setWeeklyTodos(await wRes.json());
+        const weekTodos = await wRes.json();
+        setWeeklyTodos(Array.isArray(weekTodos) ? weekTodos : []);
       } catch (e) {
         console.warn('데이터 로드 실패:', e);
+        setProgress({ total: 0, done: 0, percent: 0 });
+        setMonthlyTodos([]);
+        setWeeklyTodos([]);
       } finally {
         setLoading(false);
       }
