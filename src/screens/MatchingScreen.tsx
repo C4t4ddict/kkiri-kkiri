@@ -1,281 +1,341 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+// MatchingScreen.tsx
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
-  ActivityIndicator,
-  Platform,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
   View,
+  Text,
+  TextInput,
+  ScrollView,
+  SafeAreaView,
+  TouchableOpacity,
+  StyleSheet,
+  Platform,
 } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import axios from 'axios';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import Icon from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../context/AuthContext';
 
-type Participation = {
-  participation_id: number;
-  activity_id: number;
-  participated_at?: string;
-  participated_with?: number[] | string;
-};
+import { useFocusEffect } from '@react-navigation/native';
 
-type UserInfo = {
-  id: number;
-  user_id?: number;
-  name: string;
-  department?: string;
-  email?: string;
-};
 
 const BASE_URL =
-  Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
+  Platform.OS === 'android'
+    ? 'http://10.0.2.2:3000'
+    : 'http://localhost:3000';
 
-const parseParticipantIds = (value?: number[] | string) => {
-  if (Array.isArray(value)) {
-    return value.map(Number).filter(Number.isFinite);
-  }
+// 디자인 시안의 카테고리
+const categories = ['공모전', '비교과', '경진대회', '동아리', '소모임', '기타'];
 
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed.map(Number).filter(Number.isFinite) : [];
-    } catch {
-      return value
-        .split(',')
-        .map(item => Number(item.trim()))
-        .filter(Number.isFinite);
-    }
-  }
-
-  return [];
+type Recruitment = {
+  recruitment_id: number;
+  team_id?: number;
+  post_name: string;            // 제목
+  activity_type: string;           // 공모전/비교과/...
+  qualification_department?: string;
+  qualification_student_number?: string;
+  qualification_age?: number;
+  required_members: number;        // 필요 인원(정원)
+  activity_period?: string;        // "8주" 등 사람이 읽는 기간 텍스트
+  meeting_type?: '대면' | '비대면' | '혼합' | string;
+  memo?: string;
+  status?: string;
+  created_at?: string;
 };
 
-const getActivityTitle = (activity: any, activityId: number) =>
-  activity?.title ||
-  activity?.activity_name ||
-  activity?.post_name ||
-  `활동 ${activityId}`;
+type Application = {
+  application_id: number;
+  recruitment_id: number;
+  applicant_id: number;
+  memo?: string;
+  status?: string; // 'pending' | 'approved' | 'rejected' 등일 수 있음
+  created_at?: string;
+};
 
-export default function MatchingScreen() {
-  const navigation = useNavigation<any>();
+const MatchingScreen = () => {
+  const navigation = useNavigation<NativeStackNavigationProp<any>>();
+
+  const [searchText, setSearchText] = useState('');
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [recruitments, setRecruitments] = useState<Recruitment[]>([]);
+  const [applications, setApplications] = useState<Application[]>([]);
+
   const { user } = useAuth();
-  const userId = user?.user_id || user?.id;
-  const [participations, setParticipations] = useState<Participation[]>([]);
-  const [activityTitles, setActivityTitles] = useState<Record<number, string>>({});
-  const [usersById, setUsersById] = useState<Record<number, UserInfo>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const teammateIds = useMemo(() => {
-    const ids = new Set<number>();
-    participations.forEach(item => {
-      parseParticipantIds(item.participated_with)
-        .filter(id => Number(id) !== Number(userId))
-        .forEach(id => ids.add(Number(id)));
-    });
-    return Array.from(ids);
-  }, [participations, userId]);
-
-  const fetchMatchingData = useCallback(async () => {
-    if (!userId) {
-      setLoading(false);
-      setError('로그인이 필요합니다.');
-      return;
-    }
-
+  const fetchAll = async () => {
     try {
-      setLoading(true);
-      setError(null);
-
-      const participationResponse = await fetch(`${BASE_URL}/api/participations/user/${userId}`);
-      const participationData = await participationResponse.json();
-
-      if (!participationResponse.ok || !participationData.success) {
-        throw new Error(participationData.message || '매칭 정보를 불러오지 못했습니다.');
-      }
-
-      const nextParticipations: Participation[] = participationData.participations || [];
-      setParticipations(nextParticipations);
-
-      const activityEntries = await Promise.all(
-        nextParticipations.map(async item => {
-          const response = await fetch(`${BASE_URL}/api/activities/${item.activity_id}`);
-          const activity = await response.json();
-          return [item.activity_id, getActivityTitle(activity, item.activity_id)] as const;
-        })
-      );
-      setActivityTitles(Object.fromEntries(activityEntries));
-
-      const ids = Array.from(
-        new Set(
-          nextParticipations.flatMap(item =>
-            parseParticipantIds(item.participated_with).filter(id => Number(id) !== Number(userId))
-          )
-        )
-      );
-
-      if (ids.length > 0) {
-        const usersResponse = await fetch(`${BASE_URL}/api/users/batch`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_ids: ids }),
-        });
-        const usersData = await usersResponse.json();
-
-        if (usersResponse.ok && usersData.success) {
-          const nextUsers = (usersData.users || []).reduce((acc: Record<number, UserInfo>, item: UserInfo) => {
-            acc[Number(item.id || item.user_id)] = item;
-            return acc;
-          }, {});
-          setUsersById(nextUsers);
-        }
-      } else {
-        setUsersById({});
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '매칭 정보를 불러오지 못했습니다.');
-    } finally {
-      setLoading(false);
+      const [rRes, aRes] = await Promise.all([
+        axios.get(`${BASE_URL}/api/team-recruitments`),          // 또는 with-count
+        axios.get(`${BASE_URL}/api/applications`),
+      ]);
+      setRecruitments(rRes.data || []);
+      setApplications(aRes.data || []);
+    } catch (e) {
+      console.error('매칭 데이터 불러오기 오류:', e);
     }
-  }, [userId]);
+  };
 
+  // 최초 1회
   useEffect(() => {
-    fetchMatchingData();
-  }, [fetchMatchingData]);
+    fetchAll();
+  }, []);
 
+  // 화면에 다시 포커스될 때마다 새로고침
   useFocusEffect(
     useCallback(() => {
-      fetchMatchingData();
-    }, [fetchMatchingData])
+      fetchAll();
+    }, [])
   );
+  // ---- 데이터 불러오기 ----
+  useEffect(() => {
+    const fetchAll = async () => {
+      try {
+        const [rRes, aRes] = await Promise.all([
+          axios.get(`${BASE_URL}/api/team-recruitments`),
+          axios.get(`${BASE_URL}/api/applications`),
+        ]);
+        setRecruitments(rRes.data || []);
+        setApplications(aRes.data || []);
+      } catch (e) {
+        console.error('매칭 데이터 불러오기 오류:', e);
+      }
+    };
+    fetchAll();
+  }, []);
 
-  const goEvaluation = (member: UserInfo, activityId: number) => {
-    navigation.navigate('MyPage3', {
-      user,
-      selectedMember: {
-        id: member.id || member.user_id,
-        name: member.name,
-        department: member.department || '',
-        activity_id: activityId,
-        activity_title: activityTitles[activityId] || `활동 ${activityId}`,
-      },
-    });
+  // ---- 현재 인원 집계 (status가 cancel/rejected가 아닌 것만 카운트) ----
+  const headcountsByRecruitment = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const app of applications) {
+      const s = (app.status || '').toLowerCase();
+      if (s === 'rejected' || s === 'canceled' || s === 'cancelled') continue;
+      map.set(app.recruitment_id, (map.get(app.recruitment_id) || 0) + 1);
+    }
+    return map;
+  }, [applications]);
+
+  // ---- 필터 적용 ----
+  const filtered = useMemo(() => {
+    let list = [...recruitments];
+
+    if (selectedCategories.length > 0) {
+      list = list.filter((r) => selectedCategories.includes(r.activity_type));
+    }
+
+    if (searchText.trim()) {
+      const q = searchText.toLowerCase();
+      list = list.filter(
+        (r) =>
+          r.post_name?.toLowerCase().includes(q) ||
+          r.memo?.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [recruitments, searchText, selectedCategories]);
+
+  const toggleCategory = (cat: string) => {
+    setSelectedCategories((prev) =>
+      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
+    );
   };
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* 상단 로고 + 알림 */}
       <View style={styles.header}>
         <Text style={styles.logo}>끼리끼리</Text>
-        <Text style={styles.title}>팀원 매칭</Text>
-        <Text style={styles.subtitle}>함께 참여한 팀원을 확인하고 평가할 수 있습니다.</Text>
+        <Icon
+          name="notifications-outline"
+          size={24}
+          color="#101828"
+          onPress={() => navigation.navigate('Notifications')}
+        />
       </View>
 
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color="#7A5AF8" />
-          <Text style={styles.centerText}>매칭 정보를 불러오는 중...</Text>
+      {/* 검색창 */}
+      <View style={styles.searchContainer}>
+        <Icon name="search-outline" size={20} color="#667085" style={{ marginRight: 8 }} />
+        <TextInput
+          placeholder="검색어를 입력하세요"
+          value={searchText}
+          onChangeText={setSearchText}
+          placeholderTextColor="#667085"
+          style={styles.searchInput}
+        />
+      </View>
+
+      {/* 카테고리 체크박스 (시안처럼 보라배경 박스) */}
+      <View style={styles.filterBox}>
+        <View style={styles.checkboxGrid}>
+          {categories.map((cat) => {
+            const selected = selectedCategories.includes(cat);
+            return (
+              <TouchableOpacity
+                key={cat}
+                style={styles.checkboxItem}
+                onPress={() => toggleCategory(cat)}
+                activeOpacity={0.7}
+              >
+                <View
+                  style={[
+                    styles.checkboxSquare,
+                    selected && styles.checkboxSquareSelected,
+                  ]}
+                />
+                <Text style={styles.checkboxLabel}>{cat}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
-      ) : error ? (
-        <View style={styles.center}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={fetchMatchingData}>
-            <Text style={styles.retryText}>다시 불러오기</Text>
+      </View>
+
+      {/* 리스트 */}
+      <ScrollView>
+        {filtered.map((r) => {
+          const current = headcountsByRecruitment.get(r.recruitment_id) || 0;
+          return (
+            <TouchableOpacity
+              key={r.recruitment_id}
+              style={styles.item}
+              // 상세 페이지가 있다면 아래 라우트 이름만 바꿔서 사용하세요.
+              onPress={() => navigation.navigate('MatchingDetail', { id: r.recruitment_id })}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.itemTitle} numberOfLines={1}>
+                {r.post_name}
+              </Text>
+
+              <Text style={styles.itemSub} numberOfLines={1}>
+                {r.activity_type || '-'} | {r.meeting_type || '-'} | {r.activity_period || '-'}
+              </Text>
+
+              <Text style={styles.itemMeta}>
+                인원 : [{current}/{r.required_members ?? 0}]
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+
+        {/* 하단 “팀 만들기” 버튼 */}
+        <View style={{ alignItems: 'center', marginTop: 16, marginBottom: 24 }}>
+          <TouchableOpacity
+            style={styles.createBtn}
+            onPress={() => navigation.navigate('TeamMake', { user })}  // ← user.id 포함
+            activeOpacity={0.85}
+          >
+            <Text style={styles.createBtnText}>팀 만들기</Text>
           </TouchableOpacity>
         </View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.listContent}>
-          {teammateIds.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>매칭된 팀원이 없습니다.</Text>
-              <Text style={styles.emptyText}>참여 활동이 생기면 팀원이 표시됩니다.</Text>
-            </View>
-          ) : (
-            participations.map(participation => {
-              const members = parseParticipantIds(participation.participated_with)
-                .filter(id => Number(id) !== Number(userId))
-                .map(id => usersById[Number(id)])
-                .filter(Boolean);
-
-              if (members.length === 0) return null;
-
-              return (
-                <View key={participation.participation_id} style={styles.card}>
-                  <Text style={styles.cardTitle}>
-                    {activityTitles[participation.activity_id] || `활동 ${participation.activity_id}`}
-                  </Text>
-                  {!!participation.participated_at && (
-                    <Text style={styles.period}>{participation.participated_at}</Text>
-                  )}
-                  {members.map(member => (
-                    <TouchableOpacity
-                      key={`${participation.participation_id}-${member.id || member.user_id}`}
-                      style={styles.memberRow}
-                      onPress={() => goEvaluation(member, participation.activity_id)}
-                    >
-                      <View style={styles.avatar}>
-                        <Text style={styles.avatarText}>{member.name?.slice(0, 1) || '?'}</Text>
-                      </View>
-                      <View style={styles.memberInfo}>
-                        <Text style={styles.memberName}>{member.name}</Text>
-                        <Text style={styles.memberDept}>{member.department || '학과 정보 없음'}</Text>
-                      </View>
-                      <Text style={styles.evaluateText}>평가</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              );
-            })
-          )}
-        </ScrollView>
-      )}
+      </ScrollView>
     </SafeAreaView>
   );
-}
+};
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
-  header: { paddingHorizontal: 24, paddingTop: 48, paddingBottom: 16 },
-  logo: { fontSize: 20, fontWeight: '700', color: '#7A5AF8', marginBottom: 20 },
-  title: { fontSize: 28, fontWeight: '800', color: '#101828' },
-  subtitle: { marginTop: 8, fontSize: 14, color: '#667085' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
-  centerText: { marginTop: 12, color: '#667085' },
-  errorText: { color: '#EF4444', marginBottom: 16, textAlign: 'center' },
-  retryButton: { backgroundColor: '#7A5AF8', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 10 },
-  retryText: { color: '#FFFFFF', fontWeight: '700' },
-  listContent: { paddingHorizontal: 20, paddingBottom: 120 },
-  card: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    padding: 18,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#EAECF0',
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
+    paddingTop: 20,
   },
-  cardTitle: { fontSize: 17, fontWeight: '700', color: '#101828' },
-  period: { marginTop: 4, marginBottom: 10, fontSize: 13, color: '#667085' },
-  memberRow: {
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 16,
+  },
+  logo: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#7A5AF8',
+  },
+  searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#EAECF0',
+    backgroundColor: '#F2F4F7',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 16,
+    marginHorizontal: 16,
   },
-  avatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#EDE9FE',
+  searchInput: {
+    fontSize: 16,
+    color: '#101828',
+    flex: 1,
+  },
+  filterBox: {
+    backgroundColor: '#F9F5FF',
+    borderRadius: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+    marginHorizontal: 20,
+  },
+  checkboxGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  checkboxItem: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
+    width: '30%',
+    marginVertical: 18,
+    paddingHorizontal: 4,
   },
-  avatarText: { color: '#7A5AF8', fontWeight: '800', fontSize: 16 },
-  memberInfo: { flex: 1 },
-  memberName: { fontSize: 16, fontWeight: '700', color: '#101828' },
-  memberDept: { marginTop: 2, fontSize: 13, color: '#667085' },
-  evaluateText: { color: '#7A5AF8', fontWeight: '700' },
-  emptyCard: { padding: 24, borderRadius: 16, backgroundColor: '#F9FAFB', alignItems: 'center' },
-  emptyTitle: { fontSize: 17, fontWeight: '700', color: '#101828', marginBottom: 8 },
-  emptyText: { fontSize: 14, color: '#667085' },
+  checkboxSquare: {
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: '#344054',
+    marginRight: 8,
+    backgroundColor: '#fff',
+  },
+  checkboxSquareSelected: {
+    backgroundColor: '#344054',
+    borderColor: '#344054',
+  },
+  checkboxLabel: {
+    fontSize: 14,
+    color: '#101828',
+    fontWeight: '600',
+  },
+  item: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEE',
+  },
+  itemTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 10,
+    color: '#101828',
+  },
+  itemSub: {
+    fontSize: 14,
+    color: '#475467',
+    marginBottom: 4,
+  },
+  itemMeta: {
+    fontSize: 14,
+    color: '#475467',
+  },
+  createBtn: {
+    minWidth: 140,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 20,
+    backgroundColor: '#7A5AF8',
+  },
+  createBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
 });
+
+export default MatchingScreen;

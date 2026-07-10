@@ -1,4 +1,4 @@
-// src/TodoScreen.tsx
+// src/screens/TodoScreen.tsx
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,7 +16,7 @@ import {
   ToastAndroid
 } from 'react-native';
 import axios from 'axios';
-import { useAuth } from './context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
 
 const API_BASE_URL =
@@ -118,8 +118,7 @@ const periodOf = (scope: Scope, anchor: Date): Period => {
 export default function TodoScreen() {
   const navigation = useNavigation<any>();
   const { user } = useAuth();
-  const userId = user?.user_id || user?.id;
-  const authHeader = userId ? { 'x-user-id': String(userId) } : undefined;
+  const authHeader = user ? { 'x-user-id': String(user.id) } : undefined;
 
   // 팀 선택
   const [teams, setTeams] = useState<Team[]>([]);
@@ -483,7 +482,9 @@ export default function TodoScreen() {
           {scope === '월간' && (
             <TouchableOpacity
               style={styles.teamBtn}
-              onPress={() => Alert.alert('팀원 목표', '팀원 목표 화면은 아직 연결되지 않았습니다.')}
+              onPress={() =>
+                selected && navigation.navigate('TodoTeamScreen', { teamId: selected.team_id })
+              }
             >
               <Text style={styles.teamBtnText}>팀원 목표</Text>
             </TouchableOpacity>
@@ -504,7 +505,7 @@ export default function TodoScreen() {
 
         <Pressable style={styles.addButton} onPress={() => onPressAdd(scope)}>
           <Image
-            source={require('./assets/plus-circle.png')}
+            source={require('../assets/plus-circle.png')}
             style={{ width: 28, height: 28 }}
             resizeMode="contain"
           />
@@ -550,7 +551,7 @@ export default function TodoScreen() {
           <Text style={styles.partText}>{selected?.part ?? '미정'}</Text>
           <Pressable onPress={openPartModal} hitSlop={8}>
             <Image
-              source={require('./assets/pencil-01.png')}
+              source={require('../assets/pencil-01.png')}
               style={{ width: 18, height: 18, marginLeft: 6 }}
               resizeMode="contain"
             />

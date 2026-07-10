@@ -1,8 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Alert, TextInput, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Alert, TextInput, ScrollView, Image } from 'react-native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { Platform } from 'react-native';
+
+const API_BASE_URL =
+  Platform.OS === 'android'
+    ? 'http://10.0.2.2:3000'     // Android 에뮬레이터
+    : 'http://localhost:3000';   // iOS 시뮬레이터 (실기기: http://<맥IP>:3000)
 
 interface User {
-  user_id: number;
+  id: number;
   email: string;
   name: string;
   department?: string;
@@ -19,12 +27,17 @@ interface SelectedMember {
   activity_title: string;
 }
 
-interface MyPage3Props {
-  user: User; // 현재 로그인한 사용자 (평가자)
-  selectedMember: SelectedMember; // MyPage2에서 선택한 팀원
-  onBack: () => void;
-  onEvaluationComplete: () => void; // 평가 완료 후 콜백
-}
+// 네비게이션 타입 정의
+type RootStackParamList = {
+  MyPage3: { 
+    user: User;
+    selectedMember: SelectedMember;
+  };
+  MainTabs: { screen?: string };
+};
+
+type MyPage3NavigationProp = StackNavigationProp<RootStackParamList, 'MyPage3'>;
+type MyPage3RouteProp = RouteProp<RootStackParamList, 'MyPage3'>;
 
 type EvaluationType = 'low' | 'medium' | 'high' | null;
 
@@ -99,7 +112,8 @@ const styles = StyleSheet.create({
     borderColor: '#7c4dff',
   },
   evaluationIcon: {
-    fontSize: 40,
+    width: 40,
+    height: 40,
     marginBottom: 8,
   },
   evaluationText: {
@@ -111,13 +125,13 @@ const styles = StyleSheet.create({
     color: '#7c4dff',
   },
   commentSection: {
-    marginBottom: 120,
+    marginBottom: 32,
   },
   commentInput: {
     backgroundColor: '#f5f5f5',
     borderRadius: 12,
     padding: 16,
-    minHeight: 120,
+    minHeight: 188,
     textAlignVertical: 'top',
     fontSize: 16,
     color: '#333',
@@ -131,12 +145,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#7c4dff',
     borderRadius: 12,
     paddingVertical: 16,
-    marginHorizontal: 20,
-    alignItems: 'center',
-    position: 'absolute',
-    bottom: 40,
-    left: 0,
-    right: 0,
+    marginTop:0,
+    marginHorizontal: 16,
+    alignItems:'center',
   },
   confirmButtonDisabled: {
     backgroundColor: '#ccc',
@@ -172,7 +183,11 @@ const styles = StyleSheet.create({
   },
 });
 
-const MyPage3: React.FC<MyPage3Props> = ({ user, selectedMember, onBack, onEvaluationComplete }) => {
+const MyPage3: React.FC = () => {
+  const navigation = useNavigation<MyPage3NavigationProp>();
+  const route = useRoute<MyPage3RouteProp>();
+  const { user, selectedMember } = route.params;
+
   const [selectedEvaluation, setSelectedEvaluation] = useState<EvaluationType>(null);
   const [comment, setComment] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -180,20 +195,21 @@ const MyPage3: React.FC<MyPage3Props> = ({ user, selectedMember, onBack, onEvalu
   const [isExistingReview, setIsExistingReview] = useState<boolean>(false);
   const [existingReviewId, setExistingReviewId] = useState<number | null>(null);
 
+  // ✅ 수정된 부분: icon 속성으로 통일하고 이미지 소스만 저장
   const evaluationOptions = [
-    { type: 'low' as EvaluationType, icon: '😞', text: '별로에요' },
-    { type: 'medium' as EvaluationType, icon: '😊', text: '좋아요' },
-    { type: 'high' as EvaluationType, icon: '😄', text: '최고에요' },
+    { type: 'low' as EvaluationType, icon: require('../assets/face-frown.png'), text: '별로예요' },
+    { type: 'medium' as EvaluationType, icon: require('../assets/face-smile.png'), text: '좋아요' },
+    { type: 'high' as EvaluationType, icon: require('../assets/face-happy.png'), text: '최고예요' },
   ];
 
   // 기존 평가 조회
   const fetchExistingReview = async () => {
     try {
       console.log(`=== 기존 평가 조회 시작 ===`);
-      console.log(`평가자 ID: ${user.user_id}, 피평가자 ID: ${selectedMember.id}, 활동 ID: ${selectedMember.activity_id}`);
+      console.log(`평가자 ID: ${user.id}, 피평가자 ID: ${selectedMember.id}, 활동 ID: ${selectedMember.activity_id}`);
       
       const response = await fetch(
-        `http://10.0.2.2:3000/api/reviews/existing/${user.user_id}/${selectedMember.id}/${selectedMember.activity_id}`
+        `${API_BASE_URL}/api/reviews/existing/${user.id}/${selectedMember.id}/${selectedMember.activity_id}`
       );
       
       if (!response.ok) {
@@ -205,7 +221,12 @@ const MyPage3: React.FC<MyPage3Props> = ({ user, selectedMember, onBack, onEvalu
       
       if (data.success && data.existingReview) {
         console.log('✅ 기존 평가 발견:', data.existingReview);
-        setSelectedEvaluation(data.existingReview.evaluation_type);
+        const nextEvaluation =
+          data.existingReview.review_high === 1 ? 'high' :
+          data.existingReview.review_medium === 1 ? 'medium' :
+          data.existingReview.review_low === 1 ? 'low' :
+          null;
+        setSelectedEvaluation(nextEvaluation);
         setComment(data.existingReview.comment || '');
         setIsExistingReview(true);
         setExistingReviewId(data.existingReview.review_id);
@@ -223,7 +244,7 @@ const MyPage3: React.FC<MyPage3Props> = ({ user, selectedMember, onBack, onEvalu
 
   useEffect(() => {
     fetchExistingReview();
-  }, [user.user_id, selectedMember.id, selectedMember.activity_id]);
+  }, [user.id, selectedMember.id, selectedMember.activity_id]);
 
   const handleEvaluationSelect = (type: EvaluationType) => {
     setSelectedEvaluation(type);
@@ -245,7 +266,7 @@ const MyPage3: React.FC<MyPage3Props> = ({ user, selectedMember, onBack, onEvalu
     try {
       // 평가 데이터 준비 - 선택된 평가 타입에 따라 값 설정
       const evaluationData = {
-        reviewer_id: user.user_id,
+        reviewer_id: user.id,
         reviewee_id: selectedMember.id,
         related_team_id: selectedMember.activity_id,
         review_high: selectedEvaluation === 'high' ? 1 : 0,
@@ -261,11 +282,9 @@ const MyPage3: React.FC<MyPage3Props> = ({ user, selectedMember, onBack, onEvalu
       console.log('전송할 데이터:', evaluationData);
 
       // 서버에 평가 데이터 전송
-      const response = await fetch('http://10.0.2.2:3000/api/reviews', {
+      const response = await fetch(`${API_BASE_URL}/api/reviews`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(evaluationData),
       });
 
@@ -298,7 +317,8 @@ const MyPage3: React.FC<MyPage3Props> = ({ user, selectedMember, onBack, onEvalu
             {
               text: '확인',
               onPress: () => {
-                onEvaluationComplete(); // 평가 완료 콜백 호출
+                // 평가 완료 후 마이페이지 탭으로 돌아가기
+                navigation.navigate('MainTabs', { screen: '마이페이지' });
               },
             },
           ]
@@ -323,7 +343,7 @@ const MyPage3: React.FC<MyPage3Props> = ({ user, selectedMember, onBack, onEvalu
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={onBack}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
             <Text style={styles.backIcon}>←</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>팀원평가</Text>
@@ -340,7 +360,7 @@ const MyPage3: React.FC<MyPage3Props> = ({ user, selectedMember, onBack, onEvalu
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={onBack}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
             <Text style={styles.backIcon}>←</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>팀원평가</Text>
@@ -358,7 +378,7 @@ const MyPage3: React.FC<MyPage3Props> = ({ user, selectedMember, onBack, onEvalu
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={onBack}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>팀원평가</Text>
@@ -379,7 +399,7 @@ const MyPage3: React.FC<MyPage3Props> = ({ user, selectedMember, onBack, onEvalu
         {/* 기존 평가 수정 안내 */}
         {isExistingReview && (
           <View style={styles.editNotice}>
-            <Text style={styles.editNoticeText}>📝 이전에 작성한 평가를 수정하고 있습니다</Text>
+            <Text style={styles.editNoticeText}>이전에 작성한 평가를 수정하고 있습니다</Text>
           </View>
         )}
 
@@ -394,7 +414,8 @@ const MyPage3: React.FC<MyPage3Props> = ({ user, selectedMember, onBack, onEvalu
               ]}
               onPress={() => handleEvaluationSelect(option.type)}
             >
-              <Text style={styles.evaluationIcon}>{option.icon}</Text>
+              {/* ✅ 수정된 부분: Image 컴포넌트로 아이콘 렌더링 */}
+              <Image source={option.icon} style={styles.evaluationIcon} />
               <Text
                 style={[
                   styles.evaluationText,
@@ -419,7 +440,7 @@ const MyPage3: React.FC<MyPage3Props> = ({ user, selectedMember, onBack, onEvalu
             maxLength={500}
           />
         </View>
-      </ScrollView>
+      
 
       {/* 확인 버튼 */}
       <TouchableOpacity
@@ -434,6 +455,7 @@ const MyPage3: React.FC<MyPage3Props> = ({ user, selectedMember, onBack, onEvalu
           {isExistingReview ? '수정하기' : '확인'}
         </Text>
       </TouchableOpacity>
+      </ScrollView>
     </SafeAreaView>
   );
 };

@@ -1,21 +1,58 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Alert, ScrollView } from 'react-native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { Platform } from 'react-native';
 
+const API_BASE_URL =
+  Platform.OS === 'android'
+    ? 'http://10.0.2.2:3000'     // Android 에뮬레이터
+    : 'http://localhost:3000';   // iOS 시뮬레이터 (실기기: http://192.168.x.x:3000)
 interface User {
-  user_id: number;
+  id: number;
   email: string;
   name: string;
   department?: string;
   student_number?: string;
-  birth_date?: string;
+  birth?: string;
   profile_picture?: string;
 }
 
-interface MyPage2Props {
-  user: User;
-  onBack: () => void;
-  onNavigateToEvaluation?: (selectedMember: any) => void; // 평가 페이지로 이동하는 함수
-}
+// 네비게이션 타입 정의
+type RootStackParamList = {
+  MyPage2: { 
+    user: {
+      id: number;
+      email: string;
+      name: string;
+      department?: string;
+      student_number?: string;
+      birth?: string;
+      profile_picture?: string;
+    };
+  };
+  MyPage3: { 
+    user: {
+      id: number;
+      email: string;
+      name: string;
+      department?: string;
+      student_number?: string;
+      birth?: string;
+      profile_picture?: string;
+    };
+    selectedMember: {
+      id: number;
+      name: string;
+      department: string;
+      activity_id: number;
+      activity_title: string;
+    };
+  };
+};
+
+type MyPage2NavigationProp = StackNavigationProp<RootStackParamList, 'MyPage2'>;
+type MyPage2RouteProp = RouteProp<RootStackParamList, 'MyPage2'>;
 
 interface TeamMember {
   id: number;
@@ -119,28 +156,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 16,
     alignItems: 'center',
-    position: 'absolute',
-    bottom: 80, // 하단 네비게이션 위에 고정
-    left: 0,
-    right: 0,
   },
   confirmButtonText: {
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
   },
-  bottomNav: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    backgroundColor: '#fff',
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-  },
+  
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -160,22 +182,6 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 16,
     color: '#666',
-  },
-  navItem: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  navIcon: {
-    fontSize: 20,
-    color: '#666',
-    marginBottom: 2,
-  },
-  navText: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 4,
-    fontWeight: '500',
   },
   debugContainer: {
     backgroundColor: '#f0f0f0',
@@ -204,7 +210,11 @@ const styles = StyleSheet.create({
   },
 });
 
-const MyPage2: React.FC<MyPage2Props> = ({ user, onBack, onNavigateToEvaluation }) => {
+const MyPage2: React.FC = () => {
+  const navigation = useNavigation<MyPage2NavigationProp>();
+  const route = useRoute<MyPage2RouteProp>();
+  const { user } = route.params;
+
   const [teamGroups, setTeamGroups] = useState<TeamGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [debugInfo, setDebugInfo] = useState<string>('');
@@ -215,10 +225,12 @@ const MyPage2: React.FC<MyPage2Props> = ({ user, onBack, onNavigateToEvaluation 
     try {
       setIsLoading(true);
       setError('');
-      setDebugInfo(`사용자 ID: ${user.user_id}로 활동 정보 조회 시작`);
+      setDebugInfo(`사용자 ID: ${user.id}로 활동 정보 조회 시작`);
       
       // 1. 사용자의 참여 정보 가져오기
-      const participationResponse = await fetch(`http://10.0.2.2:3000/api/participations/user/${user.user_id}`);
+      const participationResponse = await fetch(
+        `${API_BASE_URL}/api/participations/user/${user.id}`
+      );
       
       if (!participationResponse.ok) {
         throw new Error(`참여 정보 조회 실패: ${participationResponse.status}`);
@@ -249,7 +261,9 @@ const MyPage2: React.FC<MyPage2Props> = ({ user, onBack, onNavigateToEvaluation 
           setDebugInfo(prev => prev + `\n활동 ${participation.activity_id} 처리 중...`);
           
           // 활동 정보 가져오기
-          const activityResponse = await fetch(`http://10.0.2.2:3000/api/activities/${participation.activity_id}`);
+          const activityResponse = await fetch(
+            `${API_BASE_URL}/api/activities/${participation.activity_id}`
+          );
           
           if (!activityResponse.ok) {
             setDebugInfo(prev => prev + `\n활동 ${participation.activity_id} 정보 조회 실패`);
@@ -278,13 +292,13 @@ const MyPage2: React.FC<MyPage2Props> = ({ user, onBack, onNavigateToEvaluation 
           }
           
           // 본인 ID를 숫자로 변환하여 제외
-          const memberIds = participatedWith.filter(id => Number(id) !== Number(user.user_id));
+          const memberIds = participatedWith.filter(id => Number(id) !== Number(user.id));
           
           setDebugInfo(prev => prev + `\n활동 ${participation.activity_id}: 팀원 ${memberIds.length}명 발견`);
           
           if (memberIds.length > 0) {
             // 멤버 정보 가져오기
-            const membersResponse = await fetch(`http://10.0.2.2:3000/api/users/batch`, {
+            const membersResponse = await fetch(`${API_BASE_URL}/api/users/batch`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -299,14 +313,25 @@ const MyPage2: React.FC<MyPage2Props> = ({ user, onBack, onNavigateToEvaluation 
             
             const membersData = await membersResponse.json();
             
-            if (membersData.success && membersData.users && Array.isArray(membersData.users)) {
-              const members = membersData.users.map((member: User) => ({
-                id: member.user_id,
-                name: member.name || '이름 없음',
-                department: member.department || '소속 미정',
-                selected: false
-              }));
-              
+             if (membersData.success && membersData.users && Array.isArray(membersData.users)) {
+              // ✅ 수정: 서버에서 이제 id 필드로 직접 반환하므로 member.id 사용
+              const members = (membersData.users || [])
+                .filter((member: any) => Number(member.id ?? member.user_id) !== Number(user.id))
+                .reduce((acc: TeamMember[], member: any) => {
+                  const nextId = Number(member.id ?? member.user_id);
+                  if (!nextId || acc.some((item) => item.id === nextId)) {
+                    return acc;
+                  }
+                  acc.push({
+                    id: nextId,
+                    name: member.name || '이름 없음',
+                    department: member.department || '소속 미정',
+                    selected: false,
+                  });
+                  return acc;
+                }, []);
+              console.log('변환된 멤버 데이터:', members);
+
               if (members.length > 0) {
                 groups.push({
                   id: participation.activity_id,
@@ -341,37 +366,32 @@ const MyPage2: React.FC<MyPage2Props> = ({ user, onBack, onNavigateToEvaluation 
   };
 
   useEffect(() => {
-    if (user && user.user_id) {
+    if (user && user.id) {
       fetchUserActivities();
     } else {
       setError('사용자 정보가 올바르지 않습니다');
       setIsLoading(false);
     }
-  }, [user.user_id]);
+  }, [user.id]);
 
-  const handleMemberSelect = (groupId: number, memberId: number) => {
-    setTeamGroups(prevGroups => 
-      prevGroups.map(group => 
-        group.id === groupId 
-          ? {
-              ...group,
-              members: group.members.map(member => 
-                member.id === memberId 
-                  ? { ...member, selected: !member.selected }
-                  : { ...member, selected: false } // 같은 그룹 내에서는 하나만 선택
-              )
-            }
-          : {
-              ...group,
-              members: group.members.map(member => ({ ...member, selected: false })) // 다른 그룹은 모두 해제
-            }
-      )
-    );
-  };
+const handleMemberSelect = (groupId: number, memberId: number) => {
+  setTeamGroups(prevGroups => {
+    return prevGroups.map(group => (
+      group.id === groupId
+        ? {
+            ...group,
+            members: group.members.map(member => ({
+              ...member,
+              selected: member.id === memberId,
+            })),
+          }
+        : group
+    ));
+  });
+};
 
   const handleConfirm = () => {
     console.log('handleConfirm 함수 호출됨');
-    console.log('onNavigateToEvaluation 함수 존재 여부:', !!onNavigateToEvaluation);
     
     const selectedMembers = teamGroups.flatMap(group => 
       group.members.filter(member => member.selected).map(member => ({
@@ -387,24 +407,11 @@ const MyPage2: React.FC<MyPage2Props> = ({ user, onBack, onNavigateToEvaluation 
       const selectedMember = selectedMembers[0];
       console.log('최종 선택된 멤버:', selectedMember);
       
-      if (onNavigateToEvaluation) {
-        console.log('MyPage3로 이동 시도 중...');
-        // ✅ 이 부분이 MyPage3로 이동하는 핵심 코드
-        onNavigateToEvaluation(selectedMember);
-      } else {
-        console.log('onNavigateToEvaluation 함수가 없음 - 기본 알림 표시');
-        // ❌ 이 부분은 함수가 전달되지 않았을 때만 실행됨
-        Alert.alert(
-          '평가 확인', 
-          `${selectedMember.name}님 (${selectedMember.department})을 평가하시겠습니까?`,
-          [
-            { text: '취소', style: 'cancel' },
-            { text: '확인', onPress: () => {
-              console.log('평가 페이지로 이동:', selectedMember);
-            }}
-          ]
-        );
-      }
+      // MyPage3으로 이동
+      navigation.navigate('MyPage3', {
+        user,
+        selectedMember
+      });
     } else {
       console.log('선택된 멤버가 없음');
       Alert.alert('알림', '평가할 팀원을 선택해주세요.');
@@ -421,7 +428,7 @@ const MyPage2: React.FC<MyPage2Props> = ({ user, onBack, onNavigateToEvaluation 
       
       {group.members.map((member) => (
         <TouchableOpacity
-          key={member.id}
+          key={`${group.id}-${member.id}`}
           style={[
             styles.memberButton,
             member.selected && styles.selectedMemberButton
@@ -443,7 +450,7 @@ const MyPage2: React.FC<MyPage2Props> = ({ user, onBack, onNavigateToEvaluation 
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={onBack}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
             <Text style={styles.backIcon}>←</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>팀원평가</Text>
@@ -464,7 +471,7 @@ const MyPage2: React.FC<MyPage2Props> = ({ user, onBack, onNavigateToEvaluation 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={onBack}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>팀원평가</Text>
@@ -510,29 +517,7 @@ const MyPage2: React.FC<MyPage2Props> = ({ user, onBack, onNavigateToEvaluation 
         </TouchableOpacity>
       )}
 
-      {/* Bottom Navigation - 고정 위치 */}
-      <View style={styles.bottomNav}>
-        <TouchableOpacity style={styles.navItem}>
-          <Text style={styles.navIcon}>🏠</Text>
-          <Text style={styles.navText}>홈</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Text style={styles.navIcon}>📄</Text>
-          <Text style={styles.navText}>정보</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Text style={styles.navIcon}>✏️</Text>
-          <Text style={styles.navText}>활동</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Text style={styles.navIcon}>📦</Text>
-          <Text style={styles.navText}>매칭</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Text style={[styles.navIcon, { color: '#7c4dff' }]}>👤</Text>
-          <Text style={[styles.navText, { color: '#7c4dff' }]}>마이페이지</Text>
-        </TouchableOpacity>
-      </View>
+      
     </SafeAreaView>
   );
 };

@@ -13,6 +13,12 @@ import {
   Keyboard,
   ScrollView,
 } from 'react-native';
+import { Platform } from 'react-native';
+
+const API_BASE_URL =
+  Platform.OS === 'android'
+    ? 'http://10.0.2.2:3000'     // Android 에뮬레이터
+    : 'http://localhost:3000';   // iOS 시뮬레이터 (실기기는 http://<맥IP>:3000)
 
 interface User {
   user_id: number;
@@ -33,7 +39,7 @@ interface MyPageProps {
   onNavigateToTeamEvaluation?: () => void; // 팀원평가 페이지로 이동하는 함수 추가
 }
 
-const MyPage1 = ({ user, onLogout, onUpdateUser, onNavigateToSetting, onNavigateToEvaluation, onNavigateToTeamEvaluation }: MyPageProps) => {
+const MyPage = ({ user, onLogout, onUpdateUser, onNavigateToSetting, onNavigateToEvaluation, onNavigateToTeamEvaluation }: MyPageProps) => {
   const [currentUser, setCurrentUser] = useState<User>(user);
   const [profileImage, setProfileImage] = useState<string | null>(user.profile_picture || null);
   const [editingField, setEditingField] = useState<string | null>(null);
@@ -45,7 +51,7 @@ const MyPage1 = ({ user, onLogout, onUpdateUser, onNavigateToSetting, onNavigate
   const fetchUserData = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch(`http://10.0.2.2:3000/api/user/${user.user_id}`);
+      const response = await fetch(`${API_BASE_URL}/api/user/${user.user_id}`);
       const data = await response.json();
       
       if (data.success && data.user) {
@@ -141,7 +147,7 @@ const MyPage1 = ({ user, onLogout, onUpdateUser, onNavigateToSetting, onNavigate
   // 사용자 정보 업데이트 API
   const updateUserInfo = async (field: string, value: string) => {
     try {
-      const url = `http://10.0.2.2:3000/api/user/${currentUser.user_id}`;
+      const url = `${API_BASE_URL}/api/user/${currentUser.user_id}`;
       const body = { [field]: value };
       
       const response = await fetch(url, {
@@ -592,32 +598,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
   },
-  bottomNavigation: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
-  },
-  navItem: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  activeNavItem: {},
-  navIcon: {
-    fontSize: 20,
-    marginBottom: 2,
-  },
-  navText: {
-    fontSize: 12,
-    color: '#6B7280',
-  },
-  activeNavText: {
-    color: '#8B5CF6',
-    fontWeight: 'bold',
-  },
 });
 
-export default MyPage1;
+export default MyPage;

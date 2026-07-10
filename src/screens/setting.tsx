@@ -205,29 +205,6 @@ const Setting = ({ user, onLogout, onGoBack }: SettingProps) => {
         </TouchableOpacity>
       </View>
 
-      {/* 하단 네비게이션 */}
-      <View style={styles.bottomNavigation}>
-        <TouchableOpacity style={styles.navItem}>
-          <Text style={styles.navIcon}>🏠</Text>
-          <Text style={styles.navText}>홈</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Text style={styles.navIcon}>📖</Text>
-          <Text style={styles.navText}>정보</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Text style={styles.navIcon}>✏️</Text>
-          <Text style={styles.navText}>활동</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Text style={styles.navIcon}>🎓</Text>
-          <Text style={styles.navText}>혜택</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.navItem, styles.activeNavItem]}>
-          <Text style={styles.navIcon}>👤</Text>
-          <Text style={[styles.navText, styles.activeNavText]}>마이페이지</Text>
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 };
@@ -299,38 +276,6 @@ const styles = StyleSheet.create({
   deleteAccountText: {
     fontSize: 16,
     color: '#EF4444',
-  },
-  bottomNavigation: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-  },
-  navItem: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  activeNavItem: {
-    // 활성 네비게이션 아이템 스타일
-  },
-  navIcon: {
-    fontSize: 20,
-    marginBottom: 2,
-  },
-  navText: {
-    fontSize: 12,
-    color: '#6B7280',
-  },
-  activeNavText: {
-    color: '#8B5CF6',
-    fontWeight: 'bold',
   },
 });
 

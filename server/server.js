@@ -122,7 +122,12 @@ const toClientUser = (user) => ({
   email: user.email,
   name: user.name,
   department: user.department,
-  student_number: user.student_number
+  student_number: user.student_number,
+  studentId: user.student_number,
+  birth: formatDateOnly(user.birth_date || user.birth),
+  birth_date: formatDateOnly(user.birth_date || user.birth),
+  profile_picture: normalizeLocalUrl(user.profile_picture),
+  self_intro: user.self_intro,
 });
 
 // Middleware 설정
@@ -221,13 +226,16 @@ app.post('/api/login', (req, res) => {
     
     // 테스트용 계정
     if (email === 'test@test.com' && password === 'test123') {
-      const dummyUser = {
+      const dummyUser = toClientUser({
         user_id: 1,
         email: 'test@test.com',
         name: '테스트 사용자',
         department: '컴퓨터공학과',
-        student_number: '202012345'
-      };
+        student_number: '202012345',
+        birth: '2000-01-01',
+        profile_picture: null,
+        self_intro: '',
+      });
       
       return res.json({
         success: true,
@@ -243,7 +251,20 @@ app.post('/api/login', (req, res) => {
   }
 
   // 실제 DB 쿼리
-  const query = 'SELECT id AS user_id, email, password, name, department, student_number FROM users WHERE email = ?';
+  const query = `
+    SELECT
+      id AS user_id,
+      email,
+      password,
+      name,
+      department,
+      student_number,
+      birth AS birth_date,
+      profile_picture,
+      self_intro
+    FROM users
+    WHERE email = ?
+  `;
   
   db.query(query, [email], (err, results) => {
     if (err) {
@@ -298,13 +319,16 @@ app.post('/login', (req, res) => {
     
     // 테스트용 계정
     if (email === 'test@test.com' && password === 'test123') {
-      const dummyUser = {
+      const dummyUser = toClientUser({
         user_id: 1,
         email: 'test@test.com',
         name: '테스트 사용자',
         department: '컴퓨터공학과',
-        student_number: '202012345'
-      };
+        student_number: '202012345',
+        birth: '2000-01-01',
+        profile_picture: null,
+        self_intro: '',
+      });
       
       return res.json({
         success: true,
@@ -320,7 +344,20 @@ app.post('/login', (req, res) => {
   }
 
   // 실제 DB 쿼리 (기존 API와 동일)
-  const query = 'SELECT id AS user_id, email, password, name, department, student_number FROM users WHERE email = ?';
+  const query = `
+    SELECT
+      id AS user_id,
+      email,
+      password,
+      name,
+      department,
+      student_number,
+      birth AS birth_date,
+      profile_picture,
+      self_intro
+    FROM users
+    WHERE email = ?
+  `;
   
   db.query(query, [email], (err, results) => {
     if (err) {
@@ -638,6 +675,322 @@ app.get('/my-teams', (req, res) => {
   });
 });
 
+app.get('/users/:userId/teams', (req, res) => {
+  const { userId } = req.params;
+
+  const sql = `
+    SELECT
+      t.team_id AS teamId,
+      t.team_name AS teamName,
+      tm.part
+    FROM team_members tm
+    JOIN teams t ON t.team_id = tm.team_id
+    WHERE tm.user_id = ?
+    ORDER BY t.created_at DESC, t.team_id DESC
+  `;
+
+  db.query(sql, [userId], (err, results) => {
+    if (err) {
+      console.error('활동 탭 팀 조회 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    res.json(results || []);
+  });
+});
+
+app.get('/teams/:teamId/members', (req, res) => {
+  const userId = getRequestUserId(req);
+  const { teamId } = req.params;
+
+  if (!userId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+
+  const sql = `
+    SELECT
+      u.id AS user_id,
+      u.name,
+      tm.part
+    FROM team_members requester
+    JOIN team_members tm ON tm.team_id = requester.team_id
+    JOIN users u ON u.id = tm.user_id
+    WHERE requester.team_id = ?
+      AND requester.user_id = ?
+    ORDER BY tm.user_id ASC
+  `;
+
+  db.query(sql, [teamId, userId], (err, results) => {
+    if (err) {
+      console.error('팀원 목록 조회 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    res.json(results || []);
+  });
+});
+
+app.get('/teams/:teamId/progress', (req, res) => {
+  const { teamId } = req.params;
+  const { scope_type, start, end } = req.query;
+
+  const exactSql = `
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN status = '완료' THEN 1 ELSE 0 END) AS done
+    FROM todos
+    WHERE team_id = ?
+      AND scope_type = ?
+      AND scope_start_date <= ?
+      AND scope_end_date >= ?
+  `;
+
+  db.query(exactSql, [teamId, scope_type, end, start], (err, rows) => {
+    if (err) {
+      console.error('진행률 조회 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    const exact = rows?.[0] || { total: 0, done: 0 };
+    if (Number(exact.total) > 0) {
+      const total = Number(exact.total);
+      const done = Number(exact.done || 0);
+      return res.json({ total, done, percent: Math.round((done / total) * 100) });
+    }
+
+    const fallbackSql = `
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN status = '완료' THEN 1 ELSE 0 END) AS done
+      FROM todos
+      WHERE team_id = ?
+        AND scope_type = '전체'
+    `;
+
+    db.query(fallbackSql, [teamId], (fallbackErr, fallbackRows) => {
+      if (fallbackErr) {
+        console.error('진행률 fallback 조회 오류:', fallbackErr);
+        return res.status(500).json({ message: '서버 오류' });
+      }
+
+      const fallback = fallbackRows?.[0] || { total: 0, done: 0 };
+      const total = Number(fallback.total || 0);
+      const done = Number(fallback.done || 0);
+
+      res.json({
+        total,
+        done,
+        percent: total > 0 ? Math.round((done / total) * 100) : 0,
+      });
+    });
+  });
+});
+
+app.get('/teams/:teamId/daily-todos', (req, res) => {
+  const { teamId } = req.params;
+
+  if (!db || db.state === 'disconnected') {
+    return res.json([]);
+  }
+
+  const sql = `
+    SELECT
+      td.todo_id,
+      td.title,
+      td.status,
+      COALESCE(u.name, '이름 없음') AS assigned_user_name
+    FROM todos td
+    LEFT JOIN users u ON u.id = td.assigned_user_id
+    WHERE td.team_id = ?
+      AND (
+        td.scope_type = '일일'
+        OR CURDATE() BETWEEN td.scope_start_date AND td.scope_end_date
+      )
+    ORDER BY td.updated_at DESC, td.todo_id DESC
+    LIMIT 30
+  `;
+
+  db.query(sql, [teamId], (err, results) => {
+    if (err) {
+      console.error('일일 투두 조회 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    res.json(results || []);
+  });
+});
+
+app.get('/teams/:teamId/heatmap', (req, res) => {
+  const { teamId } = req.params;
+
+  const buildMonthHeatmap = (countByDate = new Map()) => {
+    const today = new Date();
+    const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    const payload = [];
+
+    for (let day = 1; day <= end.getDate(); day += 1) {
+      const date = new Date(start.getFullYear(), start.getMonth(), day);
+      const key = formatDateOnly(date);
+      payload.push({
+        date: key,
+        count: countByDate.get(key) || 0,
+      });
+    }
+
+    return payload;
+  };
+
+  if (!db || db.state === 'disconnected') {
+    return res.json(buildMonthHeatmap());
+  }
+
+  const sql = `
+    SELECT
+      DATE(scope_start_date) AS activity_date,
+      COUNT(*) AS count
+    FROM todos
+    WHERE team_id = ?
+      AND scope_start_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+      AND scope_start_date < DATE_ADD(LAST_DAY(CURDATE()), INTERVAL 1 DAY)
+    GROUP BY DATE(scope_start_date)
+    ORDER BY activity_date ASC
+  `;
+
+  db.query(sql, [teamId], (err, results) => {
+    if (err) {
+      console.error('히트맵 조회 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    const countByDate = new Map(
+      (results || []).map((row) => [formatDateOnly(row.activity_date), Number(row.count || 0)])
+    );
+    res.json(buildMonthHeatmap(countByDate));
+  });
+});
+
+app.get('/teams/:teamId/todos', (req, res) => {
+  const userId = getRequestUserId(req);
+  const { teamId } = req.params;
+  const { user_id, scope_type, start, end } = req.query;
+  const assignedUserId = Number(user_id || userId);
+
+  if (!userId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+
+  if (!assignedUserId || !scope_type || !start || !end) {
+    return res.status(400).json({ message: '필수 값이 누락되었습니다' });
+  }
+
+  const exactSql = `
+    SELECT td.todo_id, td.team_id, td.assigned_user_id, td.title, td.status, td.scope_type, td.scope_start_date, td.scope_end_date, td.created_at, td.updated_at
+    FROM todos td
+    JOIN team_members requester ON requester.team_id = td.team_id
+    WHERE td.team_id = ?
+      AND requester.user_id = ?
+      AND td.assigned_user_id = ?
+      AND td.scope_type = ?
+      AND td.scope_start_date <= ?
+      AND td.scope_end_date >= ?
+    ORDER BY td.updated_at DESC, td.todo_id DESC
+  `;
+
+  db.query(exactSql, [teamId, userId, assignedUserId, scope_type, end, start], (err, results) => {
+    if (err) {
+      console.error('팀원 투두 조회 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    if ((results || []).length > 0) {
+      return res.json(results.map(todo => normalizeTodo(todo)));
+    }
+
+    const fallbackSql = `
+      SELECT td.todo_id, td.team_id, td.assigned_user_id, td.title, td.status, td.scope_type, td.scope_start_date, td.scope_end_date, td.created_at, td.updated_at
+      FROM todos td
+      JOIN team_members requester ON requester.team_id = td.team_id
+      WHERE td.team_id = ?
+        AND requester.user_id = ?
+        AND td.assigned_user_id = ?
+        AND td.scope_type = '전체'
+      ORDER BY td.updated_at DESC, td.todo_id DESC
+      LIMIT 30
+    `;
+
+    db.query(fallbackSql, [teamId, userId, assignedUserId], (fallbackErr, fallbackResults) => {
+      if (fallbackErr) {
+        console.error('팀원 투두 fallback 조회 오류:', fallbackErr);
+        return res.status(500).json({ message: '서버 오류' });
+      }
+
+      res.json((fallbackResults || []).map(todo =>
+        normalizeTodo(todo, scope_type, start, end)
+      ));
+    });
+  });
+});
+
+app.post('/teams/:teamId/todos', (req, res) => {
+  const userId = getRequestUserId(req);
+  const { teamId } = req.params;
+  const { assigned_user_id, title, scope_type, scope_start_date, scope_end_date } = req.body;
+
+  if (!userId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+
+  if (!assigned_user_id || !title || !scope_type || !scope_start_date || !scope_end_date) {
+    return res.status(400).json({ message: '필수 값이 누락되었습니다' });
+  }
+
+  const memberSql = `
+    SELECT COUNT(*) AS count
+    FROM team_members
+    WHERE team_id = ?
+      AND user_id IN (?, ?)
+  `;
+
+  db.query(memberSql, [teamId, userId, assigned_user_id], (memberErr, memberRows) => {
+    if (memberErr) {
+      console.error('팀원 투두 생성 권한 확인 오류:', memberErr);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    if (Number(memberRows?.[0]?.count || 0) < 2 && Number(userId) !== Number(assigned_user_id)) {
+      return res.status(403).json({ message: '팀원에게만 할 일을 추가할 수 있습니다' });
+    }
+
+    const insertSql = `
+      INSERT INTO todos (team_id, assigned_user_id, title, status, scope_type, scope_start_date, scope_end_date)
+      VALUES (?, ?, ?, '미진행', ?, ?, ?)
+    `;
+
+    db.query(insertSql, [teamId, assigned_user_id, title, scope_type, scope_start_date, scope_end_date], (err, result) => {
+      if (err) {
+        console.error('팀원 투두 생성 오류:', err);
+        return res.status(500).json({ message: '서버 오류' });
+      }
+
+      const selectSql = `
+        SELECT todo_id, team_id, assigned_user_id, title, status, scope_type, scope_start_date, scope_end_date, created_at, updated_at
+        FROM todos
+        WHERE todo_id = ?
+      `;
+
+      db.query(selectSql, [result.insertId], (selectErr, rows) => {
+        if (selectErr) {
+          console.error('생성 팀원 투두 조회 오류:', selectErr);
+          return res.status(500).json({ message: '서버 오류' });
+        }
+
+        res.status(201).json(normalizeTodo(rows[0]));
+      });
+    });
+  });
+});
+
 app.get('/todos/:teamId', (req, res) => {
   const userId = getRequestUserId(req);
   const { teamId } = req.params;
@@ -748,7 +1101,14 @@ app.put('/todos/:todoId', (req, res) => {
   const setClause = updates.map(field => `${field} = ?`).join(', ');
   const values = updates.map(field => req.body[field]);
 
-  const sql = `UPDATE todos SET ${setClause} WHERE todo_id = ? AND assigned_user_id = ?`;
+  const sql = `
+    UPDATE todos
+    SET ${setClause}
+    WHERE todo_id = ?
+      AND team_id IN (
+        SELECT team_id FROM team_members WHERE user_id = ?
+      )
+  `;
 
   db.query(sql, [...values, todoId, userId], (err, result) => {
     if (err) {
@@ -772,7 +1132,13 @@ app.delete('/todos/:todoId', (req, res) => {
     return res.status(401).json({ message: '로그인이 필요합니다' });
   }
 
-  db.query('DELETE FROM todos WHERE todo_id = ? AND assigned_user_id = ?', [todoId, userId], (err, result) => {
+  db.query(`
+    DELETE FROM todos
+    WHERE todo_id = ?
+      AND team_id IN (
+        SELECT team_id FROM team_members WHERE user_id = ?
+      )
+  `, [todoId, userId], (err, result) => {
     if (err) {
       console.error('투두 삭제 오류:', err);
       return res.status(500).json({ message: '서버 오류' });
@@ -835,16 +1201,16 @@ app.get('/api/user/:id', (req, res) => {
   // 더미 데이터 (DB 연결 전)
   if (!db || db.state === 'disconnected') {
     console.log('더미 사용자 데이터 (MySQL 미연결)');
-    const dummyUser = {
+    const dummyUser = toClientUser({
       user_id: parseInt(userId),
       email: 'test@test.com',
       name: '테스트 사용자',
       department: '컴퓨터공학과',
       student_number: '202012345',
-      birth_date: '2000-01-01',
+      birth: '2000-01-01',
       profile_picture: null,
       self_intro: '안녕하세요!'
-    };
+    });
     
     return res.json({
       success: true,
@@ -871,15 +1237,7 @@ app.get('/api/user/:id', (req, res) => {
       });
     }
     
-    // 날짜 형식 처리
-    const userData = { ...results[0] };
-    userData.id = userData.user_id;
-    
-    if (userData.birth_date) {
-      userData.birth_date = userData.birth_date.toISOString().split('T')[0];
-    }
-    userData.profile_picture = normalizeLocalUrl(userData.profile_picture);
-    
+    const userData = toClientUser(results[0]);
     console.log('조회된 사용자 정보:', userData);
     
     res.json({
@@ -1171,6 +1529,52 @@ app.get('/api/user/:id/evaluations', (req, res) => {
     res.json({
       success: true,
       evaluations: evaluations
+    });
+  });
+});
+
+app.get('/api/user/:id/reviews', (req, res) => {
+  const userId = req.params.id;
+
+  if (!db || db.state === 'disconnected') {
+    return res.json({
+      success: true,
+      reviews: [],
+    });
+  }
+
+  const query = `
+    SELECT
+      r.review_id,
+      r.reviewer_id,
+      r.reviewee_id,
+      r.related_team_id,
+      r.review_high,
+      r.review_medium,
+      r.review_low,
+      r.comment,
+      r.created_at,
+      COALESCE(u.name, '이름 없음') AS reviewer_name,
+      COALESCE(tr.activity_name, tr.post_name, CONCAT('활동 ', r.related_team_id)) AS activity_title
+    FROM reviews r
+    LEFT JOIN users u ON u.id = r.reviewer_id
+    LEFT JOIN team_recruitments tr ON tr.team_id = r.related_team_id
+    WHERE r.reviewee_id = ?
+    ORDER BY r.created_at DESC, r.review_id DESC
+  `;
+
+  db.query(query, [userId], (err, results) => {
+    if (err) {
+      console.error('받은 리뷰 조회 에러:', err);
+      return res.status(500).json({
+        success: false,
+        message: '서버 오류',
+      });
+    }
+
+    res.json({
+      success: true,
+      reviews: results || [],
     });
   });
 });

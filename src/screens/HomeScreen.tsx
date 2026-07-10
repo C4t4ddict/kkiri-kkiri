@@ -7,7 +7,7 @@ import {
 import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import type { RootStackParamList } from '../../App'; // 경로: src/screens 기준
+import type { RootStackParamList } from '../types'; // 경로: src/screens 기준
 
 type RootNav = StackNavigationProp<RootStackParamList>;
 // const H_PADDING = 22; // ← 화면 좌우 공통 여백
@@ -76,11 +76,10 @@ export default function HomeScreen() {
   const groupedOpen = useMemo(() => {
     const byCat: Record<string, Activity[]> = {};
     CATEGORIES.forEach(cat => {
-      const categoryItems = activities.filter(a => a.category === cat);
-      const openItems = categoryItems.filter(isOpen);
-      byCat[cat] = (openItems.length > 0 ? openItems : categoryItems)
+      byCat[cat] = activities
+        .filter(a => a.category === cat && isOpen(a))
         .sort((a, b) =>
-          (b.application_period_end ?? '').localeCompare(a.application_period_end ?? '')
+          (a.application_period_end ?? '').localeCompare(b.application_period_end ?? '')
         )
         .slice(0, 5);
     });
@@ -111,7 +110,7 @@ export default function HomeScreen() {
           <Image source={require('../assets/bell.png')} style={styles.bellIcon} resizeMode="contain" />
         </TouchableOpacity>
       </View>
-      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 120 }}>
+      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
         {/* 헤더와 활동 사이 여유 공간 */}
         <View style={{ height: 20 }} />
 

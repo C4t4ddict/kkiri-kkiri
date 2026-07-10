@@ -1,141 +1,603 @@
-import React, { useCallback, useEffect, useState } from 'react';
+// src/screens/ActivityScreen.tsx
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
-  Platform,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
   View,
+  Text,
+  Image,
+  Pressable,
+  FlatList,
+  StyleSheet,
+  ScrollView,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar, Platform } from 'react-native';
 import { useAuth } from '../context/AuthContext';
+import { RootStackParamList } from '../types';
+import { loadWidgetPrefs } from '../utils/widgetPrefs';
+import { WIDGET_COMPONENTS, WidgetPref, DEFAULT_WIDGET_PREFS } from '../constants/widgets';
+import Ringgraph from '../Widget/Ringgraph';
+import colors from '../config/colors';
 
-type ActivityItem = {
-  id: number;
-  title: string;
-  comment?: string | null;
-  created_at?: string;
-};
 
-const BASE_URL =
+
+const API_BASE_URL =
   Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 
-const formatDate = (value?: string) => {
-  if (!value) return '';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ko-KR');
+type Nav = NativeStackNavigationProp<RootStackParamList>;
+
+type ActivityOption = {
+  teamId: number;
+  teamName: string;
+  part: string;
 };
+
+const PURPLE = colors.primary;
+const INPUT_BG = colors.inputBackground;
+const TEXT_HINT = colors.textSub;
+const TEXT_MAIN = colors.textMain;
+
+type Todo = {
+  todo_id: number;
+  title: string;
+  status: '미진행' | '진행중' | '완료';
+  scope_start_date: string;
+  scope_end_date: string;
+  scope_type: '월간' | '주간' | '일일';
+};
+
+type Progress = { total: number; done: number; percent: number };
 
 export default function ActivityScreen() {
   const { user } = useAuth();
-  const userId = user?.user_id || user?.id;
-  const [activities, setActivities] = useState<ActivityItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const currentUserId = user?.id; // 필요 시 user.user_id
+  const navigation = useNavigation<Nav>();
 
-  const fetchActivities = useCallback(async () => {
-    if (!userId) {
-      setLoading(false);
-      setError('로그인이 필요합니다.');
-      return;
-    }
+  const [open, setOpen] = useState(false);
+  const [options, setOptions] = useState<ActivityOption[]>([]);
+  const [selected, setSelected] = useState<ActivityOption | null>(null);
 
-    try {
+  const [progress, setProgress] = useState<Progress>({ total: 0, done: 0, percent: 0 });
+  const [monthlyTodos, setMonthlyTodos] = useState<Todo[]>([]);
+  const [weeklyTodos, setWeeklyTodos] = useState<Todo[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const API_BASE = useMemo(() => API_BASE_URL, []);
+
+  // 날짜 유틸
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  const getMonthRange = (date = new Date()) => {
+    const start = new Date(date.getFullYear(), date.getMonth(), 1);
+    const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+    return { start: fmt(start), end: fmt(end) };
+  };
+
+  // 월요일 시작 기준
+  const getWeekRange = (date = new Date()) => {
+    const day = (date.getDay() + 6) % 7; // Mon=0
+    const start = new Date(date);
+    start.setDate(date.getDate() - day);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    return { start: fmt(start), end: fmt(end), startDate: start };
+  };
+
+  // n주차 계산(월요일 시작)
+  const weekOfMonth = (date = new Date()) => {
+    const first = new Date(date.getFullYear(), date.getMonth(), 1);
+    const firstMonOffset = (first.getDay() + 6) % 7; // Mon=0
+    const dayIdx = date.getDate() - 1; // 0-based
+    return Math.floor((firstMonOffset + dayIdx) / 7) + 1;
+  };
+
+  const monthLabel = () => {
+    const d = new Date();
+    const yy = String(d.getFullYear()).slice(2);
+    const mm = d.getMonth() + 1;
+    return `< ${yy}.${mm}월 >`;
+  };
+
+  const weekLabel = () => {
+    const d = new Date();
+    const mm = d.getMonth() + 1;
+    return `< ${mm}월 ${weekOfMonth(d)}주차 >`;
+  };
+
+  // ── API 호출 함수 ──────────────────────────────
+  const fetchTeams = useCallback(async () => {
+    if (!currentUserId) return [];
+    const res = await fetch(`${API_BASE}/users/${currentUserId}/teams`);
+    const data: ActivityOption[] = await res.json();
+    return data;
+  }, [API_BASE, currentUserId]);
+
+  const fetchAllDataForTeam = useCallback(
+    async (teamId: number) => {
+      if (!currentUserId) return;
+      const month = getMonthRange();
+      const week = getWeekRange();
+      const headers = { 'x-user-id': String(currentUserId) };
+
       setLoading(true);
-      setError(null);
-      const response = await fetch(`${BASE_URL}/api/user/${userId}/activities`);
-      const data = await response.json();
+      try {
+        // 진행률(팀 월간)
+        const pRes = await fetch(
+          `${API_BASE}/teams/${teamId}/progress?scope_type=%EC%9B%94%EA%B0%84&start=${month.start}&end=${month.end}`
+        );
+        const pData: Progress = await pRes.json();
+        setProgress(pData);
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || '활동 정보를 불러오지 못했습니다.');
+        // 내 월간
+        const mRes = await fetch(
+          `${API_BASE}/todos/${teamId}?scope_type=%EC%9B%94%EA%B0%84&start=${month.start}&end=${month.end}`,
+          { headers }
+        );
+        setMonthlyTodos(await mRes.json());
+
+        // 내 주간
+        const wRes = await fetch(
+          `${API_BASE}/todos/${teamId}?scope_type=%EC%A3%BC%EA%B0%84&start=${week.start}&end=${week.end}`,
+          { headers }
+        );
+        setWeeklyTodos(await wRes.json());
+      } catch (e) {
+        console.warn('데이터 로드 실패:', e);
+      } finally {
+        setLoading(false);
       }
+    },
+    [API_BASE, currentUserId]
+  );
+  // 컴포넌트 내부 상태
+  const [widgetPrefs, setWidgetPrefs] = useState<WidgetPref[]>(DEFAULT_WIDGET_PREFS);
 
-      setActivities(data.activities || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '활동 정보를 불러오지 못했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  }, [userId]);
+  const getPercent = (todos: Todo[]) => {
+    if (todos.length === 0) return 0;
+    return Math.round((todos.filter((todo) => todo.status === '완료').length / todos.length) * 100);
+  };
 
+  const schedulePercent = useMemo(() => {
+    const allTodos = [...monthlyTodos, ...weeklyTodos];
+    if (allTodos.length === 0) return 0;
+    return Math.round((allTodos.filter((todo) => todo.status !== '미진행').length / allTodos.length) * 100);
+  }, [monthlyTodos, weeklyTodos]);
+
+  const monthlyPercent = useMemo(() => getPercent(monthlyTodos), [monthlyTodos]);
+  const weeklyPercent = useMemo(() => getPercent(weeklyTodos), [weeklyTodos]);
+  const ringMetrics = useMemo(() => ([
+    { label: '일정', percent: schedulePercent },
+    { label: '전체', percent: progress.percent },
+    { label: '월간 목표', percent: monthlyPercent },
+    { label: '주간 목표', percent: weeklyPercent },
+  ]), [monthlyPercent, progress.percent, schedulePercent, weeklyPercent]);
+
+  // 최초 팀 목록
   useEffect(() => {
-    fetchActivities();
-  }, [fetchActivities]);
+    if (!currentUserId) return;
+    (async () => {
+      const data = await fetchTeams();
+      setOptions(data);
+      if (data.length > 0) setSelected((prev) => prev ?? data[0]);
+    })();
+  }, [currentUserId, fetchTeams]);
 
+  // 선택된 팀 변경 시 데이터 로드
+  useEffect(() => {
+    if (selected?.teamId) fetchAllDataForTeam(selected.teamId);
+  }, [selected, fetchAllDataForTeam]);
+
+  // 화면에 다시 들어오면 전체 새로고침(팀 목록 + 섹션 데이터)
   useFocusEffect(
     useCallback(() => {
-      fetchActivities();
-    }, [fetchActivities])
+      let alive = true;
+      const reload = async () => {
+        const data = await fetchTeams();
+        if (!alive) return;
+        setOptions(data);
+        const keep = data.find((d) => d.teamId === selected?.teamId);
+        const nextSelected = keep ?? data[0] ?? null;
+        setSelected(nextSelected || null);
+        if (nextSelected) await fetchAllDataForTeam(nextSelected.teamId);
+        else {
+          setProgress({ total: 0, done: 0, percent: 0 });
+          setMonthlyTodos([]);
+          setWeeklyTodos([]);
+        }
+      };
+      reload();
+      return () => {
+        alive = false;
+      };
+    }, [fetchTeams, fetchAllDataForTeam, selected?.teamId])
+  );
+
+  // 포커스 시 위젯 설정 로드(팀별 커스텀 쓰려면 selected?.teamId 넘겨줘)
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      (async () => {
+        const prefs = await loadWidgetPrefs(selected?.teamId ?? null);
+        if (alive) setWidgetPrefs(prefs);
+      })();
+      return () => { alive = false; };
+    }, [selected?.teamId])
+  );
+  // 투두 행(불릿 없음)
+  const TodoItem = ({ item }: { item: Todo }) => {
+    const isDone = item.status === '완료';
+    return (
+      <View style={styles.todoRow}>
+        <Text style={[styles.todoText, isDone && styles.todoDone]} numberOfLines={2}>
+          {item.title}
+        </Text>
+      </View>
+    );
+  };
+
+  // 공통 섹션(왼쪽: 제목+기간, 오른쪽: 투두 리스트)
+  const Section = ({
+    title,
+    sub,
+    data,
+  }: {
+    title: string;
+    sub: string;
+    data: Todo[];
+  }) => (
+    <View style={styles.sectionRow}>
+      <View style={styles.sectionLeft}>
+        <Text style={styles.sectionTitle}>{title}</Text>
+        <Text style={styles.sectionSubUnder}>{sub}</Text>
+      </View>
+
+      <View style={styles.sectionRight}>
+        {data.length === 0 ? (
+          <Text style={styles.emptyText}>{loading ? '불러오는 중...' : '등록된 항목이 없어요'}</Text>
+        ) : (
+          <FlatList
+            data={data}
+            keyExtractor={(t) => String(t.todo_id)}
+            renderItem={({ item }) => <TodoItem item={item} />}
+            scrollEnabled={false}
+          />
+        )}
+      </View>
+    </View>
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.logo}>끼리끼리</Text>
-        <Text style={styles.title}>내 활동</Text>
-      </View>
+    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+      <StatusBar barStyle="dark-content" />
+      <View style={[styles.container, { paddingTop: 12 ,}]}>
+        {/* 상단 */}
+        <View style={styles.topRow}>
+          <Text style={styles.brand}>끼리끼리</Text>
+          <View style={styles.iconRow}>
+            <Pressable hitSlop={10}>
+              <Image source={require('../assets/folder.png')} style={styles.icon} resizeMode="contain" />
+            </Pressable>
+            <Pressable hitSlop={10} onPress={() => navigation.navigate('ActivitySettingScreen', {teamId: selected?.teamId ?? undefined,})}>
+              <Image source={require('../assets/settings-01.png')} style={[styles.icon, { marginLeft: 16 }]} resizeMode="contain" />
+            </Pressable>
+            <Pressable hitSlop={10} onPress={() => navigation.navigate('Notifications')}>
+              <Image source={require('../assets/bell.png')} style={[styles.icon, { marginLeft: 16 }]} resizeMode="contain" />
+            </Pressable>
+          </View>
+        </View>
 
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color="#7A5AF8" />
-          <Text style={styles.centerText}>활동 정보를 불러오는 중...</Text>
-        </View>
-      ) : error ? (
-        <View style={styles.center}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={fetchActivities}>
-            <Text style={styles.retryText}>다시 불러오기</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.listContent}>
-          {activities.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>참여한 활동이 없습니다.</Text>
-              <Text style={styles.emptyText}>정보 탭에서 비교과 활동을 확인해보세요.</Text>
-            </View>
-          ) : (
-            activities.map(activity => (
-              <View key={`${activity.id}-${activity.created_at}`} style={styles.card}>
-                <Text style={styles.cardTitle}>{activity.title}</Text>
-                {!!activity.comment && <Text style={styles.comment}>{activity.comment}</Text>}
-                {!!activity.created_at && (
-                  <Text style={styles.date}>참여일 {formatDate(activity.created_at)}</Text>
-                )}
+        {/* 드롭다운 + 역할 */}
+        <View style={styles.selectRow}>
+          <View style={styles.dropdown}>
+            <Pressable style={styles.dropdownBtn} onPress={() => setOpen(v => !v)}>
+              <Text style={styles.dropdownText}>
+                {selected ? selected.teamName : '내 활동 선택'}
+              </Text>
+              <Text style={styles.chevron}>{open ? '▲' : '▼'}</Text>
+            </Pressable>
+
+            {open && (
+              <View style={styles.dropdownList}>
+                <FlatList
+                  data={options}
+                  keyExtractor={(item) => String(item.teamId)}
+                  renderItem={({ item }) => (
+                    <Pressable
+                      onPress={() => {
+                        setSelected(item);
+                        setOpen(false);
+                      }}
+                      style={({ pressed }) => [styles.dropdownItem, pressed && { opacity: 0.6 }]}
+                    >
+                      <Text style={styles.dropdownItemText}>{item.teamName}</Text>
+                    </Pressable>
+                  )}
+                />
               </View>
-            ))
-          )}
-        </ScrollView>
-      )}
-    </SafeAreaView>
+            )}
+          </View>
+
+          <Text style={styles.partText}>{selected?.part ? humanizePart(selected.part) : '—'}</Text>
+        </View>
+        {/* 스크롤 컨테이너 */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollBody}  // 패딩/여유공간은 여기서
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* 진행률 */}
+        <View style={{ marginTop: 24 }}>
+          <View style={styles.progressHeader}>
+            <Text style={styles.progressTitle}>이번 달 {progress.percent}% 완료!</Text>
+            <Text style={styles.progressCaption}>⌃</Text>
+          </View>
+          <Ringgraph percent={progress.percent} metrics={ringMetrics} />
+        </View>
+
+        {/* 섹션들: 왼쪽 타이틀+기간, 오른쪽 리스트 */}
+        <View style={{ marginTop: 20 }}>
+          <Section title="월간 목표" sub={monthLabel()} data={monthlyTodos} />
+        </View>
+
+        <View style={{ marginTop: 24 }}>
+          <Section title="주간 목표" sub={weekLabel()} data={weeklyTodos} />
+        </View>
+
+        {/* 위젯 영역: 설정(가시성/순서)에 따라 렌더 */}
+            <View style={{ marginTop: 30 }}>
+              {widgetPrefs
+                .filter(w => w.visible)
+                .sort((a,b)=>a.order-b.order)
+                .map(w => {
+                  const C = WIDGET_COMPONENTS[w.id];
+                  return (
+                    <C
+                        key={w.id}
+                        teamId={selected?.teamId ?? null}   // ← 팀 ID 내려줌
+                    />
+                  );
+                })}
+            </View>
+          </ScrollView>
+
+          {/* 떠 있는 FAB (스크롤과 독립) */}
+          <Pressable style={styles.fab} onPress={() => navigation.navigate('TodoScreen')}>
+            <Image source={require('../assets/plus-circle.png')} style={{ width: 56, height: 56 }} />
+          </Pressable>
+          </View>
+        </SafeAreaView>
   );
 }
 
+function humanizePart(part: string) {
+  if (!part) return '';
+  return part;
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
-  header: { paddingHorizontal: 24, paddingTop: 48, paddingBottom: 16 },
-  logo: { fontSize: 20, fontWeight: '700', color: '#7A5AF8', marginBottom: 20 },
-  title: { fontSize: 28, fontWeight: '800', color: '#101828' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
-  centerText: { marginTop: 12, color: '#667085' },
-  errorText: { color: '#EF4444', marginBottom: 16, textAlign: 'center' },
-  retryButton: { backgroundColor: '#7A5AF8', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 10 },
-  retryText: { color: '#FFFFFF', fontWeight: '700' },
-  listContent: { paddingHorizontal: 20, paddingBottom: 120 },
-  card: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    padding: 18,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#EAECF0',
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    paddingTop: 24,
+    paddingHorizontal: 20,
   },
-  cardTitle: { fontSize: 17, fontWeight: '700', color: '#101828', marginBottom: 8 },
-  comment: { fontSize: 14, color: '#344054', marginBottom: 8 },
-  date: { fontSize: 13, color: '#667085' },
-  emptyCard: { padding: 24, borderRadius: 16, backgroundColor: '#F9FAFB', alignItems: 'center' },
-  emptyTitle: { fontSize: 17, fontWeight: '700', color: '#101828', marginBottom: 8 },
-  emptyText: { fontSize: 14, color: '#667085' },
+  scrollBody: {
+    paddingBottom: 140, // FAB와 겹치지 않도록 여유
+    backgroundColor: '#FFFFFF',
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  brand: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: PURPLE,
+  },
+  iconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  icon: {
+    width: 26,
+    height: 26,
+  },
+  selectRow: {
+    marginTop: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dropdown: {
+    flex: 1,
+    marginRight: 12,
+    position: 'relative',
+  },
+  dropdownBtn: {
+    backgroundColor: INPUT_BG,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dropdownText: {
+    flex: 1,
+    color: TEXT_MAIN,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  chevron: {
+    marginLeft: 8,
+    color: TEXT_HINT,
+    fontSize: 12,
+  },
+  dropdownList: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#E5E7EB',
+    maxHeight: 220,
+    zIndex: 9999,
+    elevation: 5,
+  },
+  dropdownItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  dropdownItemText: {
+    fontSize: 15,
+    color: TEXT_MAIN,
+  },
+  partText: {
+    marginLeft: 8,
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1F2A37',
+  },
+
+  // 진행률
+  progressHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+  },
+  progressTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#1F2A37',
+  },
+  progressCaption: {
+    fontSize: 13,
+    color: TEXT_HINT,
+  },
+  progressPanel: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  progressBarWrap: {
+    width: '100%',
+  },
+  progressMetaWrap: {
+    flex: 1,
+    marginLeft: 20,
+  },
+  progressBarTrack: {
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#E9E5FE',
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: PURPLE,
+  },
+  progressMeta: {
+    marginTop: 8,
+    fontSize: 12,
+    color: TEXT_HINT,
+  },
+  ringWrap: {
+    width: 124,
+    height: 124,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ringBase: {
+    width: 124,
+    height: 124,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  ringSegment: {
+    position: 'absolute',
+    width: 10,
+    height: 22,
+    borderRadius: 999,
+    backgroundColor: PURPLE,
+  },
+  ringInner: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#EFEAFF',
+  },
+  ringPercent: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  ringLabel: {
+    marginTop: 2,
+    fontSize: 11,
+    color: TEXT_HINT,
+  },
+
+  // 섹션 레이아웃(좌: 제목+기간, 우: 리스트)
+  sectionRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  sectionLeft: {
+    width: 112, // 왼쪽 타이틀 고정폭 (디자인 기준 맞춤)
+    paddingRight: 12,
+  },
+  sectionRight: {
+    flex: 1,
+  },
+  sectionTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  sectionSubUnder: {
+    marginTop: 6,
+    fontSize: 12,
+    color: TEXT_HINT,
+  },
+
+  emptyText: {
+    color: TEXT_HINT,
+  },
+
+  // 투두(불릿 없음, 오른쪽 컬럼에만 표시)
+  todoRow: {
+    paddingVertical: 8,
+  },
+  todoText: {
+    fontSize: 16,
+    color: TEXT_MAIN,
+    lineHeight: 24,
+  },
+  todoDone: {
+    color: '#9CA3AF',
+    textDecorationLine: 'line-through',
+  },
+
+  // FAB
+  fab: {
+    position: 'absolute',
+    right: 20,
+    bottom: 40,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 5,
+  },
 });

@@ -5,19 +5,87 @@ import {
 } from 'react-native';
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { useAuth } from '../context/AuthContext'; // ✅ 전역 user
+import { useAuth } from '../context/AuthContext';
 import { User } from '../types';
+import { launchImageLibrary, ImagePickerResponse, MediaType } from 'react-native-image-picker';
 
-// 필요하다면 App.tsx 타입 말고 로컬 선언으로 최소화
+// ImageAsset 타입 정의
+interface ImageAsset {
+  uri: string;
+  type?: string;
+  fileName?: string;
+  fileSize?: number;
+  width?: number;
+  height?: number;
+}
+
+// RootStackParamList 타입 정의 (App.tsx와 동일하게)
 type RootStackParamList = {
   Login: undefined;
   Settings: { user: User };
+  MyPage2: { 
+    user: {
+      id: number;
+      email: string;
+      name: string;
+      department?: string;
+      student_number?: string;
+      birth?: string;
+      profile_picture?: string;
+    };
+    selectedMember?: {
+      id: number;
+      name: string;
+      department: string;
+      activity_id: number;
+      activity_title: string;
+    };
+  };
+  MyPage3: { 
+    user: {
+      id: number;
+      email: string;
+      name: string;
+      department?: string;
+      student_number?: string;
+      birth?: string;
+      profile_picture?: string;
+    };
+    selectedMember: {
+      id: number;
+      name: string;
+      department: string;
+      activity_id: number;
+      activity_title: string;
+    };
+  };
+  MyPage4: { 
+    user: {
+      id: number;
+      email: string;
+      name: string;
+      department?: string;
+      student_number?: string;
+      birth?: string;
+      profile_picture?: string;
+    };
+  };
 };
 
 type NavProp = StackNavigationProp<RootStackParamList>;
 
 const API_BASE_URL =
   Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
+
+const normalizeUser = (raw: any): User => ({
+  id: raw.id ?? raw.user_id,
+  email: raw.email,
+  name: raw.name,
+  department: raw.department ?? '',
+  studentId: raw.studentId ?? raw.student_number ?? '',
+  birth: raw.birth ?? raw.birth_date ?? '',
+  profile_picture: raw.profile_picture ?? undefined,
+});
 
 const formatDate = (value?: string) => {
   if (!value) return '정보 없음';
@@ -26,7 +94,7 @@ const formatDate = (value?: string) => {
 
   const d = new Date(value);               // 서버가 주는 ISO를 Date로 파싱
   if (isNaN(d.getTime())) return value;    // 혹시 모를 예외
-  const y = d.getFullYear();               // ✅ 로컬 기준 (getUTC* 아님)
+  const y = d.getFullYear();               // 로컬 기준 (getUTC* 아님)
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
@@ -34,10 +102,23 @@ const formatDate = (value?: string) => {
 
 export default function MyPageScreen() {
   const navigation = useNavigation<NavProp>();
-  const { user, setUser } = useAuth();          // ✅ 전역에서만 가져옴
+  const { user, setUser } = useAuth();
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [editingField, setEditingField] = useState<keyof User | null>(null);
   const [editValue, setEditValue] = useState('');
+
+  // URL 처리 함수 - localhost를 현재 플랫폼에 맞게 변환
+  const getCorrectImageUrl = (imageUrl: string | null | undefined): string | null => {
+    if (!imageUrl) return null;
+    
+    // localhost를 현재 플랫폼에 맞는 주소로 변경
+    if (Platform.OS === 'android') {
+      return imageUrl.replace('http://localhost:3000', 'http://10.0.2.2:3000');
+    } else {
+      // iOS는 localhost 그대로 사용
+      return imageUrl.replace('http://10.0.2.2:3000', 'http://localhost:3000');
+    }
+  };
 
   // 사용자 정보 불러오기 (전역 user가 있을 때만)
   const fetchUserData = async () => {
@@ -46,50 +127,156 @@ export default function MyPageScreen() {
       const res = await fetch(`${API_BASE_URL}/api/user/${user.id}`);
       const data = await res.json();
       if (data.success && data.user) {
-        setUser(data.user); // ✅ 전역 갱신
-        setProfileImage(data.user.profile_picture || null);
+        console.log('받아온 프로필 사진 원본:', data.user.profile_picture);
+        
+        // URL을 플랫폼에 맞게 변환
+        const correctedUrl = getCorrectImageUrl(data.user.profile_picture);
+        console.log('변환된 프로필 사진 URL:', correctedUrl);
+        
+        setUser(normalizeUser(data.user));
+        setProfileImage(correctedUrl);
       } else {
         Alert.alert('오류', data.message || '사용자 정보를 불러오는데 실패했습니다.');
       }
     } catch (e) {
+      console.error('사용자 데이터 fetch 에러:', e);
       Alert.alert('오류', '서버 연결에 실패했습니다.');
     }
   };
 
   useEffect(() => {
     fetchUserData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
+
+  // 프로필 이미지 동기화
+  useEffect(() => {
+    if (user?.profile_picture) {
+      const correctedUrl = getCorrectImageUrl(user.profile_picture);
+      setProfileImage(correctedUrl);
+    }
+  }, [user?.profile_picture]);
+
+  // 프로필 사진 업로드 함수
+  const updateProfilePicture = async (imageAsset: ImageAsset): Promise<void> => {
+    if (!user) return;
+    
+    try {
+      const formData = new FormData();
+      
+      formData.append('image', {
+        uri: imageAsset.uri,
+        type: imageAsset.type || 'image/jpeg',
+        name: imageAsset.fileName || `profile-${user.id}-${Date.now()}.jpg`,
+      } as any);
+
+      const uploadUrl = `${API_BASE_URL}/api/upload/profile/${user.id}`;
+      
+      const res = await fetch(uploadUrl, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      
+      if (data.success) {
+        // 서버에서 받은 URL을 플랫폼에 맞게 변환
+        const correctedUrl = getCorrectImageUrl(data.imageUrl);
+        console.log('업로드 후 변환된 URL:', correctedUrl);
+        
+        setProfileImage(correctedUrl);
+        await fetchUserData();
+        Alert.alert('성공', '프로필 사진이 업데이트되었습니다.');
+      } else {
+        throw new Error(data.message || '프로필 사진 업데이트에 실패했습니다.');
+      }
+    } catch (e) {
+      console.error('이미지 업로드 오류:', e);
+      Alert.alert(
+        '오류', 
+        e instanceof Error ? e.message : '이미지 업로드 중 서버 오류가 발생했습니다.'
+      );
+    }
+  };
 
   const handleImagePicker = () => {
     Alert.alert('프로필 사진 변경', '어떤 방식으로 변경하시겠습니까?', [
       { text: '취소', style: 'cancel' },
       {
-        text: '랜덤 이미지',
+        text: '갤러리에서 선택',
         onPress: () => {
-          const randomId = Math.floor(Math.random() * 1000);
-          setProfileImage(`https://picsum.photos/300/300?random=${randomId}`);
+          launchImageLibrary({ 
+            mediaType: 'photo' as MediaType,
+            quality: 0.8,
+            maxWidth: 200,
+            maxHeight: 200,
+          }, async (response: ImagePickerResponse) => {
+            if (response.didCancel) {
+              console.log('User cancelled image picker');
+            } else if (response.errorCode) {
+              console.error('ImagePicker Error: ', response.errorMessage);
+              Alert.alert('오류', '갤러리 접근 권한이 없거나 오류가 발생했습니다.');
+            } else if (response.assets && response.assets.length > 0) {
+              const selectedImage = response.assets[0];
+              if (selectedImage.uri) {
+                await updateProfilePicture({
+                  uri: selectedImage.uri,
+                  type: selectedImage.type,
+                  fileName: selectedImage.fileName,
+                  fileSize: selectedImage.fileSize,
+                  width: selectedImage.width,
+                  height: selectedImage.height,
+                });
+              }
+            }
+          });
         },
       },
       {
-        text: '기본 이미지',
-        onPress: () => {
-          setProfileImage('https://via.placeholder.com/120x120/8B5CF6/FFFFFF?text=USER');
+        text: '기본 이미지로 변경',
+        onPress: async () => {
+          await updateProfilePictureToDefault();
         },
       },
     ]);
   };
 
+  // 기본 이미지로 변경하는 함수
+  const updateProfilePictureToDefault = async () => {
+    if (!user?.id) return;
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/user/${user.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          profile_picture: null
+        }),
+      });
+      
+      const data = await res.json();
+      if (data.success) {
+        setProfileImage(null);
+        await fetchUserData();
+        Alert.alert('성공', '프로필 사진이 기본 이미지로 변경되었습니다.');
+      } else {
+        Alert.alert('오류', data.message || '프로필 사진 변경에 실패했습니다.');
+      }
+    } catch (e) {
+      console.error('기본 이미지 설정 오류:', e);
+      Alert.alert('오류', '서버 오류가 발생했습니다.');
+    }
+  };
+
   const toDateOnly = (iso?: string) => {
     if (!iso) return '';
-    return iso.split('T')[0];            // "2000-11-10"
+    return iso.split('T')[0];
   };
 
   const isDateOnly = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v);
 
   const startEditing = (field: keyof User, value?: string) => {
     setEditingField(field);
-    if (field === 'birth') setEditValue(formatDate(value));  // ✅
+    if (field === 'birth') setEditValue(formatDate(value));
     else setEditValue(value ?? '');
   };
 
@@ -107,7 +294,6 @@ export default function MyPageScreen() {
         Alert.alert('형식 오류', '생년월일은 YYYY-MM-DD 형식으로 입력하세요.');
         return;
       }
-      // 서버가 DATE 컬럼이면 그대로 보내면 됨
       updateUserInfo(editingField, trimmed);
       return;
     }
@@ -119,10 +305,17 @@ export default function MyPageScreen() {
     if (!user?.id) return;
     try {
       const url = `${API_BASE_URL}/api/user/${user.id}`;
+      
+      const dbField = field === 'studentId'
+        ? 'student_number'
+        : field === 'birth'
+          ? 'birth_date'
+          : field;
+      
       const res = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [field]: value }),
+        body: JSON.stringify({ [dbField]: value }),
       });
       const data = await res.json();
       if (data.success) {
@@ -146,7 +339,7 @@ export default function MyPageScreen() {
         text: '로그아웃',
         style: 'destructive',
         onPress: () => {
-          setUser(null); // ✅ 전역 초기화
+          setUser(null);
           navigation.dispatch(
             CommonActions.reset({
               index: 0,
@@ -156,6 +349,26 @@ export default function MyPageScreen() {
         },
       },
     ]);
+  };
+
+  // 나의평가 페이지로 이동
+  const navigateToMyEvaluation = () => {
+    if (!user) {
+      Alert.alert('오류', '사용자 정보를 불러올 수 없습니다.');
+      return;
+    }
+    
+    navigation.navigate('MyPage4', { user });
+  };
+
+  // 팀원평가 페이지로 이동
+  const navigateToTeamEvaluation = () => {
+    if (!user) {
+      Alert.alert('오류', '사용자 정보를 불러올 수 없습니다.');
+      return;
+    }
+    
+    navigation.navigate('MyPage2', { user });
   };
 
   if (!user) {
@@ -181,29 +394,47 @@ export default function MyPageScreen() {
                   : { uri: 'https://via.placeholder.com/300/E5E7EB/9CA3AF?text=Profile' }
               }
               style={styles.profileImage}
+              onError={(error) => {
+                console.log('이미지 로드 실패 상세 정보:', {
+                  url: profileImage,
+                  error: error.nativeEvent.error,
+                  platform: Platform.OS
+                });
+                // 에러 발생 시 다시 URL 변환 시도
+                if (profileImage && profileImage.includes('localhost')) {
+                  const retryUrl = getCorrectImageUrl(profileImage);
+                  console.log('재시도 URL:', retryUrl);
+                  if (retryUrl !== profileImage) {
+                    setProfileImage(retryUrl);
+                  }
+                }
+              }}
+              onLoad={() => {
+                console.log('이미지 로드 성공:', profileImage);
+              }}
             />
           </View>
           <View style={styles.nameContainer}>
             <Text style={styles.userName}>{user.name}</Text>
             <TouchableOpacity style={styles.imageEditButton} onPress={handleImagePicker}>
-              <Text style={styles.editIcon}>수정</Text>
+              <Image source={require('../assets/pencil-01.png')}/>
             </TouchableOpacity>
           </View>
         </View>
 
         <View style={styles.tabContainer}>
-          <TouchableOpacity style={styles.tab}>
+          <TouchableOpacity style={styles.tab} onPress={navigateToMyEvaluation}>
             <View style={styles.tabIconContainer}>
               <Image source={require('../assets/eval.png')} style={styles.tabIcon} />
             </View>
             <Text style={styles.tabText}>나의 평가</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.tab}>
+          <TouchableOpacity style={styles.tab} onPress={navigateToTeamEvaluation}>
             <View style={styles.tabIconContainer}>
               <Image source={require('../assets/team.png')} style={styles.tabIcon} />
             </View>
-            <Text style={styles.tabText}>팀원찾기</Text>
+            <Text style={styles.tabText}>팀원평가</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -237,15 +468,17 @@ export default function MyPageScreen() {
                     style={styles.editIconButton}
                     onPress={() => startEditing(field, user[field] as string | undefined)}
                   >
-                    <Text style={styles.editIcon}>수정</Text>
+                    <Image source={require('../assets/pencil-01.png')}/>
                   </TouchableOpacity>
                 </View>
               </View>
             ))}
           </View>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Text style={styles.logoutText}>로그아웃</Text>
-          </TouchableOpacity>
+          <View style={styles.logoutButtonWrapper}>
+            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+              <Text style={styles.logoutText}>로그아웃</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
 
@@ -259,10 +492,7 @@ export default function MyPageScreen() {
                 studentId: '학번',
                 birth: '생년월일',
                 id: 'ID',
-                user_id: 'ID',
                 name: '이름',
-                student_number: '학번',
-                birth_date: '생년월일',
                 profile_picture: '프로필',
               }[editingField]}{' '}
               편집
@@ -300,7 +530,7 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { fontSize: 16, color: '#6B7280' },
   profileSection: { alignItems: 'center', paddingVertical: 20 },
-  profileImageContainer: { width: 180, height: 180, borderRadius: 90, overflow: 'hidden', marginBottom: 10 },
+  profileImageContainer: { width: 130, height: 130, borderRadius: 60, overflow: 'hidden', marginTop:50, marginBottom: 10 },
   profileImage: { width: '100%', height: '100%', resizeMode: 'cover' },
   nameContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
   userName: { fontSize: 20, fontWeight: 'bold', color: '#1F2937', marginRight: 10 },
@@ -320,8 +550,18 @@ const styles = StyleSheet.create({
   },
   infoValue: { flex: 1, fontSize: 16, color: '#1F2937' },
   editIconButton: { padding: 5 },
-  logoutButton: { marginTop: 20, paddingVertical: 10, paddingHorizontal: 20 },
-  logoutText: { color: '#EF4444', fontSize: 14, fontWeight: '500' },
+  logoutButtonWrapper: {
+    width: 300,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop:4,
+  },
+  logoutButton: {
+    marginTop: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  logoutText: { color: '#98A2B3', fontSize: 12, fontWeight: '600', textDecorationLine: 'underline' },
   editModalOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center',
@@ -340,35 +580,34 @@ const styles = StyleSheet.create({
   saveText: { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold' },
 
   tabContainer: {
-  flexDirection: 'row',
-  justifyContent: 'space-around',
-  paddingVertical: 10,
-  borderBottomWidth: 1,
-  borderColor: '#E5E7EB',
-  backgroundColor: '#FFFFFF',
-},
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 30,
+    borderBottomWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+  },
 
-tab: {
-  alignItems: 'center',
-  justifyContent: 'center',
-  flex: 1,
-  paddingVertical: 8,
-},
+  tab: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+    paddingVertical: 8,
+  },
 
-tabIconContainer: {
-  marginBottom: 4,
-  alignItems: 'center',
-},
+  tabIconContainer: {
+    marginBottom: 4,
+    alignItems: 'center',
+  },
 
-tabIcon: {
-  width: 24,
-  height: 24,
-  resizeMode: 'contain',
-},
+  tabIcon: {
+    width: 24,
+    height: 24,
+    resizeMode: 'contain',
+  },
 
-tabText: {
-  fontSize: 12,
-  color: '#6B7280',
-},
-
+  tabText: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
 });
