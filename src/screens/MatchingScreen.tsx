@@ -242,11 +242,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
   },
   logo: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 28,
+    fontWeight: '800',
     color: '#7A5AF8',
   },
   searchContainer: {

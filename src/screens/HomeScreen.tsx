@@ -199,7 +199,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  logo: { fontSize: 18, fontWeight: '700', color: '#7A5AF8' },
+  logo: { fontSize: 28, fontWeight: '800', color: '#7A5AF8' },
   //bell: { fontSize: 18 },
   bellIcon: {
     width: 22,   // 원하는 크기로 조절
