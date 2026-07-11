@@ -26,7 +26,7 @@ type Activity = {
 const BASE_URL =
   Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 
-const CATEGORIES = ['공모전', '세미나', '워크숍', '튜터링'] as const;
+const DEFAULT_CATEGORIES = ['공모전', '세미나', '워크숍', '튜터링'] as const;
 
 export default function HomeScreen() {
   const navigation = useNavigation();
@@ -40,7 +40,7 @@ export default function HomeScreen() {
       try {
         // 필요시 서버에 status=open 같은 필터를 붙여도 됨
         const res = await axios.get<Activity[]>(`${BASE_URL}/api/activities`);
-        if (mounted) setActivities(res.data ?? []);
+        if (mounted) setActivities(Array.isArray(res.data) ? res.data : []);
       } catch (e) {
         console.error(e);
         Alert.alert('오류', '활동 목록을 불러오지 못했습니다.');
@@ -72,19 +72,31 @@ export default function HomeScreen() {
     [activities]
   );
 
+  const categories = useMemo(() => {
+    const dbCategories = activities
+      .map(a => a.category)
+      .filter((category): category is string => !!category);
+    return Array.from(new Set([...DEFAULT_CATEGORIES, ...dbCategories]));
+  }, [activities]);
+
+  const openActivities = useMemo(() => activities.filter(isOpen), [activities]);
+  const listSource = openActivities.length > 0 ? openActivities : activities;
+
   // 카테고리별 모집중 리스트(최대 5개씩)
   const groupedOpen = useMemo(() => {
     const byCat: Record<string, Activity[]> = {};
-    CATEGORIES.forEach(cat => {
-      byCat[cat] = activities
-        .filter(a => a.category === cat && isOpen(a))
+    categories.forEach(cat => {
+      byCat[cat] = listSource
+        .filter(a => a.category === cat)
         .sort((a, b) =>
-          (a.application_period_end ?? '').localeCompare(b.application_period_end ?? '')
+          openActivities.length > 0
+            ? (a.application_period_end ?? '').localeCompare(b.application_period_end ?? '')
+            : (b.created_at ?? '').localeCompare(a.created_at ?? '')
         )
         .slice(0, 5);
     });
     return byCat;
-  }, [activities]);
+  }, [categories, listSource, openActivities.length]);
 
   const goDetail = (id: number) => {
     // 스택 라우트명이 다르면 여기만 수정
@@ -139,7 +151,7 @@ export default function HomeScreen() {
 
        {/* 모집중 목록 */}
         <View style={[styles.listWrapper, { paddingHorizontal: LIST_H_PADDING }]}>
-          {CATEGORIES.map((cat, idx) => {
+          {categories.map((cat, idx) => {
             const list = groupedOpen[cat] || [];
             return (
               <View
