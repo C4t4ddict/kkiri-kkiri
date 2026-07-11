@@ -186,6 +186,11 @@ export default function ActivityScreen() {
     { label: '월간 목표', percent: monthlyPercent },
     { label: '주간 목표', percent: weeklyPercent },
   ]), [monthlyPercent, progress.percent, schedulePercent, weeklyPercent]);
+  const visibleWidgetPrefs = useMemo(
+    () => widgetPrefs.filter(w => w.visible).sort((a, b) => a.order - b.order),
+    [widgetPrefs]
+  );
+  const showRing = visibleWidgetPrefs.some((widget) => widget.id === 'ring');
 
   // 최초 팀 목록
   useEffect(() => {
@@ -341,13 +346,15 @@ export default function ActivityScreen() {
         keyboardShouldPersistTaps="handled"
       >
         {/* 진행률 */}
-        <View style={{ marginTop: 24 }}>
-          <View style={styles.progressHeader}>
-            <Text style={styles.progressTitle}>이번 달 {progress.percent}% 완료!</Text>
-            <Text style={styles.progressCaption}>⌃</Text>
+        {showRing && (
+          <View style={{ marginTop: 24 }}>
+            <View style={styles.progressHeader}>
+              <Text style={styles.progressTitle}>이번 달 {progress.percent}% 완료!</Text>
+              <Text style={styles.progressCaption}>⌃</Text>
+            </View>
+            <Ringgraph percent={progress.percent} metrics={ringMetrics} />
           </View>
-          <Ringgraph percent={progress.percent} metrics={ringMetrics} />
-        </View>
+        )}
 
         {/* 섹션들: 왼쪽 타이틀+기간, 오른쪽 리스트 */}
         <View style={{ marginTop: 20 }}>
@@ -360,11 +367,11 @@ export default function ActivityScreen() {
 
         {/* 위젯 영역: 설정(가시성/순서)에 따라 렌더 */}
             <View style={{ marginTop: 30 }}>
-              {widgetPrefs
-                .filter(w => w.visible)
-                .sort((a,b)=>a.order-b.order)
+              {visibleWidgetPrefs
+                .filter(w => w.id !== 'ring')
                 .map(w => {
                   const C = WIDGET_COMPONENTS[w.id];
+                  if (!C) return null;
                   return (
                     <C
                         key={w.id}

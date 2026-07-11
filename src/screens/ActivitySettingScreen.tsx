@@ -7,7 +7,7 @@ import { WidgetPref, WidgetId, DEFAULT_WIDGET_PREFS } from '../constants/widgets
 import { loadWidgetPrefs, saveWidgetPrefs, reorder, toggleVisible } from '../utils/widgetPrefs';
 
 type R = RouteProp<RootStackParamList, 'ActivitySettingScreen'>;
-const FIXED_VISIBLE_IDS: WidgetId[] = ['issue', 'heatmap'];
+const FIXED_VISIBLE_IDS: WidgetId[] = [];
 
 export default function ActivitySettingScreen() {
   const nav = useNavigation();
@@ -102,6 +102,7 @@ export default function ActivitySettingScreen() {
 const label = (id: WidgetId) =>
   id === 'issue' ? '이슈트래커' :
   id === 'notice' ? '공지사항' :
+  id === 'ring' ? '링그래프' :
   id === 'calendar' ? '캘린더' : '히트맵';
 
 const s = StyleSheet.create({

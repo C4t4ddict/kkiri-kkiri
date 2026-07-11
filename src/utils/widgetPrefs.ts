@@ -11,7 +11,7 @@ const keyFor = (teamId?: number | null) =>
   teamId ? `${KEY_GLOBAL}:${teamId}` : KEY_GLOBAL;
 
 const memoryStore = new Map<string, string>();
-const ALWAYS_VISIBLE_IDS: WidgetId[] = ['issue', 'heatmap'];
+const ALWAYS_VISIBLE_IDS: WidgetId[] = [];
 
 function normalizePrefs(prefs: WidgetPref[]): WidgetPref[] {
   return prefs.map((pref) => (

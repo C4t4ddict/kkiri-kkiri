@@ -14,13 +14,13 @@ type Props = {
 };
 
 const rings = [
-  { size: 154, radius: 67, width: 14, color: colors.primaryDark },
-  { size: 122, radius: 51, width: 13, color: colors.primary },
-  { size: 92, radius: 36, width: 12, color: colors.primary },
-  { size: 64, radius: 22, width: 11, color: colors.primaryLight },
+  { size: 150, radius: 67, width: 9, color: '#FF2D70' },
+  { size: 118, radius: 51, width: 8, color: '#7CFF00' },
+  { size: 86, radius: 36, width: 7, color: '#25DDF4' },
+  { size: 56, radius: 21, width: 6, color: colors.primaryLight },
 ];
 
-const SEGMENTS = 32;
+const SEGMENTS = 144;
 
 function clamp(value: number) {
   return Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
@@ -81,7 +81,7 @@ export default function Ringgraph({ percent, metrics }: Props) {
                       styles.segment,
                       {
                         width: ring.width,
-                        height: ring.width * 1.9,
+                        height: ring.width * 1.25,
                         borderRadius: ring.width,
                         backgroundColor: ring.color,
                         opacity,
@@ -132,8 +132,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 11,
-    borderColor: colors.primarySoft,
+    borderWidth: 9,
+    borderColor: '#F0EAFE',
   },
   segment: {
     position: 'absolute',

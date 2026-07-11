@@ -105,18 +105,22 @@ export default function Heatmap({ teamId }: Props) {
       <Text style={styles.month}>{'<   '}{monthTitle(baseDate)}{'   >'}</Text>
       <View style={styles.weekRow}>
         {weekdays.map((day) => (
-          <Text key={day} style={styles.weekday}>{day}</Text>
+          <View key={day} style={styles.slot}>
+            <Text style={styles.weekday}>{day}</Text>
+          </View>
         ))}
       </View>
       <View style={styles.grid}>
         {calendar.map((cell) => (
           <View
             key={cell.key}
-            style={[styles.cell, { backgroundColor: cellColor(cell.count, cell.isOutside) }]}
+            style={styles.slot}
           >
-            <Text style={[styles.day, cell.isOutside && styles.dayOutside]}>
-              {cell.day ?? ''}
-            </Text>
+            <View style={[styles.cell, { backgroundColor: cellColor(cell.count, cell.isOutside) }]}>
+              <Text style={[styles.day, cell.isOutside && styles.dayOutside]}>
+                {cell.day ?? ''}
+              </Text>
+            </View>
           </View>
         ))}
       </View>
@@ -148,11 +152,14 @@ const styles = StyleSheet.create({
   },
   weekRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     marginBottom: 10,
   },
+  slot: {
+    width: `${100 / 7}%`,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
   weekday: {
-    width: 38,
     textAlign: 'center',
     fontSize: 13,
     fontWeight: '800',
@@ -161,8 +168,6 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: 8,
   },
   cell: {
     width: 38,
