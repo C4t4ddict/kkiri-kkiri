@@ -47,8 +47,6 @@ type Todo = {
   scope_type: '월간' | '주간' | '일일';
 };
 
-type Progress = { total: number; done: number; percent: number };
-
 export default function ActivityScreen() {
   const { user } = useAuth();
   const currentUserId = user?.id; // 필요 시 user.user_id
@@ -58,9 +56,9 @@ export default function ActivityScreen() {
   const [options, setOptions] = useState<ActivityOption[]>([]);
   const [selected, setSelected] = useState<ActivityOption | null>(null);
 
-  const [progress, setProgress] = useState<Progress>({ total: 0, done: 0, percent: 0 });
   const [monthlyTodos, setMonthlyTodos] = useState<Todo[]>([]);
   const [weeklyTodos, setWeeklyTodos] = useState<Todo[]>([]);
+  const [dailyTodos, setDailyTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(false);
 
   const API_BASE = useMemo(() => API_BASE_URL, []);
@@ -106,6 +104,11 @@ export default function ActivityScreen() {
     return `< ${mm}월 ${weekOfMonth(d)}주차 >`;
   };
 
+  const dayLabel = () => {
+    const d = new Date();
+    return `< ${d.getMonth() + 1}월 ${d.getDate()}일 >`;
+  };
+
   // ── API 호출 함수 ──────────────────────────────
   const fetchTeams = useCallback(async () => {
     if (!currentUserId) return [];
@@ -123,21 +126,11 @@ export default function ActivityScreen() {
       if (!currentUserId) return;
       const month = getMonthRange();
       const week = getWeekRange();
+      const today = fmt(new Date());
       const headers = { 'x-user-id': String(currentUserId) };
 
       setLoading(true);
       try {
-        // 진행률(팀 월간)
-        const pRes = await fetch(
-          `${API_BASE}/teams/${teamId}/progress?scope_type=%EC%9B%94%EA%B0%84&start=${month.start}&end=${month.end}`
-        );
-        const pData = await pRes.json();
-        setProgress({
-          total: Number(pData?.total || 0),
-          done: Number(pData?.done || 0),
-          percent: Number(pData?.percent || 0),
-        });
-
         // 내 월간
         const mRes = await fetch(
           `${API_BASE}/todos/${teamId}?scope_type=%EC%9B%94%EA%B0%84&start=${month.start}&end=${month.end}`,
@@ -153,11 +146,18 @@ export default function ActivityScreen() {
         );
         const weekTodos = await wRes.json();
         setWeeklyTodos(Array.isArray(weekTodos) ? weekTodos : []);
+
+        const dRes = await fetch(
+          `${API_BASE}/todos/${teamId}?scope_type=%EC%9D%BC%EC%9D%BC&start=${today}&end=${today}`,
+          { headers }
+        );
+        const dayTodos = await dRes.json();
+        setDailyTodos(Array.isArray(dayTodos) ? dayTodos : []);
       } catch (e) {
         console.warn('데이터 로드 실패:', e);
-        setProgress({ total: 0, done: 0, percent: 0 });
         setMonthlyTodos([]);
         setWeeklyTodos([]);
+        setDailyTodos([]);
       } finally {
         setLoading(false);
       }
@@ -173,19 +173,20 @@ export default function ActivityScreen() {
   };
 
   const schedulePercent = useMemo(() => {
-    const allTodos = [...monthlyTodos, ...weeklyTodos];
+    const allTodos = [...monthlyTodos, ...weeklyTodos, ...dailyTodos];
     if (allTodos.length === 0) return 0;
     return Math.round((allTodos.filter((todo) => todo.status !== '미진행').length / allTodos.length) * 100);
-  }, [monthlyTodos, weeklyTodos]);
+  }, [dailyTodos, monthlyTodos, weeklyTodos]);
 
   const monthlyPercent = useMemo(() => getPercent(monthlyTodos), [monthlyTodos]);
   const weeklyPercent = useMemo(() => getPercent(weeklyTodos), [weeklyTodos]);
+  const dailyPercent = useMemo(() => getPercent(dailyTodos), [dailyTodos]);
   const ringMetrics = useMemo(() => ([
-    { label: '일정', percent: schedulePercent },
-    { label: '전체', percent: progress.percent },
+    { label: '전체 할 일', percent: schedulePercent },
     { label: '월간 목표', percent: monthlyPercent },
     { label: '주간 목표', percent: weeklyPercent },
-  ]), [monthlyPercent, progress.percent, schedulePercent, weeklyPercent]);
+    { label: '일일 목표', percent: dailyPercent },
+  ]), [dailyPercent, monthlyPercent, schedulePercent, weeklyPercent]);
   const visibleWidgetPrefs = useMemo(
     () => widgetPrefs.filter(w => w.visible).sort((a, b) => a.order - b.order),
     [widgetPrefs]
@@ -220,9 +221,9 @@ export default function ActivityScreen() {
         setSelected(nextSelected || null);
         if (nextSelected) await fetchAllDataForTeam(nextSelected.teamId);
         else {
-          setProgress({ total: 0, done: 0, percent: 0 });
           setMonthlyTodos([]);
           setWeeklyTodos([]);
+          setDailyTodos([]);
         }
       };
       reload();
@@ -349,10 +350,10 @@ export default function ActivityScreen() {
         {showRing && (
           <View style={{ marginTop: 24 }}>
             <View style={styles.progressHeader}>
-              <Text style={styles.progressTitle}>이번 달 {progress.percent}% 완료!</Text>
+              <Text style={styles.progressTitle}>할 일 {schedulePercent}% 완료!</Text>
               <Text style={styles.progressCaption}>⌃</Text>
             </View>
-            <Ringgraph percent={progress.percent} metrics={ringMetrics} />
+            <Ringgraph percent={schedulePercent} metrics={ringMetrics} />
           </View>
         )}
 
@@ -363,6 +364,10 @@ export default function ActivityScreen() {
 
         <View style={{ marginTop: 24 }}>
           <Section title="주간 목표" sub={weekLabel()} data={weeklyTodos} />
+        </View>
+
+        <View style={{ marginTop: 24 }}>
+          <Section title="일일 목표" sub={dayLabel()} data={dailyTodos} />
         </View>
 
         {/* 위젯 영역: 설정(가시성/순서)에 따라 렌더 */}

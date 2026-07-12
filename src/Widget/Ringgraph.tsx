@@ -14,13 +14,13 @@ type Props = {
 };
 
 const rings = [
-  { size: 150, radius: 67, width: 9, color: '#FF2D70' },
-  { size: 118, radius: 51, width: 8, color: '#7CFF00' },
-  { size: 86, radius: 36, width: 7, color: '#25DDF4' },
-  { size: 56, radius: 21, width: 6, color: colors.primaryLight },
+  { size: 156, radius: 69, width: 10, color: colors.primary },
+  { size: 122, radius: 53, width: 9, color: '#8B6CF6' },
+  { size: 90, radius: 38, width: 8, color: colors.primaryLight },
+  { size: 60, radius: 23, width: 7, color: '#C4B5FD' },
 ];
 
-const SEGMENTS = 144;
+const SEGMENTS = 96;
 
 function clamp(value: number) {
   return Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
@@ -65,33 +65,38 @@ export default function Ringgraph({ percent, metrics }: Props) {
               {Array.from({ length: SEGMENTS }).map((_, segmentIndex) => {
                 const threshold = ((segmentIndex + 1) / SEGMENTS) * 100;
                 const active = threshold <= ringPercent;
-                const activation = Math.min(0.95, threshold / Math.max(ringPercent, 1));
+                const activation = Math.min(0.97, threshold / Math.max(ringPercent, 1));
                 const opacity = active
                   ? animated.interpolate({
                     inputRange: [0, activation, 1],
-                    outputRange: [0.15, 0.15, 1],
+                    outputRange: [0, 0, 1],
                     extrapolate: 'clamp',
                   })
-                  : 0.15;
+                  : 0;
                 const angle = (360 / SEGMENTS) * segmentIndex - 90;
                 return (
-                  <Animated.View
+                  <View
                     key={`segment-${segmentIndex}`}
                     style={[
-                      styles.segment,
+                      styles.trackSegment,
                       {
                         width: ring.width,
                         height: ring.width * 1.25,
                         borderRadius: ring.width,
-                        backgroundColor: ring.color,
-                        opacity,
                         transform: [
                           { rotate: `${angle}deg` },
                           { translateY: -ring.radius },
                         ],
                       },
                     ]}
-                  />
+                  >
+                    <Animated.View
+                      style={[
+                        styles.segment,
+                        { backgroundColor: ring.color, opacity },
+                      ]}
+                    />
+                  </View>
                 );
               })}
             </View>
@@ -109,7 +114,7 @@ export default function Ringgraph({ percent, metrics }: Props) {
               index > 1 && styles.metricTextSoft,
             ]}
           >
-            {metric.label} {clamp(metric.percent)}% {index === 0 ? '진행중' : '완료'}
+            {metric.label} {clamp(metric.percent)}% {metric.percent === 100 ? '완료' : '진행중'}
           </Text>
         ))}
       </View>
@@ -123,8 +128,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   graphArea: {
-    width: 168,
-    height: 168,
+    width: 174,
+    height: 174,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -132,15 +137,19 @@ const styles = StyleSheet.create({
     position: 'absolute',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 9,
-    borderColor: '#F0EAFE',
+  },
+  trackSegment: {
+    position: 'absolute',
+    backgroundColor: '#EDE9FE',
   },
   segment: {
-    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    borderRadius: 999,
   },
   metricList: {
     flex: 1,
-    marginLeft: 18,
+    marginLeft: 14,
     gap: 10,
   },
   metricText: {

@@ -156,6 +156,54 @@ const db = mysql.createConnection({
   port: Number(process.env.DB_PORT || 3306)
 });
 
+const ensureActivityTables = () => {
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS team_notices (
+      notice_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      team_id INT NOT NULL,
+      author_id INT NOT NULL,
+      title VARCHAR(160) NOT NULL,
+      content TEXT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_team_notices_team_created (team_id, created_at)
+    )`,
+    `CREATE TABLE IF NOT EXISTS notice_comments (
+      comment_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      notice_id INT NOT NULL,
+      author_id INT NOT NULL,
+      content TEXT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_notice_comments_notice_created (notice_id, created_at)
+    )`,
+    `CREATE TABLE IF NOT EXISTS user_notifications (
+      notification_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      team_id INT NOT NULL,
+      notice_id INT NULL,
+      type VARCHAR(32) NOT NULL,
+      title VARCHAR(160) NOT NULL,
+      content VARCHAR(255) NOT NULL,
+      is_read TINYINT(1) NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_user_notifications_user_created (user_id, created_at)
+    )`,
+  ];
+
+  const createNext = (index) => {
+    if (index >= statements.length) return;
+    db.query(statements[index], (err) => {
+      if (err) {
+        console.error('활동 위젯 테이블 준비 오류:', err);
+        return;
+      }
+      createNext(index + 1);
+    });
+  };
+
+  createNext(0);
+};
+
 // 데이터베이스 연결 테스트
 db.connect((err) => {
   if (err) {
@@ -163,6 +211,7 @@ db.connect((err) => {
     console.log('MySQL 없이 서버 계속 실행...');
   } else {
     console.log('✅ MySQL 연결 성공!');
+    ensureActivityTables();
   }
 });
 
@@ -732,6 +781,189 @@ app.get('/teams/:teamId/members', (req, res) => {
 
     res.json(results || []);
   });
+});
+
+const requireTeamMember = (teamId, userId, callback) => {
+  db.query(
+    'SELECT COUNT(*) AS count FROM team_members WHERE team_id = ? AND user_id = ?',
+    [teamId, userId],
+    (err, rows) => {
+      if (err) return callback(err, false);
+      callback(null, Number(rows?.[0]?.count || 0) > 0);
+    }
+  );
+};
+
+const createNoticeNotifications = ({ teamId, noticeId, actorId, type, title, content }) => {
+  const recipientSql = `
+    SELECT user_id
+    FROM team_members
+    WHERE team_id = ?
+      AND user_id <> ?
+  `;
+
+  db.query(recipientSql, [teamId, actorId], (memberErr, members) => {
+    if (memberErr || !members?.length) {
+      if (memberErr) console.error('공지 알림 대상 조회 오류:', memberErr);
+      return;
+    }
+
+    const rows = members.map((member) => [member.user_id, teamId, noticeId, type, title, content]);
+    db.query(
+      'INSERT INTO user_notifications (user_id, team_id, notice_id, type, title, content) VALUES ?',
+      [rows],
+      (insertErr) => insertErr && console.error('공지 알림 생성 오류:', insertErr)
+    );
+  });
+};
+
+app.get('/teams/:teamId/notices', (req, res) => {
+  const userId = getRequestUserId(req);
+  const { teamId } = req.params;
+  const limit = Math.min(Math.max(Number(req.query.limit) || 3, 1), 100);
+
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+
+  requireTeamMember(teamId, userId, (memberErr, isMember) => {
+    if (memberErr) return res.status(500).json({ message: '서버 오류' });
+    if (!isMember) return res.status(403).json({ message: '팀원만 공지사항을 볼 수 있습니다' });
+
+    const sql = `
+      SELECT n.notice_id, n.team_id, n.author_id, n.title, n.content, n.created_at, n.updated_at,
+        COALESCE(u.name, '알 수 없음') AS author_name,
+        COUNT(c.comment_id) AS comment_count
+      FROM team_notices n
+      LEFT JOIN users u ON u.id = n.author_id
+      LEFT JOIN notice_comments c ON c.notice_id = n.notice_id
+      WHERE n.team_id = ?
+      GROUP BY n.notice_id
+      ORDER BY n.created_at DESC, n.notice_id DESC
+      LIMIT ?
+    `;
+    db.query(sql, [teamId, limit], (err, rows) => {
+      if (err) {
+        console.error('공지사항 조회 오류:', err);
+        return res.status(500).json({ message: '서버 오류' });
+      }
+      res.json(rows || []);
+    });
+  });
+});
+
+app.get('/teams/:teamId/notices/:noticeId', (req, res) => {
+  const userId = getRequestUserId(req);
+  const { teamId, noticeId } = req.params;
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+
+  requireTeamMember(teamId, userId, (memberErr, isMember) => {
+    if (memberErr) return res.status(500).json({ message: '서버 오류' });
+    if (!isMember) return res.status(403).json({ message: '팀원만 공지사항을 볼 수 있습니다' });
+
+    const noticeSql = `
+      SELECT n.notice_id, n.team_id, n.author_id, n.title, n.content, n.created_at, n.updated_at,
+        COALESCE(u.name, '알 수 없음') AS author_name
+      FROM team_notices n
+      LEFT JOIN users u ON u.id = n.author_id
+      WHERE n.notice_id = ? AND n.team_id = ?
+    `;
+    db.query(noticeSql, [noticeId, teamId], (noticeErr, noticeRows) => {
+      if (noticeErr) return res.status(500).json({ message: '서버 오류' });
+      const notice = noticeRows?.[0];
+      if (!notice) return res.status(404).json({ message: '공지사항을 찾을 수 없습니다' });
+
+      const commentsSql = `
+        SELECT c.comment_id, c.notice_id, c.author_id, c.content, c.created_at,
+          COALESCE(u.name, '알 수 없음') AS author_name
+        FROM notice_comments c
+        LEFT JOIN users u ON u.id = c.author_id
+        WHERE c.notice_id = ?
+        ORDER BY c.created_at ASC, c.comment_id ASC
+      `;
+      db.query(commentsSql, [noticeId], (commentsErr, comments) => {
+        if (commentsErr) return res.status(500).json({ message: '서버 오류' });
+        res.json({ ...notice, comments: comments || [] });
+      });
+    });
+  });
+});
+
+app.post('/teams/:teamId/notices', (req, res) => {
+  const userId = getRequestUserId(req);
+  const { teamId } = req.params;
+  const title = String(req.body.title || '').trim();
+  const content = String(req.body.content || '').trim();
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!title || !content) return res.status(400).json({ message: '제목과 내용을 입력해주세요' });
+
+  requireTeamMember(teamId, userId, (memberErr, isMember) => {
+    if (memberErr) return res.status(500).json({ message: '서버 오류' });
+    if (!isMember) return res.status(403).json({ message: '팀원만 공지사항을 작성할 수 있습니다' });
+    db.query(
+      'INSERT INTO team_notices (team_id, author_id, title, content) VALUES (?, ?, ?, ?)',
+      [teamId, userId, title, content],
+      (err, result) => {
+        if (err) return res.status(500).json({ message: '서버 오류' });
+        createNoticeNotifications({ teamId, noticeId: result.insertId, actorId: userId, type: 'notice', title: '새 공지사항', content: title });
+        res.status(201).json({ notice_id: result.insertId });
+      }
+    );
+  });
+});
+
+app.put('/teams/:teamId/notices/:noticeId', (req, res) => {
+  const userId = getRequestUserId(req);
+  const { teamId, noticeId } = req.params;
+  const title = String(req.body.title || '').trim();
+  const content = String(req.body.content || '').trim();
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!title || !content) return res.status(400).json({ message: '제목과 내용을 입력해주세요' });
+
+  db.query(
+    'UPDATE team_notices SET title = ?, content = ? WHERE notice_id = ? AND team_id = ? AND author_id = ?',
+    [title, content, noticeId, teamId, userId],
+    (err, result) => {
+      if (err) return res.status(500).json({ message: '서버 오류' });
+      if (!result.affectedRows) return res.status(403).json({ message: '작성자만 공지사항을 수정할 수 있습니다' });
+      res.json({ success: true });
+    }
+  );
+});
+
+app.post('/teams/:teamId/notices/:noticeId/comments', (req, res) => {
+  const userId = getRequestUserId(req);
+  const { teamId, noticeId } = req.params;
+  const content = String(req.body.content || '').trim();
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!content) return res.status(400).json({ message: '댓글을 입력해주세요' });
+
+  requireTeamMember(teamId, userId, (memberErr, isMember) => {
+    if (memberErr) return res.status(500).json({ message: '서버 오류' });
+    if (!isMember) return res.status(403).json({ message: '팀원만 댓글을 작성할 수 있습니다' });
+    db.query('SELECT title FROM team_notices WHERE notice_id = ? AND team_id = ?', [noticeId, teamId], (noticeErr, rows) => {
+      if (noticeErr) return res.status(500).json({ message: '서버 오류' });
+      if (!rows?.[0]) return res.status(404).json({ message: '공지사항을 찾을 수 없습니다' });
+      db.query('INSERT INTO notice_comments (notice_id, author_id, content) VALUES (?, ?, ?)', [noticeId, userId, content], (err, result) => {
+        if (err) return res.status(500).json({ message: '서버 오류' });
+        createNoticeNotifications({ teamId, noticeId, actorId: userId, type: 'notice_comment', title: '공지사항에 새 댓글', content: rows[0].title });
+        res.status(201).json({ comment_id: result.insertId });
+      });
+    });
+  });
+});
+
+app.get('/notifications', (req, res) => {
+  const userId = getRequestUserId(req);
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  db.query(
+    `SELECT notification_id, team_id, notice_id, type, title, content, is_read, created_at
+     FROM user_notifications WHERE user_id = ?
+     ORDER BY created_at DESC, notification_id DESC LIMIT 100`,
+    [userId],
+    (err, rows) => {
+      if (err) return res.status(500).json({ message: '서버 오류' });
+      res.json(rows || []);
+    }
+  );
 });
 
 app.get('/teams/:teamId/progress', (req, res) => {
