@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Platform, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { useAuth } from '../context/AuthContext';
 import colors from '../config/colors';
 
 type Props = {
@@ -11,6 +13,7 @@ type DailyTodo = {
   title: string;
   status: '미진행' | '진행중' | '완료';
   assigned_user_name: string;
+  scope_type: '월간' | '주간' | '일일' | '전체';
 };
 
 const API_BASE_URL = __DEV__
@@ -18,18 +21,21 @@ const API_BASE_URL = __DEV__
   : 'https://your.api';
 
 export default function IssueTracker({ teamId }: Props) {
+  const { user } = useAuth();
   const [items, setItems] = useState<DailyTodo[]>([]);
   const [loading, setLoading] = useState(false);
 
   const fetchDaily = useCallback(async () => {
-    if (!teamId) {
+    if (!teamId || !user?.id) {
       setItems([]);
       return;
     }
 
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/teams/${teamId}/daily-todos`);
+      const response = await fetch(`${API_BASE_URL}/teams/${teamId}/daily-todos`, {
+        headers: { 'x-user-id': String(user.id) },
+      });
       const data: DailyTodo[] = await response.json();
       setItems(Array.isArray(data) ? data : []);
     } catch (error) {
@@ -37,11 +43,13 @@ export default function IssueTracker({ teamId }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [teamId]);
+  }, [teamId, user?.id]);
 
   useEffect(() => {
     fetchDaily();
   }, [fetchDaily]);
+
+  useFocusEffect(useCallback(() => { fetchDaily(); }, [fetchDaily]));
 
   const groups = useMemo(() => ({
     '할 일': items.filter((item) => item.status === '미진행'),
@@ -51,7 +59,15 @@ export default function IssueTracker({ teamId }: Props) {
 
   const Section = ({ title, data }: { title: keyof typeof groups; data: DailyTodo[] }) => (
     <View style={styles.section}>
-      <Text style={styles.tag}>{title}</Text>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.tag}>{title}</Text>
+        {title === '진행중' && data.length > 0 && (
+          <View style={styles.liveWrap}>
+            <View style={styles.liveDot} />
+            <Text style={styles.liveText}>LIVE</Text>
+          </View>
+        )}
+      </View>
       <View style={styles.box}>
         {loading ? (
           <Text style={styles.empty}>로딩 중…</Text>
@@ -61,8 +77,13 @@ export default function IssueTracker({ teamId }: Props) {
             keyExtractor={(todo) => String(todo.todo_id)}
             renderItem={({ item }) => (
               <View style={styles.row}>
-                <Text style={styles.todoTitle} numberOfLines={2}>{item.title}</Text>
-                <Text style={styles.assignee}>{item.assigned_user_name}</Text>
+                <View style={styles.todoInfo}>
+                  <Text style={styles.todoTitle} numberOfLines={2}>{item.title}</Text>
+                  <Text style={styles.scope}>{item.scope_type} 목표</Text>
+                </View>
+                <View style={styles.assigneeChip}>
+                  <Text style={styles.assignee}>{item.assigned_user_name}</Text>
+                </View>
               </View>
             )}
             scrollEnabled={false}
@@ -99,6 +120,12 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 12,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
   tag: {
     alignSelf: 'flex-start',
     paddingHorizontal: 14,
@@ -108,7 +135,30 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     fontSize: 13,
     fontWeight: '800',
-    marginBottom: 8,
+  },
+  liveWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: '#F1EDFF',
+  },
+  liveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    marginRight: 5,
+    backgroundColor: colors.primary,
+    shadowColor: colors.primary,
+    shadowOpacity: 0.65,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  liveText: {
+    color: colors.primaryDark,
+    fontSize: 11,
+    fontWeight: '900',
   },
   box: {
     borderRadius: 20,
@@ -123,16 +173,30 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     paddingVertical: 6,
   },
-  todoTitle: {
+  todoInfo: {
     flex: 1,
-    marginRight: 12,
+    marginRight: 10,
+  },
+  todoTitle: {
     color: colors.textMain,
     fontSize: 15,
     lineHeight: 22,
     fontWeight: '600',
   },
-  assignee: {
+  scope: {
+    marginTop: 3,
     color: colors.textSub,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  assigneeChip: {
+    borderRadius: 10,
+    backgroundColor: '#F0EDFE',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  assignee: {
+    color: colors.primaryDark,
     fontSize: 12,
     fontWeight: '700',
   },

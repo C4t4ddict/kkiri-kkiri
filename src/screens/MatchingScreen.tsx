@@ -17,6 +17,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../context/AuthContext';
 
 import { useFocusEffect } from '@react-navigation/native';
+import AppHeader from '../components/AppHeader';
 
 
 const BASE_URL =
@@ -142,15 +143,7 @@ const MatchingScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       {/* 상단 로고 + 알림 */}
-      <View style={styles.header}>
-        <Text style={styles.logo}>끼리끼리</Text>
-        <Icon
-          name="notifications-outline"
-          size={24}
-          color="#101828"
-          onPress={() => navigation.navigate('Notifications')}
-        />
-      </View>
+      <AppHeader actions={<Icon name="notifications-outline" size={25} color="#101828" onPress={() => navigation.navigate('Notifications')} />} />
 
       {/* 검색창 */}
       <View style={styles.searchContainer}>
@@ -216,17 +209,16 @@ const MatchingScreen = () => {
           );
         })}
 
-        {/* 하단 “팀 만들기” 버튼 */}
-        <View style={{ alignItems: 'center', marginTop: 16, marginBottom: 24 }}>
-          <TouchableOpacity
-            style={styles.createBtn}
-            onPress={() => navigation.navigate('TeamMake', { user })}  // ← user.id 포함
-            activeOpacity={0.85}
-          >
-            <Text style={styles.createBtnText}>팀 만들기</Text>
-          </TouchableOpacity>
-        </View>
+        <View style={{ height: 104 }} />
       </ScrollView>
+      <TouchableOpacity
+        style={styles.createFab}
+        onPress={() => navigation.navigate('TeamMake', { user })}
+        activeOpacity={0.85}
+      >
+        <Icon name="add" size={22} color="#FFFFFF" />
+        <Text style={styles.createBtnText}>팀 만들기</Text>
+      </TouchableOpacity>
     </SafeAreaView>
   );
 };
@@ -235,19 +227,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
-    paddingTop: 20,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-    paddingHorizontal: 20,
-  },
-  logo: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#7A5AF8',
   },
   searchContainer: {
     flexDirection: 'row',
@@ -323,18 +302,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#475467',
   },
-  createBtn: {
-    minWidth: 140,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 20,
+  createFab: {
+    position: 'absolute',
+    right: 20,
+    bottom: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderRadius: 999,
     backgroundColor: '#7A5AF8',
+    shadowColor: '#7A5AF8',
+    shadowOpacity: 0.3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 9,
+    elevation: 7,
   },
   createBtnText: {
     color: '#fff',
     fontSize: 15,
     fontWeight: '700',
-    textAlign: 'center',
+    marginLeft: 6,
   },
 });
 

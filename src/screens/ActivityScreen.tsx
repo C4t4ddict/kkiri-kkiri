@@ -13,6 +13,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar, Platform } from 'react-native';
+import Icon from 'react-native-vector-icons/Ionicons';
+import AppHeader from '../components/AppHeader';
 import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../types';
 import { loadWidgetPrefs } from '../utils/widgetPrefs';
@@ -290,10 +292,9 @@ export default function ActivityScreen() {
   return (
     <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <StatusBar barStyle="dark-content" />
-      <View style={[styles.container, { paddingTop: 12 ,}]}>
+      <View style={styles.container}>
         {/* 상단 */}
-        <View style={styles.topRow}>
-          <Text style={styles.brand}>끼리끼리</Text>
+        <AppHeader actions={
           <View style={styles.iconRow}>
             <Pressable hitSlop={10}>
               <Image source={require('../assets/folder.png')} style={styles.icon} resizeMode="contain" />
@@ -305,7 +306,7 @@ export default function ActivityScreen() {
               <Image source={require('../assets/bell.png')} style={[styles.icon, { marginLeft: 16 }]} resizeMode="contain" />
             </Pressable>
           </View>
-        </View>
+        } />
 
         {/* 드롭다운 + 역할 */}
         <View style={styles.selectRow}>
@@ -389,7 +390,8 @@ export default function ActivityScreen() {
 
           {/* 떠 있는 FAB (스크롤과 독립) */}
           <Pressable style={styles.fab} onPress={() => navigation.navigate('TodoScreen')}>
-            <Image source={require('../assets/plus-circle.png')} style={{ width: 56, height: 56 }} />
+            <Icon name="add" size={29} color="#FFFFFF" />
+            <Text style={styles.fabText}>목표</Text>
           </Pressable>
           </View>
         </SafeAreaView>
@@ -405,22 +407,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    paddingTop: 24,
     paddingHorizontal: 20,
   },
   scrollBody: {
     paddingBottom: 140, // FAB와 겹치지 않도록 여유
     backgroundColor: '#FFFFFF',
-  },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  brand: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: PURPLE,
   },
   iconRow: {
     flexDirection: 'row',
@@ -619,10 +610,17 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 20,
     bottom: 40,
-    shadowColor: '#000',
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    backgroundColor: PURPLE,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: PURPLE,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
     elevation: 5,
   },
+  fabText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800', marginTop: -3 },
 });

@@ -13,6 +13,7 @@ import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Icon from 'react-native-vector-icons/Ionicons';
+import AppHeader from '../../components/AppHeader';
 
 const BASE_URL =
   Platform.OS === 'android'
@@ -76,10 +77,7 @@ const InfoScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       {/* 상단 로고 + 종 아이콘 */}
-      <View style={styles.header}>
-        <Text style={styles.logo}>끼리끼리</Text>
-        <Icon name="notifications-outline" size={24} color="#101828" />
-      </View>
+      <AppHeader actions={<Icon name="notifications-outline" size={25} color="#101828" onPress={() => navigation.navigate('Notifications')} />} />
 
       {/* 검색창 */}
       <View style={styles.searchContainer}>
@@ -138,20 +136,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
-    paddingHorizontal: 16,
-    paddingTop: 20,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-    paddingHorizontal: 20,
-  },
-  logo: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#7A5AF8',
+    paddingHorizontal: 0,
   },
   searchContainer: {
     flexDirection: 'row',

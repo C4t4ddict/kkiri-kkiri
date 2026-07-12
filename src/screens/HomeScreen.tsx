@@ -2,17 +2,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, FlatList, Image,
-  TouchableOpacity, Platform, ActivityIndicator, Alert, SafeAreaView, StatusBar
+  TouchableOpacity, Platform, ActivityIndicator, Alert, SafeAreaView
 } from 'react-native';
 import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../types'; // 경로: src/screens 기준
+import AppHeader from '../components/AppHeader';
 
 type RootNav = StackNavigationProp<RootStackParamList>;
 // const H_PADDING = 22; // ← 화면 좌우 공통 여백
 const LIST_H_PADDING = 28;  // ← '모집중' 이하 좌우 여백(더 넓게)
-const TOP_EXTRA = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) + 8 : 8;
 
 type Activity = {
   activity_id: number;
@@ -114,14 +114,13 @@ export default function HomeScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: TOP_EXTRA }]}>
+    <SafeAreaView style={styles.container}>
       {/* 헤더 */}
-      <View style={styles.header}>
-        <Text style={styles.logo}>끼리끼리</Text>
+      <AppHeader actions={
         <TouchableOpacity onPress={() => rootNav.navigate('Notifications')}>
           <Image source={require('../assets/bell.png')} style={styles.bellIcon} resizeMode="contain" />
         </TouchableOpacity>
-      </View>
+      } />
       <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
         {/* 헤더와 활동 사이 여유 공간 */}
         <View style={{ height: 20 }} />
@@ -192,18 +191,10 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: 'white' },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  logo: { fontSize: 28, fontWeight: '800', color: '#7A5AF8' },
   //bell: { fontSize: 18 },
   bellIcon: {
-    width: 22,   // 원하는 크기로 조절
-    height: 22,
+    width: 25,
+    height: 25,
   },
   sectionHeader: {
     fontSize: 20,

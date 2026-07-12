@@ -16,6 +16,7 @@ import {
   ToastAndroid
 } from 'react-native';
 import axios from 'axios';
+import Icon from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
 
@@ -504,11 +505,8 @@ export default function TodoScreen() {
         )}
 
         <Pressable style={styles.addButton} onPress={() => onPressAdd(scope)}>
-          <Image
-            source={require('../assets/plus-circle.png')}
-            style={{ width: 28, height: 28 }}
-            resizeMode="contain"
-          />
+          <Icon name="add" size={19} color="#FFFFFF" />
+          <Text style={styles.addButtonText}>목표 추가</Text>
         </Pressable>
       </View>
     );
@@ -673,7 +671,21 @@ const styles = StyleSheet.create({
 
   input: { flex: 1, paddingVertical: 4 },
 
-  addButton: { marginTop: 8, alignItems: 'center' },
+  addButton: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: PURPLE,
+    shadowColor: PURPLE,
+    shadowOpacity: 0.22,
+    shadowRadius: 7,
+    elevation: 3,
+  },
+  addButtonText: { marginLeft: 4, color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
 
 
   // 기존 periodNav 대신 사용

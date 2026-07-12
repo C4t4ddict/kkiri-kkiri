@@ -204,6 +204,15 @@ const ensureActivityTables = () => {
   createNext(0);
 };
 
+const ensureTodoCompletionColumn = () => {
+  db.query('SHOW COLUMNS FROM todos LIKE \'completed_at\'', (columnErr, columns) => {
+    if (columnErr || columns?.length) return;
+    db.query('ALTER TABLE todos ADD COLUMN completed_at DATETIME NULL', (alterErr) => {
+      if (alterErr) console.error('투두 완료 시각 컬럼 준비 오류:', alterErr);
+    });
+  });
+};
+
 // 데이터베이스 연결 테스트
 db.connect((err) => {
   if (err) {
@@ -212,6 +221,7 @@ db.connect((err) => {
   } else {
     console.log('✅ MySQL 연결 성공!');
     ensureActivityTables();
+    ensureTodoCompletionColumn();
   }
 });
 
@@ -1023,7 +1033,12 @@ app.get('/teams/:teamId/progress', (req, res) => {
 });
 
 app.get('/teams/:teamId/daily-todos', (req, res) => {
+  const userId = getRequestUserId(req);
   const { teamId } = req.params;
+
+  if (!userId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
 
   if (!db || db.state === 'disconnected') {
     return res.json([]);
@@ -1034,19 +1049,22 @@ app.get('/teams/:teamId/daily-todos', (req, res) => {
       td.todo_id,
       td.title,
       td.status,
+      td.scope_type,
+      td.scope_start_date,
+      td.scope_end_date,
       COALESCE(u.name, '이름 없음') AS assigned_user_name
     FROM todos td
     LEFT JOIN users u ON u.id = td.assigned_user_id
     WHERE td.team_id = ?
-      AND (
-        td.scope_type = '일일'
-        OR CURDATE() BETWEEN td.scope_start_date AND td.scope_end_date
+      AND EXISTS (
+        SELECT 1 FROM team_members tm
+        WHERE tm.team_id = td.team_id AND tm.user_id = ?
       )
-    ORDER BY td.updated_at DESC, td.todo_id DESC
-    LIMIT 30
+    ORDER BY FIELD(td.status, '진행중', '미진행', '완료'), td.updated_at DESC, td.todo_id DESC
+    LIMIT 100
   `;
 
-  db.query(sql, [teamId], (err, results) => {
+  db.query(sql, [teamId, userId], (err, results) => {
     if (err) {
       console.error('일일 투두 조회 오류:', err);
       return res.status(500).json({ message: '서버 오류' });
@@ -1083,13 +1101,14 @@ app.get('/teams/:teamId/heatmap', (req, res) => {
 
   const sql = `
     SELECT
-      DATE(scope_start_date) AS activity_date,
+      DATE(COALESCE(completed_at, updated_at)) AS activity_date,
       COUNT(*) AS count
     FROM todos
     WHERE team_id = ?
-      AND scope_start_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
-      AND scope_start_date < DATE_ADD(LAST_DAY(CURDATE()), INTERVAL 1 DAY)
-    GROUP BY DATE(scope_start_date)
+      AND status = '완료'
+      AND COALESCE(completed_at, updated_at) >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+      AND COALESCE(completed_at, updated_at) < DATE_ADD(LAST_DAY(CURDATE()), INTERVAL 1 DAY)
+    GROUP BY DATE(COALESCE(completed_at, updated_at))
     ORDER BY activity_date ASC
   `;
 
@@ -1336,10 +1355,15 @@ app.put('/todos/:todoId', (req, res) => {
 
   const setClause = updates.map(field => `${field} = ?`).join(', ');
   const values = updates.map(field => req.body[field]);
+  const completionClause = req.body.status === undefined
+    ? ''
+    : req.body.status === '완료'
+      ? ', completed_at = COALESCE(completed_at, NOW())'
+      : ', completed_at = NULL';
 
   const sql = `
     UPDATE todos
-    SET ${setClause}
+    SET ${setClause}${completionClause}
     WHERE todo_id = ?
       AND team_id IN (
         SELECT team_id FROM team_members WHERE user_id = ?
@@ -2019,13 +2043,20 @@ app.delete('/api/delete-user/:id', (req, res) => {
 
 // 이미지 업로드 설정
 const storage = multer.diskStorage({
-  destination: './uploads/',
+  destination: (req, file, cb) => {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    cb(null, UPLOADS_DIR);
+  },
   filename: (req, file, cb) => {
     cb(null, Date.now() + '-' + file.originalname);
   },
 });
 
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, file.mimetype.startsWith('image/')),
+});
 
 app.post('/api/upload', upload.single('image'), (req, res) => {
   if (!req.file) {
@@ -2039,6 +2070,31 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
   res.status(200).json({ 
     success: true,
     imageUrl 
+  });
+});
+
+app.post('/api/upload/profile/:userId', upload.single('image'), (req, res) => {
+  const requestUserId = getRequestUserId(req);
+  const { userId } = req.params;
+
+  if (!requestUserId || Number(requestUserId) !== Number(userId)) {
+    return res.status(403).json({ success: false, message: '본인 프로필만 변경할 수 있습니다' });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: '이미지 파일이 없습니다' });
+  }
+
+  const imageUrl = `http://localhost:3000/uploads/${req.file.filename}`;
+  db.query('UPDATE users SET profile_picture = ?, updated_at = NOW() WHERE id = ?', [imageUrl, userId], (err, result) => {
+    if (err) {
+      console.error('프로필 이미지 저장 오류:', err);
+      return res.status(500).json({ success: false, message: '프로필 이미지 저장에 실패했습니다' });
+    }
+    if (!result.affectedRows) {
+      return res.status(404).json({ success: false, message: '사용자를 찾을 수 없습니다' });
+    }
+    res.status(201).json({ success: true, imageUrl });
   });
 });
 

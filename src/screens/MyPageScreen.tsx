@@ -7,7 +7,9 @@ import { useNavigation, CommonActions } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../context/AuthContext';
 import { User } from '../types';
-import { launchImageLibrary, ImagePickerResponse, MediaType } from 'react-native-image-picker';
+import { launchImageLibrary, ImagePickerResponse } from 'react-native-image-picker';
+import Icon from 'react-native-vector-icons/Ionicons';
+import AppHeader from '../components/AppHeader';
 
 // ImageAsset 타입 정의
 interface ImageAsset {
@@ -110,14 +112,8 @@ export default function MyPageScreen() {
   // URL 처리 함수 - localhost를 현재 플랫폼에 맞게 변환
   const getCorrectImageUrl = (imageUrl: string | null | undefined): string | null => {
     if (!imageUrl) return null;
-    
-    // localhost를 현재 플랫폼에 맞는 주소로 변경
-    if (Platform.OS === 'android') {
-      return imageUrl.replace('http://localhost:3000', 'http://10.0.2.2:3000');
-    } else {
-      // iOS는 localhost 그대로 사용
-      return imageUrl.replace('http://10.0.2.2:3000', 'http://localhost:3000');
-    }
+    const uploadPath = imageUrl.match(/\/uploads\/[^?#]+/)?.[0];
+    return uploadPath ? `${API_BASE_URL}${uploadPath}` : imageUrl;
   };
 
   // 사용자 정보 불러오기 (전역 user가 있을 때만)
@@ -173,6 +169,7 @@ export default function MyPageScreen() {
       
       const res = await fetch(uploadUrl, {
         method: 'POST',
+        headers: { 'x-user-id': String(user.id) },
         body: formData,
       });
 
@@ -205,10 +202,11 @@ export default function MyPageScreen() {
         text: '갤러리에서 선택',
         onPress: () => {
           launchImageLibrary({ 
-            mediaType: 'photo' as MediaType,
+            mediaType: 'photo',
             quality: 0.8,
-            maxWidth: 200,
-            maxHeight: 200,
+            maxWidth: 800,
+            maxHeight: 800,
+            selectionLimit: 1,
           }, async (response: ImagePickerResponse) => {
             if (response.didCancel) {
               console.log('User cancelled image picker');
@@ -247,7 +245,7 @@ export default function MyPageScreen() {
     try {
       const res = await fetch(`${API_BASE_URL}/api/user/${user.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-user-id': String(user.id) },
         body: JSON.stringify({ 
           profile_picture: null
         }),
@@ -384,35 +382,19 @@ export default function MyPageScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <AppHeader actions={<Icon name="notifications-outline" size={25} color="#101828" onPress={() => navigation.navigate('Notifications' as never)} />} />
       <ScrollView>
         <View style={styles.profileSection}>
           <View style={styles.profileImageContainer}>
-            <Image
-              source={
-                profileImage
-                  ? { uri: profileImage }
-                  : { uri: 'https://via.placeholder.com/300/E5E7EB/9CA3AF?text=Profile' }
-              }
-              style={styles.profileImage}
-              onError={(error) => {
-                console.log('이미지 로드 실패 상세 정보:', {
-                  url: profileImage,
-                  error: error.nativeEvent.error,
-                  platform: Platform.OS
-                });
-                // 에러 발생 시 다시 URL 변환 시도
-                if (profileImage && profileImage.includes('localhost')) {
-                  const retryUrl = getCorrectImageUrl(profileImage);
-                  console.log('재시도 URL:', retryUrl);
-                  if (retryUrl !== profileImage) {
-                    setProfileImage(retryUrl);
-                  }
-                }
-              }}
-              onLoad={() => {
-                console.log('이미지 로드 성공:', profileImage);
-              }}
-            />
+            {profileImage ? (
+              <Image
+                source={{ uri: profileImage }}
+                style={styles.profileImage}
+                onError={() => setProfileImage(null)}
+              />
+            ) : (
+              <View style={styles.defaultAvatar}><Icon name="person" size={62} color="#98A2B3" /></View>
+            )}
           </View>
           <View style={styles.nameContainer}>
             <Text style={styles.userName}>{user.name}</Text>
@@ -530,8 +512,9 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { fontSize: 16, color: '#6B7280' },
   profileSection: { alignItems: 'center', paddingVertical: 20 },
-  profileImageContainer: { width: 130, height: 130, borderRadius: 60, overflow: 'hidden', marginTop:50, marginBottom: 10 },
+  profileImageContainer: { width: 130, height: 130, borderRadius: 65, overflow: 'hidden', marginTop: 22, marginBottom: 10 },
   profileImage: { width: '100%', height: '100%', resizeMode: 'cover' },
+  defaultAvatar: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F2F4F7' },
   nameContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
   userName: { fontSize: 20, fontWeight: 'bold', color: '#1F2937', marginRight: 10 },
   imageEditButton: { padding: 5 },
