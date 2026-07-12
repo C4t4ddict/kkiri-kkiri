@@ -3,7 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "android": "react-native run-android",
+    "android": "react-native run-android && npm run android:reverse && npm run android:restart",
+    "android:reverse": "adb reverse tcp:8081 tcp:8081 && adb reverse tcp:3000 tcp:3000",
+    "android:restart": "adb shell am force-stop com.ch02_1 && adb shell monkey -p com.ch02_1 1",
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
