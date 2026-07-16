@@ -1,5 +1,6 @@
 import React, { ReactNode } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { NavigationProp, ParamListBase, useNavigation } from '@react-navigation/native';
 import colors from '../config/colors';
 
 type Props = {
@@ -8,9 +9,19 @@ type Props = {
 };
 
 export default function AppHeader({ actions, lowered = true }: Props) {
+  const navigation = useNavigation<NavigationProp<ParamListBase>>();
+
   return (
     <View style={[styles.header, lowered && styles.headerLowered]}>
-      <Text style={styles.brand}>끼리끼리</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="홈으로 이동"
+        hitSlop={10}
+        onPress={() => navigation.navigate('홈')}
+        style={({ pressed }) => [styles.brandButton, pressed && styles.brandPressed]}
+      >
+        <Text style={styles.brand}>끼리끼리</Text>
+      </Pressable>
       <View style={styles.actions}>{actions}</View>
     </View>
   );
@@ -29,6 +40,13 @@ const styles = StyleSheet.create({
   },
   headerLowered: {
     paddingTop: 23,
+  },
+  brandButton: {
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+  },
+  brandPressed: {
+    opacity: 0.65,
   },
   brand: {
     color: colors.primary,

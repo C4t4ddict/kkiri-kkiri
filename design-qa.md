@@ -20,4 +20,19 @@
 - P2: 없음
 - P3: 기준 이미지는 가로형 독립 시안이고 구현은 모바일 카드이므로 텍스트 위치가 반응형으로 조정됨
 
+## 이슈 #14 검증
+
+- 홈 기준 캡처: `/tmp/issue14-home.png`
+- 비교 캡처: `/tmp/issue14-info.png`, `/tmp/issue14-matching.png`
+- 헤더 로고 영역: 홈·정보·활동·매칭 모두 `[53,60][317,160]`으로 일치
+- 로고 동작: 활동 탭에서 로고를 눌러 홈 탭과 홈 콘텐츠로 이동하는 것을 확인
+- 링 애니메이션: `/tmp/issue14-ring-early.png`, `/tmp/issue14-ring-middle.png`, `/tmp/issue14-ring-finished.png` 순서로 목표 진행률까지 부드럽게 채워지는 것을 확인
+- 링 디자인: 기존 동심원 구조, 색상, 레이블 배치를 변경하지 않음
+
+## 이슈 #14 등급
+
+- P0: 없음
+- P1: 없음
+- P2: 없음
+
 final result: passed

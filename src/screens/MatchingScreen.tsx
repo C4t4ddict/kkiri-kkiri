@@ -7,6 +7,7 @@ import {
   ScrollView,
   SafeAreaView,
   TouchableOpacity,
+  Image,
   StyleSheet,
   Platform,
 } from 'react-native';
@@ -132,7 +133,11 @@ const MatchingScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       {/* 상단 로고 + 알림 */}
-      <AppHeader actions={<Icon name="notifications-outline" size={25} color="#101828" onPress={() => navigation.navigate('Notifications')} />} />
+      <AppHeader actions={
+        <TouchableOpacity onPress={() => navigation.navigate('Notifications')}>
+          <Image source={require('../assets/bell.png')} style={styles.bellIcon} resizeMode="contain" />
+        </TouchableOpacity>
+      } />
 
       {/* 검색창 */}
       <View style={styles.searchContainer}>
@@ -233,6 +238,10 @@ const MatchingScreen = () => {
 };
 
 const styles = StyleSheet.create({
+  bellIcon: {
+    width: 25,
+    height: 25,
+  },
   container: {
     flex: 1,
     backgroundColor: '#fff',

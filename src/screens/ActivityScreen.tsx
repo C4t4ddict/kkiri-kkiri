@@ -8,10 +8,10 @@ import {
   FlatList,
   StyleSheet,
   ScrollView,
+  SafeAreaView,
 } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar, Platform } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import AppHeader from '../components/AppHeader';
@@ -327,7 +327,7 @@ export default function ActivityScreen() {
   };
 
   return (
-    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+    <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
       <View style={styles.container}>
         {/* 상단 */}
@@ -453,6 +453,10 @@ function humanizePart(part: string) {
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',

@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 
 type RingMetric = {
@@ -30,6 +30,7 @@ function clamp(value: number) {
 export default function Ringgraph({ percent, metrics }: Props) {
   const progress = useRef(new Animated.Value(0)).current;
   const circleRefs = useRef<Array<Circle | null>>([]);
+  const isFocused = useIsFocused();
   const visualMetrics = useMemo(
     () => rings.map((_, index) => metrics[index] ?? {
       label: index === 0 ? '전체' : '목표',
@@ -38,6 +39,7 @@ export default function Ringgraph({ percent, metrics }: Props) {
     }),
     [metrics, percent]
   );
+  const animationKey = visualMetrics.map((metric) => clamp(metric.percent)).join('-');
 
   useEffect(() => {
     const listenerId = progress.addListener(({ value }) => {
@@ -52,25 +54,26 @@ export default function Ringgraph({ percent, metrics }: Props) {
     return () => progress.removeListener(listenerId);
   }, [progress, visualMetrics]);
 
-  const runAnimation = useCallback(() => {
+  useEffect(() => {
+    if (!isFocused) return;
+
     progress.stopAnimation();
     progress.setValue(0);
-    Animated.timing(progress, {
-      toValue: 1,
-      duration: 1100,
-      useNativeDriver: false,
-    }).start();
-  }, [progress]);
+    const animation = Animated.sequence([
+      Animated.delay(120),
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: 1450,
+        easing: Easing.bezier(0.22, 1, 0.36, 1),
+        useNativeDriver: false,
+      }),
+    ]);
+    animation.start();
 
-  useEffect(() => {
-    runAnimation();
-  }, [runAnimation, visualMetrics]);
-
-  useFocusEffect(
-    useCallback(() => {
-      runAnimation();
-    }, [runAnimation])
-  );
+    return () => {
+      animation.stop();
+    };
+  }, [animationKey, isFocused, progress]);
 
   return (
     <View style={styles.wrap}>
