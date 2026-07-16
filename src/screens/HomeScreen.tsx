@@ -9,6 +9,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../types'; // 경로: src/screens 기준
 import AppHeader from '../components/AppHeader';
+import { HOME_ACTIVITY_CATEGORIES } from '../constants/activityCategories';
 
 type RootNav = StackNavigationProp<RootStackParamList>;
 // const H_PADDING = 22; // ← 화면 좌우 공통 여백
@@ -17,7 +18,7 @@ const LIST_H_PADDING = 28;  // ← '모집중' 이하 좌우 여백(더 넓게)
 type Activity = {
   activity_id: number;
   title: string;
-  category: string;                    // '공모전' | '세미나' | '워크숍' | '튜터링'
+  category: string;
   main_image_url?: string | null;
   application_period_end?: string | null;
   created_at?: string;
@@ -25,8 +26,6 @@ type Activity = {
 
 const BASE_URL =
   Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
-
-const DEFAULT_CATEGORIES = ['공모전', '세미나', '워크숍', '튜터링'] as const;
 
 export default function HomeScreen() {
   const navigation = useNavigation();
@@ -76,7 +75,7 @@ export default function HomeScreen() {
     const dbCategories = activities
       .map(a => a.category)
       .filter((category): category is string => !!category);
-    return Array.from(new Set([...DEFAULT_CATEGORIES, ...dbCategories]));
+    return Array.from(new Set([...HOME_ACTIVITY_CATEGORIES, ...dbCategories]));
   }, [activities]);
 
   const openActivities = useMemo(() => activities.filter(isOpen), [activities]);

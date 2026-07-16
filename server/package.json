@@ -4,7 +4,9 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "crawl:competitions": "node crawler/index.js",
+    "crawl:competitions:dry": "node crawler/index.js --dry-run --limit 5",
+    "test": "node --test crawler/test/*.tests.js"
   },
   "keywords": [],
   "author": "",
@@ -13,8 +15,11 @@
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.0",
+    "cheerio": "1.0.0",
     "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
     "express": "^5.1.0",
+    "multer": "^2.0.2",
     "mysql2": "^3.14.1"
   }
 }
