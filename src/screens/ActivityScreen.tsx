@@ -333,14 +333,32 @@ export default function ActivityScreen() {
         {/* 상단 */}
         <AppHeader actions={
           <View style={styles.iconRow}>
-            <Pressable hitSlop={10}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="지난 활동"
+              accessibilityState={{ disabled: true }}
+              disabled
+              style={styles.iconButton}
+            >
               <Image source={require('../assets/folder.png')} style={styles.icon} resizeMode="contain" />
             </Pressable>
-            <Pressable hitSlop={10} onPress={() => navigation.navigate('ActivitySettingScreen', {teamId: selected?.teamId ?? undefined,})}>
-              <Image source={require('../assets/settings-01.png')} style={[styles.icon, { marginLeft: 16 }]} resizeMode="contain" />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="활동 편집"
+              hitSlop={4}
+              onPress={() => navigation.navigate('ActivitySettingScreen', {teamId: selected?.teamId ?? undefined,})}
+              style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
+            >
+              <Image source={require('../assets/settings-01.png')} style={styles.icon} resizeMode="contain" />
             </Pressable>
-            <Pressable hitSlop={10} onPress={() => navigation.navigate('Notifications')}>
-              <Image source={require('../assets/bell.png')} style={[styles.icon, { marginLeft: 16 }]} resizeMode="contain" />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="알림"
+              hitSlop={4}
+              onPress={() => navigation.navigate('Notifications')}
+              style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
+            >
+              <Image source={require('../assets/bell.png')} style={styles.icon} resizeMode="contain" />
             </Pressable>
           </View>
         } />
@@ -469,10 +487,22 @@ const styles = StyleSheet.create({
   iconRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
+  },
+  iconButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+  },
+  iconButtonPressed: {
+    backgroundColor: colors.primarySurface,
+    opacity: 0.72,
   },
   icon: {
-    width: 26,
-    height: 26,
+    width: 25,
+    height: 25,
   },
   selectRow: {
     marginTop: 18,

@@ -35,4 +35,19 @@
 - P1: 없음
 - P2: 없음
 
+## 이슈 #15 검증
+
+- 활동 헤더 캡처: `/tmp/issue15-current.png`
+- 활동 편집 캡처: `/tmp/issue15-settings.png`, `/tmp/issue15-dragged.png`, `/tmp/issue15-reopened.png`
+- 활동 편집·알림 버튼의 터치 영역을 각각 44dp 정사각형으로 통일하고 아이콘을 중앙 정렬함
+- 링그래프를 첫 번째에서 세 번째로 드래그한 뒤 다른 위젯이 부드럽게 재배치되는 것을 확인함
+- 저장 후 활동 편집 화면에 재진입해 변경된 순서가 유지되는 것을 확인함
+- `folder.png`는 존재하지만 `MyActivityScreen.tsx`가 비어 있고 앱 라우트가 없어 지난 활동 아이콘은 연결하지 않음
+
+## 이슈 #15 등급
+
+- P0: 없음
+- P1: 없음
+- P2: 없음
+
 final result: passed
