@@ -15,11 +15,12 @@ import axios from 'axios';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { MATCHING_ACTIVITY_CATEGORIES } from '../constants/activityCategories';
 
 const BASE_URL =
   Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 
-const CATEGORIES = ['공모전', '비교과', '경진대회', '동아리', '소모임', '기타'] as const;
+const CATEGORIES = MATCHING_ACTIVITY_CATEGORIES;
 
 const DEPARTMENTS = ['전학과', '컴퓨터공학과', '디자인학부', '경영학과', '기타'];
 const PERIODS = ['4주', '8주', '한 학기', '상시'];
@@ -299,8 +300,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 14,
   },
-  checkboxGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  checkboxItem: { flexDirection: 'row', alignItems: 'center', width: '30%', marginVertical: 12 },
+  checkboxGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  checkboxItem: { flexDirection: 'row', alignItems: 'center', width: '50%', marginVertical: 12 },
   checkboxSquare: {
     width: 16, height: 16, borderRadius: 4, borderWidth: 2, borderColor: '#344054', marginRight: 8, backgroundColor: '#fff',
   },

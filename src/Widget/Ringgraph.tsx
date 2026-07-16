@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import colors from '../config/colors';
+import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 
 type RingMetric = {
   label: string;
   percent: number;
+  suffix?: string;
 };
 
 type Props = {
@@ -13,37 +14,57 @@ type Props = {
   metrics: RingMetric[];
 };
 
+const SIZE = 178;
+const CENTER = SIZE / 2;
 const rings = [
-  { size: 156, radius: 69, width: 10, color: colors.primary },
-  { size: 122, radius: 53, width: 9, color: '#8B6CF6' },
-  { size: 90, radius: 38, width: 8, color: colors.primaryLight },
-  { size: 60, radius: 23, width: 7, color: '#C4B5FD' },
+  { radius: 78, width: 13, start: '#45247E', end: '#6842AE', track: '#E8E0F7' },
+  { radius: 60, width: 12, start: '#7651BE', end: '#9574D6', track: '#EEE8FA' },
+  { radius: 43, width: 11, start: '#A78BFA', end: '#BFAEF4', track: '#F1ECFB' },
+  { radius: 27, width: 10, start: '#C7B7EE', end: '#DDD3F6', track: '#F4F0FB' },
 ];
-
-const SEGMENTS = 96;
 
 function clamp(value: number) {
   return Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
 }
 
 export default function Ringgraph({ percent, metrics }: Props) {
-  const animated = useRef(new Animated.Value(0)).current;
-  const safePercent = clamp(percent);
-  const safeMetrics = useMemo(() => metrics.slice(0, 4), [metrics]);
+  const progress = useRef(new Animated.Value(0)).current;
+  const circleRefs = useRef<Array<Circle | null>>([]);
+  const visualMetrics = useMemo(
+    () => rings.map((_, index) => metrics[index] ?? {
+      label: index === 0 ? '전체' : '목표',
+      percent,
+      suffix: '완료',
+    }),
+    [metrics, percent]
+  );
+
+  useEffect(() => {
+    const listenerId = progress.addListener(({ value }) => {
+      visualMetrics.forEach((metric, index) => {
+        const circumference = 2 * Math.PI * rings[index].radius;
+        const progressLength = circumference * (clamp(metric.percent) / 100) * value;
+        circleRefs.current[index]?.setNativeProps({
+          strokeDashoffset: circumference - progressLength,
+        });
+      });
+    });
+    return () => progress.removeListener(listenerId);
+  }, [progress, visualMetrics]);
 
   const runAnimation = useCallback(() => {
-    animated.stopAnimation();
-    animated.setValue(0);
-    Animated.timing(animated, {
+    progress.stopAnimation();
+    progress.setValue(0);
+    Animated.timing(progress, {
       toValue: 1,
-      duration: 900,
-      useNativeDriver: true,
+      duration: 1100,
+      useNativeDriver: false,
     }).start();
-  }, [animated]);
+  }, [progress]);
 
   useEffect(() => {
     runAnimation();
-  }, [runAnimation, safePercent]);
+  }, [runAnimation, visualMetrics]);
 
   useFocusEffect(
     useCallback(() => {
@@ -54,68 +75,62 @@ export default function Ringgraph({ percent, metrics }: Props) {
   return (
     <View style={styles.wrap}>
       <View style={styles.graphArea}>
-        {rings.map((ring, ringIndex) => {
-          const ringPercent = clamp(safeMetrics[ringIndex]?.percent ?? safePercent);
-          return (
-            <View
-              key={`ring-${ring.size}`}
-              pointerEvents="none"
-              style={[styles.ringLayer, { width: ring.size, height: ring.size, borderRadius: ring.size / 2 }]}
-            >
-              {Array.from({ length: SEGMENTS }).map((_, segmentIndex) => {
-                const threshold = ((segmentIndex + 1) / SEGMENTS) * 100;
-                const active = threshold <= ringPercent;
-                const activation = Math.min(0.97, threshold / Math.max(ringPercent, 1));
-                const opacity = active
-                  ? animated.interpolate({
-                    inputRange: [0, activation, 1],
-                    outputRange: [0, 0, 1],
-                    extrapolate: 'clamp',
-                  })
-                  : 0;
-                const angle = (360 / SEGMENTS) * segmentIndex - 90;
-                return (
-                  <View
-                    key={`segment-${segmentIndex}`}
-                    style={[
-                      styles.trackSegment,
-                      {
-                        width: ring.width,
-                        height: ring.width * 1.25,
-                        borderRadius: ring.width,
-                        transform: [
-                          { rotate: `${angle}deg` },
-                          { translateY: -ring.radius },
-                        ],
-                      },
-                    ]}
-                  >
-                    <Animated.View
-                      style={[
-                        styles.segment,
-                        { backgroundColor: ring.color, opacity },
-                      ]}
-                    />
-                  </View>
-                );
-              })}
-            </View>
-          );
-        })}
+        <Svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
+          <Defs>
+            {rings.map((ring, index) => (
+              <LinearGradient
+                key={`gradient-${index}`}
+                id={`ring-gradient-${index}`}
+                x1="0"
+                y1="0"
+                x2="1"
+                y2="1"
+              >
+                <Stop offset="0" stopColor={ring.start} />
+                <Stop offset="1" stopColor={ring.end} />
+              </LinearGradient>
+            ))}
+          </Defs>
+          {rings.map((ring, index) => {
+            const circumference = 2 * Math.PI * ring.radius;
+            return (
+              <React.Fragment key={`ring-${ring.radius}`}>
+                <Circle
+                  cx={CENTER}
+                  cy={CENTER}
+                  r={ring.radius}
+                  fill="none"
+                  stroke={ring.track}
+                  strokeWidth={ring.width}
+                />
+                <Circle
+                  ref={(node) => { circleRefs.current[index] = node; }}
+                  cx={CENTER}
+                  cy={CENTER}
+                  r={ring.radius}
+                  fill="none"
+                  stroke={`url(#ring-gradient-${index})`}
+                  strokeWidth={ring.width}
+                  strokeLinecap="round"
+                  strokeDasharray={`${circumference} ${circumference}`}
+                  strokeDashoffset={circumference}
+                  rotation="-90"
+                  origin={`${CENTER}, ${CENTER}`}
+                />
+              </React.Fragment>
+            );
+          })}
+        </Svg>
       </View>
 
       <View style={styles.metricList}>
-        {safeMetrics.map((metric, index) => (
-          <Text
-            key={metric.label}
-            style={[
-              styles.metricText,
-              { color: rings[index]?.color ?? colors.primary },
-              index > 1 && styles.metricTextSoft,
-            ]}
-          >
-            {metric.label} {clamp(metric.percent)}% {metric.percent === 100 ? '완료' : '진행중'}
-          </Text>
+        {visualMetrics.map((metric, index) => (
+          <View key={`${metric.label}-${index}`} style={styles.metricRow}>
+            <View style={[styles.metricDot, { backgroundColor: rings[index].start }]} />
+            <Text style={[styles.metricText, { color: rings[index].start }]} numberOfLines={1}>
+              {metric.label} {clamp(metric.percent)}% {metric.suffix || '완료'}
+            </Text>
+          </View>
         ))}
       </View>
     </View>
@@ -124,40 +139,35 @@ export default function Ringgraph({ percent, metrics }: Props) {
 
 const styles = StyleSheet.create({
   wrap: {
+    marginTop: 12,
     flexDirection: 'row',
     alignItems: 'center',
   },
   graphArea: {
-    width: 174,
-    height: 174,
+    width: SIZE,
+    height: SIZE,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  ringLayer: {
-    position: 'absolute',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  trackSegment: {
-    position: 'absolute',
-    backgroundColor: '#EDE9FE',
-  },
-  segment: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 999,
   },
   metricList: {
     flex: 1,
-    marginLeft: 14,
-    gap: 10,
+    marginLeft: 8,
+    gap: 13,
+  },
+  metricRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  metricDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    marginRight: 7,
   },
   metricText: {
-    fontSize: 15,
+    flex: 1,
+    fontSize: 13,
     fontWeight: '800',
-    lineHeight: 22,
-  },
-  metricTextSoft: {
-    opacity: 0.78,
+    letterSpacing: -0.25,
   },
 });

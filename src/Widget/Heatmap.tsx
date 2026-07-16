@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import colors from '../config/colors';
 
 type Props = {
@@ -23,11 +23,6 @@ const API_BASE_URL =
 
 const weekdays = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
-function parseDate(date: string) {
-  const [year, month, day] = date.split('-').map(Number);
-  return new Date(year, month - 1, day);
-}
-
 function formatDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
@@ -47,6 +42,10 @@ function cellColor(count: number, isOutside?: boolean) {
 
 export default function Heatmap({ teamId }: Props) {
   const [cells, setCells] = useState<HeatmapCell[]>([]);
+  const [viewDate, setViewDate] = useState(() => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  });
 
   useEffect(() => {
     let alive = true;
@@ -59,7 +58,9 @@ export default function Heatmap({ teamId }: Props) {
 
     (async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/teams/${teamId}/heatmap`);
+        const response = await fetch(
+          `${API_BASE_URL}/teams/${teamId}/heatmap?year=${viewDate.getFullYear()}&month=${viewDate.getMonth() + 1}`
+        );
         const data = await response.json();
         if (alive) setCells(Array.isArray(data) ? data : []);
       } catch (error) {
@@ -70,13 +71,12 @@ export default function Heatmap({ teamId }: Props) {
     return () => {
       alive = false;
     };
-  }, [teamId]);
+  }, [teamId, viewDate]);
 
-  const baseDate = useMemo(() => (cells[0]?.date ? parseDate(cells[0].date) : new Date()), [cells]);
   const calendar = useMemo<CalendarCell[]>(() => {
     const countByDate = new Map(cells.map((cell) => [cell.date, Number(cell.count || 0)]));
-    const year = baseDate.getFullYear();
-    const month = baseDate.getMonth();
+    const year = viewDate.getFullYear();
+    const month = viewDate.getMonth();
     const first = new Date(year, month, 1);
     const last = new Date(year, month + 1, 0);
     const result: CalendarCell[] = [];
@@ -96,13 +96,37 @@ export default function Heatmap({ teamId }: Props) {
     }
 
     return result;
-  }, [baseDate, cells]);
+  }, [cells, viewDate]);
+
+  const moveMonth = (offset: number) => {
+    setViewDate((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
+  };
 
   return (
     <View style={styles.wrap}>
       <Text style={styles.title}>히트맵</Text>
       <View style={styles.divider} />
-      <Text style={styles.month}>{'<   '}{monthTitle(baseDate)}{'   >'}</Text>
+      <View style={styles.monthNavigation}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="이전 달"
+          hitSlop={10}
+          onPress={() => moveMonth(-1)}
+          style={styles.monthButton}
+        >
+          <Text style={styles.monthArrow}>‹</Text>
+        </Pressable>
+        <Text style={styles.month}>{monthTitle(viewDate)}</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="다음 달"
+          hitSlop={10}
+          onPress={() => moveMonth(1)}
+          style={styles.monthButton}
+        >
+          <Text style={styles.monthArrow}>›</Text>
+        </Pressable>
+      </View>
       <View style={styles.weekRow}>
         {weekdays.map((day) => (
           <View key={day} style={styles.slot}>
@@ -143,12 +167,29 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 18,
   },
+  monthNavigation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  monthButton: {
+    width: 42,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthArrow: {
+    color: colors.textSub,
+    fontSize: 28,
+    fontWeight: '500',
+  },
   month: {
+    minWidth: 100,
     textAlign: 'center',
     color: colors.textSub,
     fontSize: 18,
     fontWeight: '800',
-    marginBottom: 16,
   },
   weekRow: {
     flexDirection: 'row',

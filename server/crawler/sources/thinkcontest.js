@@ -80,7 +80,7 @@ const createThinkcontestSource = () => ({
       const payload = await client.fetchJson(LIST_API_URL, {
         method: 'POST',
         body: JSON.stringify({
-          recordsPerPage: 10,
+          recordsPerPage: Math.min(50, options.limit),
           currentPageNo: page,
           contest_field: '',
           host_organ: '',

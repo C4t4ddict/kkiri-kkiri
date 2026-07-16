@@ -382,7 +382,7 @@ export default function MyPageScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      <AppHeader actions={<Icon name="notifications-outline" size={25} color="#101828" onPress={() => navigation.navigate('Notifications' as never)} />} />
+      <AppHeader lowered={false} actions={<Icon name="notifications-outline" size={25} color="#101828" onPress={() => navigation.navigate('Notifications' as never)} />} />
       <ScrollView>
         <View style={styles.profileSection}>
           <View style={styles.profileImageContainer}>

@@ -20,8 +20,8 @@ const toPositiveInteger = (value, name) => {
 const parseArguments = (argumentsList) => {
   const options = {
     source: 'all',
-    pages: toPositiveInteger(process.env.CRAWLER_PAGES || 1, 'CRAWLER_PAGES'),
-    limit: toPositiveInteger(process.env.CRAWLER_LIMIT || 20, 'CRAWLER_LIMIT'),
+    pages: toPositiveInteger(process.env.CRAWLER_PAGES || 3, 'CRAWLER_PAGES'),
+    limit: toPositiveInteger(process.env.CRAWLER_LIMIT || 50, 'CRAWLER_LIMIT'),
     dryRun: false,
   };
   for (let index = 0; index < argumentsList.length; index += 1) {

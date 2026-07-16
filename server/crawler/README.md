@@ -9,7 +9,7 @@
 - `crawler_runs`: 실행별 발견·저장·오류 건수와 상태를 기록합니다.
 - `crawler_errors`: 사이트/항목/단계별 오류를 기록합니다.
 
-첫 DB 저장 실행 시 필요한 컬럼과 테이블을 안전하게 추가합니다. 기존 `activitys` 데이터는 수정하지 않습니다.
+첫 DB 저장 실행 시 필요한 컬럼과 테이블을 안전하게 추가합니다. 앱에는 `topic_category`를 기준으로 세부 분야가 노출됩니다.
 
 ## 실행
 
@@ -17,7 +17,7 @@
 cd server
 npm install
 npm run crawl:competitions:dry
-npm run crawl:competitions -- --source all --pages 2 --limit 20
+npm run crawl:competitions -- --source all --pages 3 --limit 50
 ```
 
 사이트 하나만 검증할 수 있습니다.
@@ -37,8 +37,8 @@ CRAWLER_REQUEST_DELAY_MS=1000
 CRAWLER_TIMEOUT_MS=15000
 CRAWLER_RETRIES=3
 CRAWLER_RESPECT_ROBOTS=true
-CRAWLER_PAGES=1
-CRAWLER_LIMIT=20
+CRAWLER_PAGES=3
+CRAWLER_LIMIT=50
 ```
 
-기본 설정은 `robots.txt`를 확인하고 사이트별 요청 사이에 1초를 둡니다. 한 사이트나 한 항목이 실패해도 나머지 항목은 계속 처리되며 실패 내용은 DB에 남습니다.
+기본 설정은 사이트별 3페이지, 최대 50건을 조회하고 `robots.txt`를 확인하며 요청 사이에 1초를 둡니다. 한 사이트나 한 항목이 실패해도 나머지 항목은 계속 처리되며 실패 내용은 DB에 남습니다.

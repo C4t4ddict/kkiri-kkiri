@@ -4,11 +4,12 @@ import colors from '../config/colors';
 
 type Props = {
   actions?: ReactNode;
+  lowered?: boolean;
 };
 
-export default function AppHeader({ actions }: Props) {
+export default function AppHeader({ actions, lowered = true }: Props) {
   return (
-    <View style={styles.header}>
+    <View style={[styles.header, lowered && styles.headerLowered]}>
       <Text style={styles.brand}>끼리끼리</Text>
       <View style={styles.actions}>{actions}</View>
     </View>
@@ -25,6 +26,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
+  },
+  headerLowered: {
+    paddingTop: 23,
   },
   brand: {
     color: colors.primary,

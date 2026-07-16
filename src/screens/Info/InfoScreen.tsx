@@ -10,7 +10,7 @@ import {
   Platform,
 } from 'react-native';
 import axios from 'axios';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Icon from 'react-native-vector-icons/Ionicons';
 import AppHeader from '../../components/AppHeader';
@@ -35,6 +35,7 @@ const formatDateRange = (startDate?: string | null, endDate?: string | null) => 
 
 const InfoScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
+  const route = useRoute<any>();
 
   const [searchText, setSearchText] = useState('');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -43,6 +44,13 @@ const InfoScreen = () => {
   useEffect(() => {
     fetchActivities();
   }, []);
+
+  useEffect(() => {
+    const initialCategory = route.params?.initialCategory;
+    if (typeof initialCategory === 'string' && initialCategory) {
+      setSelectedCategories([initialCategory]);
+    }
+  }, [route.params?.filterNonce, route.params?.initialCategory]);
 
   const fetchActivities = async () => {
     try {
@@ -57,10 +65,16 @@ const InfoScreen = () => {
     let filtered = activities;
 
     if (selectedCategories.length > 0) {
-      filtered = filtered.filter((item) =>
-        selectedCategories.includes(item.category) ||
-        selectedCategories.includes(item.topic_category)
-      );
+      filtered = filtered.filter((item) => {
+        const sourceCategories = Array.isArray(item.source_categories)
+          ? item.source_categories
+          : [];
+        return selectedCategories.some((category) =>
+          item.category === category ||
+          item.topic_category === category ||
+          sourceCategories.includes(category)
+        );
+      });
     }
 
     if (searchText.trim()) {
@@ -74,6 +88,16 @@ const InfoScreen = () => {
 
     return filtered;
   }, [activities, searchText, selectedCategories]);
+
+  const filterCategories = useMemo(() => {
+    const selected = ACTIVITY_FILTER_CATEGORIES.filter((category) =>
+      selectedCategories.includes(category)
+    );
+    const rest = ACTIVITY_FILTER_CATEGORIES.filter((category) =>
+      !selectedCategories.includes(category)
+    );
+    return [...selected, ...rest];
+  }, [selectedCategories]);
 
   const toggleCategory = (cat: string) => {
     setSelectedCategories((prev) =>
@@ -112,7 +136,7 @@ const InfoScreen = () => {
             전체
           </Text>
         </TouchableOpacity>
-        {ACTIVITY_FILTER_CATEGORIES.map((cat) => {
+        {filterCategories.map((cat) => {
           const selected = selectedCategories.includes(cat);
           return (
             <TouchableOpacity
@@ -128,6 +152,13 @@ const InfoScreen = () => {
 
       {/* 활동 리스트 */}
       <ScrollView style={styles.activityList}>
+        {filteredActivities.length === 0 && (
+          <View style={styles.emptyState}>
+            <Icon name="search-outline" size={30} color="#98A2B3" />
+            <Text style={styles.emptyTitle}>조건에 맞는 활동이 없어요</Text>
+            <Text style={styles.emptyDescription}>다른 카테고리나 검색어를 선택해보세요.</Text>
+          </View>
+        )}
         {filteredActivities.map((item) => {
           const applicationPeriod = formatDateRange(
             item.application_period_start,
@@ -236,6 +267,22 @@ const styles = StyleSheet.create({
   },
   filterChipTextSelected: {
     color: '#6941C6',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingTop: 72,
+  },
+  emptyTitle: {
+    marginTop: 12,
+    color: '#344054',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  emptyDescription: {
+    marginTop: 6,
+    color: '#98A2B3',
+    fontSize: 13,
   },
 });
 

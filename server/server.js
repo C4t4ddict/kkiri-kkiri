@@ -67,8 +67,22 @@ const normalizeActivity = (activity) => {
     return activity;
   }
 
+  let sourceCategories = activity.source_categories;
+  if (typeof sourceCategories === 'string') {
+    try {
+      const parsed = JSON.parse(sourceCategories);
+      sourceCategories = Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      sourceCategories = sourceCategories
+        .split(',')
+        .map((category) => category.trim())
+        .filter(Boolean);
+    }
+  }
+
   return {
     ...activity,
+    source_categories: Array.isArray(sourceCategories) ? sourceCategories : [],
     main_image_url: getActivityImageUrl(activity.main_image_url, activity.activity_id)
   };
 };
@@ -1056,6 +1070,8 @@ app.get('/teams/:teamId/daily-todos', (req, res) => {
     FROM todos td
     LEFT JOIN users u ON u.id = td.assigned_user_id
     WHERE td.team_id = ?
+      AND DATE(td.scope_start_date) <= CURDATE()
+      AND DATE(td.scope_end_date) >= CURDATE()
       AND EXISTS (
         SELECT 1 FROM team_members tm
         WHERE tm.team_id = td.team_id AND tm.user_id = ?
@@ -1076,11 +1092,23 @@ app.get('/teams/:teamId/daily-todos', (req, res) => {
 
 app.get('/teams/:teamId/heatmap', (req, res) => {
   const { teamId } = req.params;
+  const requestedYear = Number(req.query.year);
+  const requestedMonth = Number(req.query.month);
+  const today = new Date();
+  const year = Number.isInteger(requestedYear) && requestedYear >= 2000 && requestedYear <= 2100
+    ? requestedYear
+    : today.getFullYear();
+  const month = Number.isInteger(requestedMonth) && requestedMonth >= 1 && requestedMonth <= 12
+    ? requestedMonth
+    : today.getMonth() + 1;
+  const monthStart = new Date(year, month - 1, 1);
+  const nextMonthStart = new Date(year, month, 1);
+  const monthStartKey = formatDateOnly(monthStart);
+  const nextMonthStartKey = formatDateOnly(nextMonthStart);
 
   const buildMonthHeatmap = (countByDate = new Map()) => {
-    const today = new Date();
-    const start = new Date(today.getFullYear(), today.getMonth(), 1);
-    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    const start = new Date(year, month - 1, 1);
+    const end = new Date(year, month, 0);
     const payload = [];
 
     for (let day = 1; day <= end.getDate(); day += 1) {
@@ -1106,13 +1134,13 @@ app.get('/teams/:teamId/heatmap', (req, res) => {
     FROM todos
     WHERE team_id = ?
       AND status = '완료'
-      AND COALESCE(completed_at, updated_at) >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
-      AND COALESCE(completed_at, updated_at) < DATE_ADD(LAST_DAY(CURDATE()), INTERVAL 1 DAY)
+      AND COALESCE(completed_at, updated_at) >= ?
+      AND COALESCE(completed_at, updated_at) < ?
     GROUP BY DATE(COALESCE(completed_at, updated_at))
     ORDER BY activity_date ASC
   `;
 
-  db.query(sql, [teamId], (err, results) => {
+  db.query(sql, [teamId, monthStartKey, nextMonthStartKey], (err, results) => {
     if (err) {
       console.error('히트맵 조회 오류:', err);
       return res.status(500).json({ message: '서버 오류' });

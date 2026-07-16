@@ -1,5 +1,5 @@
 // MatchingScreen.tsx
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -18,15 +18,12 @@ import { useAuth } from '../context/AuthContext';
 
 import { useFocusEffect } from '@react-navigation/native';
 import AppHeader from '../components/AppHeader';
-
+import { MATCHING_ACTIVITY_CATEGORIES } from '../constants/activityCategories';
 
 const BASE_URL =
   Platform.OS === 'android'
     ? 'http://10.0.2.2:3000'
     : 'http://localhost:3000';
-
-// 디자인 시안의 카테고리
-const categories = ['공모전', '비교과', '경진대회', '동아리', '소모임', '기타'];
 
 type Recruitment = {
   recruitment_id: number;
@@ -58,12 +55,13 @@ const MatchingScreen = () => {
 
   const [searchText, setSearchText] = useState('');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedMeetingType, setSelectedMeetingType] = useState('전체');
   const [recruitments, setRecruitments] = useState<Recruitment[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
 
   const { user } = useAuth();
 
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     try {
       const [rRes, aRes] = await Promise.all([
         axios.get(`${BASE_URL}/api/team-recruitments`),          // 또는 with-count
@@ -74,35 +72,22 @@ const MatchingScreen = () => {
     } catch (e) {
       console.error('매칭 데이터 불러오기 오류:', e);
     }
-  };
-
-  // 최초 1회
-  useEffect(() => {
-    fetchAll();
   }, []);
 
   // 화면에 다시 포커스될 때마다 새로고침
   useFocusEffect(
     useCallback(() => {
       fetchAll();
-    }, [])
+    }, [fetchAll])
   );
-  // ---- 데이터 불러오기 ----
-  useEffect(() => {
-    const fetchAll = async () => {
-      try {
-        const [rRes, aRes] = await Promise.all([
-          axios.get(`${BASE_URL}/api/team-recruitments`),
-          axios.get(`${BASE_URL}/api/applications`),
-        ]);
-        setRecruitments(rRes.data || []);
-        setApplications(aRes.data || []);
-      } catch (e) {
-        console.error('매칭 데이터 불러오기 오류:', e);
-      }
-    };
-    fetchAll();
-  }, []);
+
+  const categories = useMemo(() => {
+    const values = new Set<string>(MATCHING_ACTIVITY_CATEGORIES);
+    recruitments.forEach((recruitment) => {
+      if (recruitment.activity_type) values.add(recruitment.activity_type);
+    });
+    return Array.from(values);
+  }, [recruitments]);
 
   // ---- 현재 인원 집계 (status가 cancel/rejected가 아닌 것만 카운트) ----
   const headcountsByRecruitment = useMemo(() => {
@@ -123,6 +108,10 @@ const MatchingScreen = () => {
       list = list.filter((r) => selectedCategories.includes(r.activity_type));
     }
 
+    if (selectedMeetingType !== '전체') {
+      list = list.filter((r) => r.meeting_type === selectedMeetingType);
+    }
+
     if (searchText.trim()) {
       const q = searchText.toLowerCase();
       list = list.filter(
@@ -132,7 +121,7 @@ const MatchingScreen = () => {
       );
     }
     return list;
-  }, [recruitments, searchText, selectedCategories]);
+  }, [recruitments, searchText, selectedCategories, selectedMeetingType]);
 
   const toggleCategory = (cat: string) => {
     setSelectedCategories((prev) =>
@@ -157,29 +146,49 @@ const MatchingScreen = () => {
         />
       </View>
 
-      {/* 카테고리 체크박스 (시안처럼 보라배경 박스) */}
-      <View style={styles.filterBox}>
-        <View style={styles.checkboxGrid}>
+      <View style={styles.filterSection}>
+        <Text style={styles.filterLabel}>활동 유형</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterContent}
+        >
+          <TouchableOpacity
+            style={[styles.filterChip, selectedCategories.length === 0 && styles.filterChipSelected]}
+            onPress={() => setSelectedCategories([])}
+          >
+            <Text style={[styles.filterChipText, selectedCategories.length === 0 && styles.filterChipTextSelected]}>전체</Text>
+          </TouchableOpacity>
           {categories.map((cat) => {
             const selected = selectedCategories.includes(cat);
             return (
               <TouchableOpacity
                 key={cat}
-                style={styles.checkboxItem}
+                style={[styles.filterChip, selected && styles.filterChipSelected]}
                 onPress={() => toggleCategory(cat)}
                 activeOpacity={0.7}
               >
-                <View
-                  style={[
-                    styles.checkboxSquare,
-                    selected && styles.checkboxSquareSelected,
-                  ]}
-                />
-                <Text style={styles.checkboxLabel}>{cat}</Text>
+                <Text style={[styles.filterChipText, selected && styles.filterChipTextSelected]}>{cat}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        <View style={styles.meetingFilterRow}>
+          {['전체', '대면', '비대면', '혼합'].map((meetingType) => {
+            const selected = selectedMeetingType === meetingType;
+            return (
+              <TouchableOpacity
+                key={meetingType}
+                style={[styles.meetingChip, selected && styles.meetingChipSelected]}
+                onPress={() => setSelectedMeetingType(meetingType)}
+              >
+                <Text style={[styles.meetingChipText, selected && styles.meetingChipTextSelected]}>{meetingType}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
+        <Text style={styles.resultCount}>모집글 {filtered.length}개</Text>
       </View>
 
       {/* 리스트 */}
@@ -243,42 +252,72 @@ const styles = StyleSheet.create({
     color: '#101828',
     flex: 1,
   },
-  filterBox: {
-    backgroundColor: '#F9F5FF',
-    borderRadius: 12,
-    paddingVertical: 4,
-    paddingHorizontal: 16,
-    marginBottom: 12,
+  filterSection: {
+    marginBottom: 8,
+  },
+  filterLabel: {
     marginHorizontal: 20,
+    marginBottom: 9,
+    color: '#344054',
+    fontSize: 13,
+    fontWeight: '700',
   },
-  checkboxGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+  filterContent: {
+    paddingHorizontal: 20,
+    gap: 8,
   },
-  checkboxItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '30%',
-    marginVertical: 18,
-    paddingHorizontal: 4,
-  },
-  checkboxSquare: {
-    width: 16,
-    height: 16,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: '#344054',
-    marginRight: 8,
+  filterChip: {
+    borderWidth: 1,
+    borderColor: '#D0D5DD',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     backgroundColor: '#fff',
   },
-  checkboxSquareSelected: {
-    backgroundColor: '#344054',
-    borderColor: '#344054',
+  filterChipSelected: {
+    borderColor: '#7A5AF8',
+    backgroundColor: '#F4F1FF',
   },
-  checkboxLabel: {
-    fontSize: 14,
-    color: '#101828',
+  filterChipText: {
+    color: '#475467',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  filterChipTextSelected: {
+    color: '#6941C6',
+  },
+  meetingFilterRow: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginTop: 12,
+    padding: 4,
+    borderRadius: 12,
+    backgroundColor: '#F2F4F7',
+  },
+  meetingChip: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 7,
+    borderRadius: 9,
+  },
+  meetingChipSelected: {
+    backgroundColor: '#FFFFFF',
+    elevation: 1,
+  },
+  meetingChipText: {
+    color: '#667085',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  meetingChipTextSelected: {
+    color: '#6941C6',
+    fontWeight: '800',
+  },
+  resultCount: {
+    marginHorizontal: 20,
+    marginTop: 12,
+    color: '#667085',
+    fontSize: 12,
     fontWeight: '600',
   },
   item: {

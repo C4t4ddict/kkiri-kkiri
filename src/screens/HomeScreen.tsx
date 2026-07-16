@@ -19,6 +19,8 @@ type Activity = {
   activity_id: number;
   title: string;
   category: string;
+  topic_category?: string | null;
+  source_name?: string | null;
   main_image_url?: string | null;
   application_period_end?: string | null;
   created_at?: string;
@@ -65,28 +67,36 @@ export default function HomeScreen() {
   const bannerItems = useMemo(
     () =>
       activities
+        .filter(isOpen)
         .filter(a => !!a.main_image_url)
-        .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
-        .slice(0, 10),
+        .sort((a, b) =>
+          (a.application_period_end ?? '9999').localeCompare(b.application_period_end ?? '9999')
+        )
+        .slice(0, 12),
     [activities]
   );
 
-  const categories = useMemo(() => {
-    const dbCategories = activities
-      .map(a => a.category)
-      .filter((category): category is string => !!category);
-    return Array.from(new Set([...HOME_ACTIVITY_CATEGORIES, ...dbCategories]));
-  }, [activities]);
-
   const openActivities = useMemo(() => activities.filter(isOpen), [activities]);
   const listSource = openActivities.length > 0 ? openActivities : activities;
+
+  const categories = useMemo(() => {
+    const dbCategories = Array.from(new Set(
+      listSource
+        .map(activity => activity.topic_category || activity.category)
+        .filter((category): category is string => !!category)
+    ));
+    const ordered = HOME_ACTIVITY_CATEGORIES.filter(category => dbCategories.includes(category));
+    const orderedSet = new Set<string>(ordered);
+    const custom = dbCategories.filter(category => !orderedSet.has(category));
+    return [...ordered, ...custom];
+  }, [listSource]);
 
   // 카테고리별 모집중 리스트(최대 5개씩)
   const groupedOpen = useMemo(() => {
     const byCat: Record<string, Activity[]> = {};
     categories.forEach(cat => {
       byCat[cat] = listSource
-        .filter(a => a.category === cat)
+        .filter(a => (a.topic_category || a.category) === cat)
         .sort((a, b) =>
           openActivities.length > 0
             ? (a.application_period_end ?? '').localeCompare(b.application_period_end ?? '')
@@ -102,6 +112,11 @@ export default function HomeScreen() {
     // e.g. navigation.navigate('ActivityDetail', { id })
     // @ts-ignore
     navigation.navigate('InfoDetail', { id });
+  };
+
+  const goCategory = (category: string) => {
+    // @ts-ignore
+    navigation.navigate('정보', { initialCategory: category, filterNonce: Date.now() });
   };
 
   if (loading) {
@@ -134,8 +149,20 @@ export default function HomeScreen() {
           ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
           contentContainerStyle={{ paddingHorizontal: 20, paddingRight: 8 }}
           renderItem={({ item }) => (
-            <TouchableOpacity onPress={() => goDetail(item.activity_id)} activeOpacity={0.85}>
-              <Image source={{ uri: item.main_image_url! }} style={styles.bannerImage} />
+            <TouchableOpacity
+              style={styles.posterCard}
+              onPress={() => goDetail(item.activity_id)}
+              activeOpacity={0.85}
+            >
+              <Image
+                source={{ uri: item.main_image_url! }}
+                style={styles.bannerImage}
+                resizeMode="cover"
+              />
+              <Text style={styles.posterCategory} numberOfLines={1}>
+                {item.topic_category || item.category}
+              </Text>
+              <Text style={styles.posterTitle} numberOfLines={2}>{item.title}</Text>
             </TouchableOpacity>
           )}
         />
@@ -158,8 +185,9 @@ export default function HomeScreen() {
               >
                 <View style={styles.categoryHeader}>
                   <Text style={styles.categoryTitle}>{cat}</Text>
-                  <TouchableOpacity onPress={() => {}}>
+                  <TouchableOpacity onPress={() => goCategory(cat)} style={styles.moreButton}>
                     <Text style={styles.more}>더보기</Text>
+                    <Text style={styles.moreChevron}>›</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -202,10 +230,26 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   bannerImage: {
-    width: 150,
-    height: 150,
-    borderRadius: 12,
+    width: 138,
+    height: 194,
+    borderRadius: 14,
     backgroundColor: '#EEE',
+  },
+  posterCard: {
+    width: 138,
+  },
+  posterCategory: {
+    marginTop: 9,
+    color: '#7A5AF8',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  posterTitle: {
+    marginTop: 3,
+    color: '#101828',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   recruitmentHeaderWrapper: {
     paddingHorizontal: 20,
@@ -230,7 +274,9 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   categoryTitle: { fontSize: 16, fontWeight: '700', color: '#101828' },
+  moreButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4 },
   more: { fontSize: 13, color: '#667085' },
+  moreChevron: { marginLeft: 3, fontSize: 18, color: '#98A2B3', lineHeight: 18 },
   row: {
     paddingVertical: 7,
     borderBottomWidth: StyleSheet.hairlineWidth,
