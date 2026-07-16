@@ -8,6 +8,14 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
+const {
+  archiveExpiredTeams,
+  archiveTeam,
+  ensurePortfolioSchema,
+  getMiniPortfolio,
+  listPastActivities,
+} = require('./portfolio/service');
+const { createMiniPortfolioPdf } = require('./portfolio/pdf');
 
 try {
   require('dotenv').config({ path: path.join(__dirname, '.env') });
@@ -169,6 +177,20 @@ const db = mysql.createConnection({
   database: process.env.DB_NAME || 'myappdb', // 범수 프로젝트 DB
   port: Number(process.env.DB_PORT || 3306)
 });
+const portfolioDb = db.promise();
+let portfolioQueue = Promise.resolve();
+
+const queuePortfolioJob = (job) => {
+  const result = portfolioQueue.then(job, job);
+  portfolioQueue = result.catch(() => undefined);
+  return result;
+};
+
+const runArchiveMaintenance = () =>
+  queuePortfolioJob(() => archiveExpiredTeams(portfolioDb));
+
+const runTeamArchive = (teamId, reason) =>
+  queuePortfolioJob(() => archiveTeam(portfolioDb, teamId, reason));
 
 const ensureActivityTables = () => {
   const statements = [
@@ -236,8 +258,21 @@ db.connect((err) => {
     console.log('✅ MySQL 연결 성공!');
     ensureActivityTables();
     ensureTodoCompletionColumn();
+    ensurePortfolioSchema(portfolioDb)
+      .then(() => runArchiveMaintenance())
+      .then((archived) => {
+        if (archived.length) {
+          console.log(`✅ 지난 활동 자동 아카이브 ${archived.length}개 팀 완료`);
+        }
+      })
+      .catch((portfolioError) => console.error('미니포트폴리오 초기화 오류:', portfolioError));
   }
 });
+
+const portfolioArchiveTimer = setInterval(() => {
+  runArchiveMaintenance().catch((error) => console.error('지난 활동 정기 아카이브 오류:', error));
+}, 60 * 60 * 1000);
+portfolioArchiveTimer.unref();
 
 // 기본 라우트
 app.get('/', (req, res) => {
@@ -735,21 +770,27 @@ app.get('/my-teams', (req, res) => {
   }
 
   const sql = `
-    SELECT t.team_id, t.team_name, tm.part
+    SELECT t.team_id, t.team_name, tm.part, t.leader_user_id, t.due_date, t.activity_status
     FROM team_members tm
     JOIN teams t ON t.team_id = tm.team_id
     WHERE tm.user_id = ?
+      AND t.activity_status = 'IN_PROGRESS'
+      AND t.status <> 'ARCHIVED'
     ORDER BY t.created_at DESC, t.team_id DESC
   `;
 
-  db.query(sql, [userId], (err, results) => {
-    if (err) {
-      console.error('내 팀 조회 오류:', err);
-      return res.status(500).json({ message: '서버 오류' });
-    }
+  runArchiveMaintenance()
+    .catch((error) => console.error('내 팀 조회 전 아카이브 오류:', error))
+    .finally(() => {
+      db.query(sql, [userId], (err, results) => {
+        if (err) {
+          console.error('내 팀 조회 오류:', err);
+          return res.status(500).json({ message: '서버 오류' });
+        }
 
-    res.json(results || []);
-  });
+        res.json(results || []);
+      });
+    });
 });
 
 app.get('/users/:userId/teams', (req, res) => {
@@ -759,21 +800,108 @@ app.get('/users/:userId/teams', (req, res) => {
     SELECT
       t.team_id AS teamId,
       t.team_name AS teamName,
-      tm.part
+      tm.part,
+      t.leader_user_id AS leaderUserId,
+      t.due_date AS dueDate,
+      t.activity_status AS activityStatus,
+      (t.leader_user_id = ?) AS isLeader
     FROM team_members tm
     JOIN teams t ON t.team_id = tm.team_id
     WHERE tm.user_id = ?
+      AND t.activity_status = 'IN_PROGRESS'
+      AND t.status <> 'ARCHIVED'
     ORDER BY t.created_at DESC, t.team_id DESC
   `;
 
-  db.query(sql, [userId], (err, results) => {
-    if (err) {
-      console.error('활동 탭 팀 조회 오류:', err);
-      return res.status(500).json({ message: '서버 오류' });
+  runArchiveMaintenance()
+    .catch((error) => console.error('활동 탭 조회 전 아카이브 오류:', error))
+    .finally(() => {
+      db.query(sql, [userId, userId], (err, results) => {
+        if (err) {
+          console.error('활동 탭 팀 조회 오류:', err);
+          return res.status(500).json({ message: '서버 오류' });
+        }
+
+        res.json(results || []);
+      });
+    });
+});
+
+app.post('/teams/:teamId/complete', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const teamId = Number(req.params.teamId);
+
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!teamId) return res.status(400).json({ message: '팀 정보가 올바르지 않습니다' });
+
+  try {
+    const [teams] = await portfolioDb.query(
+      'SELECT leader_user_id, activity_status FROM teams WHERE team_id = ?',
+      [teamId],
+    );
+    if (!teams.length) return res.status(404).json({ message: '팀을 찾을 수 없습니다' });
+    if (Number(teams[0].leader_user_id) !== userId) {
+      return res.status(403).json({ message: '팀장만 활동을 마무리할 수 있습니다' });
     }
 
-    res.json(results || []);
-  });
+    const result = await runTeamArchive(teamId, 'LEADER_COMPLETED');
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('활동 마무리 오류:', error);
+    res.status(error.statusCode || 500).json({ message: error.message || '서버 오류' });
+  }
+});
+
+app.get('/users/:userId/past-activities', async (req, res) => {
+  const userId = Number(req.params.userId);
+  if (!userId) return res.status(400).json({ message: '사용자 정보가 올바르지 않습니다' });
+
+  try {
+    await runArchiveMaintenance();
+    const portfolios = await listPastActivities(portfolioDb, userId);
+    res.json(portfolios);
+  } catch (error) {
+    console.error('지난 활동 목록 조회 오류:', error);
+    res.status(500).json({ message: '지난 활동을 불러오지 못했습니다' });
+  }
+});
+
+app.get('/users/:userId/past-activities/:portfolioId', async (req, res) => {
+  const userId = Number(req.params.userId);
+  const portfolioId = Number(req.params.portfolioId);
+  if (!userId || !portfolioId) return res.status(400).json({ message: '요청 정보가 올바르지 않습니다' });
+
+  try {
+    const portfolio = await getMiniPortfolio(portfolioDb, userId, portfolioId);
+    if (!portfolio) return res.status(404).json({ message: '미니포트폴리오를 찾을 수 없습니다' });
+    res.json(portfolio);
+  } catch (error) {
+    console.error('미니포트폴리오 조회 오류:', error);
+    res.status(500).json({ message: '미니포트폴리오를 불러오지 못했습니다' });
+  }
+});
+
+app.get('/users/:userId/past-activities/:portfolioId/pdf', async (req, res) => {
+  const userId = Number(req.params.userId);
+  const portfolioId = Number(req.params.portfolioId);
+  if (!userId || !portfolioId) return res.status(400).json({ message: '요청 정보가 올바르지 않습니다' });
+
+  try {
+    const portfolio = await getMiniPortfolio(portfolioDb, userId, portfolioId);
+    if (!portfolio) return res.status(404).json({ message: '미니포트폴리오를 찾을 수 없습니다' });
+
+    const fileName = `mini-portfolio-${portfolioId}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    createMiniPortfolioPdf(portfolio).pipe(res);
+  } catch (error) {
+    console.error('미니포트폴리오 PDF 생성 오류:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'PDF를 생성하지 못했습니다' });
+    } else {
+      res.end();
+    }
+  }
 });
 
 app.get('/teams/:teamId/members', (req, res) => {

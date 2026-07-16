@@ -33,6 +33,7 @@ type ActivityOption = {
   teamId: number;
   teamName: string;
   part: string;
+  isLeader?: boolean | number;
 };
 
 const PURPLE = colors.primary;
@@ -336,9 +337,9 @@ export default function ActivityScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="지난 활동"
-              accessibilityState={{ disabled: true }}
-              disabled
-              style={styles.iconButton}
+              hitSlop={4}
+              onPress={() => navigation.navigate('MyActivityScreen')}
+              style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
             >
               <Image source={require('../assets/folder.png')} style={styles.icon} resizeMode="contain" />
             </Pressable>
@@ -346,7 +347,11 @@ export default function ActivityScreen() {
               accessibilityRole="button"
               accessibilityLabel="활동 편집"
               hitSlop={4}
-              onPress={() => navigation.navigate('ActivitySettingScreen', {teamId: selected?.teamId ?? undefined,})}
+              onPress={() => navigation.navigate('ActivitySettingScreen', {
+                teamId: selected?.teamId ?? undefined,
+                isLeader: Boolean(selected?.isLeader),
+                teamName: selected?.teamName,
+              })}
               style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
             >
               <Image source={require('../assets/settings-01.png')} style={styles.icon} resizeMode="contain" />

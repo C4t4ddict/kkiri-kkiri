@@ -50,4 +50,21 @@
 - P1: 없음
 - P2: 없음
 
+## 이슈 #16 검증
+
+- 지난 활동 목록 캡처: `/tmp/issue16-list.png`
+- 미니포트폴리오 캡처: `/tmp/issue16-detail.png`
+- 활동 마무리 UI 캡처: `/tmp/issue16-settings-leader.xml`
+- 실제 데이터 PDF 렌더링: `/tmp/pdfs/issue16-actual/portfolio-1.png`, `/tmp/pdfs/issue16-actual/portfolio-2.png`
+- 기존 `user_activity_participations`, `miniportfolios` 테이블을 확장하고 만료·완료된 11개 팀을 중복 없이 아카이브함
+- 지난 활동 목록, 미니포트폴리오 상세, 월간·주간·일일 완료 작업이 실제 DB 데이터로 표시됨
+- Android 다운로드 관리자가 PDF를 성공 처리하고 완료 알림을 표시하는 것을 확인함
+- 팀장이 아닌 사용자의 마무리 요청은 403으로 차단되고, 팀장 성공 경로는 트랜잭션 롤백 방식으로 검증함
+
+## 이슈 #16 등급
+
+- P0: 없음
+- P1: 없음
+- P2: 없음
+
 final result: passed

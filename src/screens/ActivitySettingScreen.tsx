@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   LayoutAnimation,
   PanResponder,
@@ -18,6 +19,7 @@ import type { RootStackParamList } from '../types';
 import { WidgetPref, WidgetId, DEFAULT_WIDGET_PREFS } from '../constants/widgets';
 import { loadWidgetPrefs, saveWidgetPrefs, toggleVisible } from '../utils/widgetPrefs';
 import colors from '../config/colors';
+import { useAuth } from '../context/AuthContext';
 
 type ActivitySettingRoute = RouteProp<RootStackParamList, 'ActivitySettingScreen'>;
 
@@ -36,6 +38,9 @@ type DraggableWidgetRowProps = {
 };
 
 const ROW_HEIGHT = 92;
+const API_BASE_URL = Platform.OS === 'android'
+  ? 'http://10.0.2.2:3000'
+  : 'http://localhost:3000';
 
 const WIDGET_META: Record<WidgetId, WidgetMeta> = {
   ring: {
@@ -196,8 +201,12 @@ function HiddenWidgetRow({ item, onToggle }: Pick<DraggableWidgetRowProps, 'item
 export default function ActivitySettingScreen() {
   const navigation = useNavigation();
   const route = useRoute<ActivitySettingRoute>();
+  const { user } = useAuth();
   const teamId = route.params?.teamId ?? null;
+  const isLeader = Boolean(route.params?.isLeader);
+  const teamName = route.params?.teamName || '현재 활동';
   const [prefs, setPrefs] = useState<WidgetPref[]>(DEFAULT_WIDGET_PREFS);
+  const [completing, setCompleting] = useState(false);
 
   const visible = useMemo(
     () => prefs.filter(pref => pref.visible).sort((a, b) => a.order - b.order),
@@ -249,12 +258,43 @@ export default function ActivitySettingScreen() {
     navigation.goBack();
   };
 
+  const completeActivity = async () => {
+    if (!teamId || completing) return;
+    setCompleting(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/teams/${teamId}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user?.id }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || '활동을 마무리하지 못했습니다');
+      Alert.alert('활동 마무리 완료', '팀원별 미니포트폴리오가 지난 활동에 저장되었습니다.', [
+        { text: '확인', onPress: () => navigation.goBack() },
+      ]);
+    } catch (error) {
+      Alert.alert('오류', error instanceof Error ? error.message : '활동을 마무리하지 못했습니다');
+    } finally {
+      setCompleting(false);
+    }
+  };
+
+  const confirmCompleteActivity = () => {
+    Alert.alert(
+      '활동을 마무리할까요?',
+      `${teamName} 활동이 지난 활동으로 이동하고 팀원별 미니포트폴리오가 생성됩니다.`,
+      [
+        { text: '취소', style: 'cancel' },
+        { text: '마무리', style: 'destructive', onPress: completeActivity },
+      ],
+    );
+  };
+
   return (
     <View style={styles.screen}>
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-        scrollEnabled={false}
       >
         <View style={styles.introCard}>
           <View style={styles.introIcon}>
@@ -298,6 +338,28 @@ export default function ActivitySettingScreen() {
             <HiddenWidgetRow key={item.id} item={item} onToggle={onToggle} />
           ))}
         </View>
+
+        {isLeader && teamId ? (
+          <View style={styles.completeCard}>
+            <View style={styles.completeIconBox}>
+              <Icon name="flag-outline" size={22} color="#B42318" />
+            </View>
+            <View style={styles.completeCopy}>
+              <Text style={styles.completeTitle}>활동 마무리</Text>
+              <Text style={styles.completeDescription}>
+                완료 작업을 정리해 팀원별 미니포트폴리오를 생성합니다.
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              disabled={completing}
+              onPress={confirmCompleteActivity}
+              style={({ pressed }) => [styles.completeButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.completeButtonText}>{completing ? '처리 중' : '마무리'}</Text>
+            </Pressable>
+          </View>
+        ) : null}
       </ScrollView>
 
       <View style={styles.footer}>
@@ -480,6 +542,52 @@ const styles = StyleSheet.create({
     color: colors.textSub,
     fontSize: 13,
     textAlign: 'center',
+  },
+  completeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 28,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#FECDCA',
+    borderRadius: 18,
+    backgroundColor: '#FFFBFA',
+  },
+  completeIconBox: {
+    width: 42,
+    height: 42,
+    marginRight: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 13,
+    backgroundColor: '#FEE4E2',
+  },
+  completeCopy: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  completeTitle: {
+    color: '#7A271A',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  completeDescription: {
+    marginTop: 3,
+    color: '#B54708',
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  completeButton: {
+    minHeight: 36,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: '#B42318',
+  },
+  completeButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
   },
   footer: {
     position: 'absolute',

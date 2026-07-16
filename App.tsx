@@ -17,6 +17,8 @@ import NotificationScreen from './src/screens/NotificationScreen';
 import TeamMakeScreen from './src/screens/TeamMakeScreen';
 import MatchingDetailScreen from './src/screens/MatchingDetailScreen'
 import ActivitySettingScreen from './src/screens/ActivitySettingScreen';
+import MyActivityScreen from './src/screens/MyActivityScreen';
+import MiniPortfolioScreen from './src/screens/MiniPortfolioScreen';
 
 // MyPage 관련 스크린 import 추가
 import MyPage2 from './src/screens/mypage2';
@@ -27,12 +29,11 @@ import TodoScreen from './src/screens/TodoScreen';
 import TodoTeamScreen from './src/screens/TodoTeamScreen';
 
 
-import { User } from './src/types';
 import type { RootStackParamList } from './src/types';
 
 export type { RootStackParamList } from './src/types';
 
-const Stack = createStackNavigator();
+const Stack = createStackNavigator<RootStackParamList>();
 
 export default function App() {
   return (
@@ -166,6 +167,24 @@ export default function App() {
             component={ActivitySettingScreen}
             options={{
               title: '활동 편집',
+              headerBackTitle: '',
+              headerTitleAlign: 'center',
+            }}
+          />
+          <Stack.Screen
+            name="MyActivityScreen"
+            component={MyActivityScreen}
+            options={{
+              title: '지난 활동',
+              headerBackTitle: '',
+              headerTitleAlign: 'center',
+            }}
+          />
+          <Stack.Screen
+            name="MiniPortfolioScreen"
+            component={MiniPortfolioScreen}
+            options={{
+              title: '미니포트폴리오',
               headerBackTitle: '',
               headerTitleAlign: 'center',
             }}

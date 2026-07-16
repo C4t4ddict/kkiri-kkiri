@@ -29,6 +29,7 @@
     "mysql2": "^3.14.3",
     "react": "19.1.0",
     "react-native": "0.80.1",
+    "react-native-blob-util": "^0.24.10",
     "react-native-gesture-handler": "^2.27.1",
     "react-native-image-picker": "^8.2.1",
     "react-native-pager-view": "^6.8.1",

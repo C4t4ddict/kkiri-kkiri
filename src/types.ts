@@ -36,8 +36,9 @@ export type RootStackParamList = {
 
   // Activity 관련
   ActivityScreen: undefined;
-  ActivitySettingScreen: { teamId?: number }; // 여기에 추가
+  ActivitySettingScreen: { teamId?: number; isLeader?: boolean; teamName?: string };
   MyActivityScreen: undefined;
+  MiniPortfolioScreen: { portfolioId: number };
   TodoScreen: undefined;
   TodoTeamScreen: { teamId: number };
 };

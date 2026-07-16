@@ -1,0 +1,160 @@
+const path = require('path');
+const PDFDocument = require('pdfkit');
+
+const REGULAR_FONT = path.join(
+  __dirname,
+  '..',
+  'node_modules',
+  '@fontsource',
+  'noto-sans-kr',
+  'files',
+  'noto-sans-kr-korean-400-normal.woff',
+);
+const BOLD_FONT = path.join(
+  __dirname,
+  '..',
+  'node_modules',
+  '@fontsource',
+  'noto-sans-kr',
+  'files',
+  'noto-sans-kr-korean-700-normal.woff',
+);
+
+const PURPLE = '#6F4CF6';
+const PURPLE_DARK = '#3F277D';
+const PURPLE_SOFT = '#F2EEFF';
+const INK = '#172033';
+const MUTED = '#667085';
+const BORDER = '#E7E3F5';
+
+const taskSections = [
+  ['monthly', '월간 목표'],
+  ['weekly', '주간 목표'],
+  ['daily', '일일 목표'],
+  ['overall', '기타 완료 작업'],
+];
+
+const drawRoundedCard = (doc, x, y, width, height, fill = '#FFFFFF', stroke = BORDER) => {
+  doc.roundedRect(x, y, width, height, 16).fillAndStroke(fill, stroke);
+};
+
+const drawMetric = (doc, x, y, width, label, value) => {
+  const valueText = String(value);
+  drawRoundedCard(doc, x, y, width, 76, '#FFFFFF', BORDER);
+  doc.font('Regular').fontSize(9).fillColor(MUTED).text(label, x + 14, y + 13, { width: width - 28 });
+  doc.font('Bold').fontSize(valueText.length > 14 ? 12 : 16).fillColor(INK).text(valueText, x + 14, y + 35, {
+    width: width - 28,
+    ellipsis: true,
+  });
+};
+
+const drawHeader = (doc, portfolio) => {
+  doc.rect(0, 0, 595.28, 292).fill(PURPLE_DARK);
+  doc.circle(520, 28, 120).fillOpacity(0.12).fill('#FFFFFF');
+  doc.circle(70, 255, 105).fillOpacity(0.08).fill('#FFFFFF');
+  doc.fillOpacity(1);
+
+  doc.font('Bold').fontSize(10).fillColor('#DAD1FF').text('KKIRI KKIRI · MINI PORTFOLIO', 48, 48);
+  doc.font('Bold').fontSize(29).fillColor('#FFFFFF').text(portfolio.activity_name || '미니포트폴리오', 48, 88, {
+    width: 490,
+    lineGap: 5,
+  });
+  doc.font('Regular').fontSize(11).fillColor('#E7E0FF').text(
+    `${portfolio.user_name || ''} · ${portfolio.role || '역할 미정'}`,
+    48,
+    176,
+  );
+  doc.roundedRect(48, 212, 140, 32, 16).fill(PURPLE);
+  doc.font('Bold').fontSize(10).fillColor('#FFFFFF').text(portfolio.activity_type || '팀 활동', 62, 222, {
+    width: 112,
+    align: 'center',
+  });
+};
+
+const addCoverPage = (doc, portfolio) => {
+  drawHeader(doc, portfolio);
+
+  doc.font('Bold').fontSize(17).fillColor(INK).text('활동 한눈에 보기', 48, 326);
+  const metricWidth = 153;
+  drawMetric(doc, 48, 360, metricWidth, '활동 기간', portfolio.period || '-');
+  drawMetric(doc, 221, 360, metricWidth, '완료 작업', `${portfolio.completed_task_count || 0}건`);
+  drawMetric(doc, 394, 360, metricWidth, '함께한 인원', `${portfolio.member_count || 1}명`);
+
+  drawRoundedCard(doc, 48, 462, 499, 176, PURPLE_SOFT, '#DDD3FF');
+  doc.font('Bold').fontSize(11).fillColor(PURPLE).text('ACTIVITY SUMMARY', 68, 486);
+  doc.font('Bold').fontSize(19).fillColor(INK).text('나의 활동 요약', 68, 511);
+  doc.font('Regular').fontSize(12).fillColor(MUTED).text(
+    portfolio.summary || `${portfolio.activity_name || '활동'}에서 맡은 역할과 완료 작업을 정리했습니다.`,
+    68,
+    548,
+    { width: 456, lineGap: 6 },
+  );
+
+  doc.font('Regular').fontSize(9).fillColor('#98A2B3').text(
+    `생성일 ${new Date().toISOString().slice(0, 10)}  ·  끼리끼리 미니포트폴리오`,
+    48,
+    790,
+    { width: 499, align: 'center' },
+  );
+};
+
+const addTaskPage = (doc, portfolio) => {
+  doc.addPage();
+  doc.rect(0, 0, 595.28, 108).fill(PURPLE_DARK);
+  doc.font('Bold').fontSize(10).fillColor('#DAD1FF').text('02 · COMPLETED WORK', 48, 34);
+  doc.font('Bold').fontSize(23).fillColor('#FFFFFF').text('담당해서 완료한 작업', 48, 58);
+
+  let y = 136;
+  const groups = portfolio.completed_tasks || {};
+  const visibleSections = taskSections.filter(([key]) => Array.isArray(groups[key]) && groups[key].length);
+
+  if (!visibleSections.length) {
+    drawRoundedCard(doc, 48, y, 499, 88, '#FAFAFC', BORDER);
+    doc.font('Regular').fontSize(12).fillColor(MUTED).text('기록된 완료 작업이 없습니다.', 68, y + 34);
+    return;
+  }
+
+  visibleSections.forEach(([key, title]) => {
+    const tasks = groups[key];
+    const sectionHeight = 50 + (tasks.length * 37);
+    if (y + sectionHeight > 770) {
+      doc.addPage();
+      y = 56;
+    }
+
+    drawRoundedCard(doc, 48, y, 499, sectionHeight, '#FFFFFF', BORDER);
+    doc.roundedRect(64, y + 16, 82, 24, 12).fill(PURPLE_SOFT);
+    doc.font('Bold').fontSize(9).fillColor(PURPLE).text(title, 72, y + 23, { width: 66, align: 'center' });
+    doc.font('Regular').fontSize(9).fillColor(MUTED).text(`${tasks.length}개 완료`, 442, y + 22, {
+      width: 82,
+      align: 'right',
+    });
+
+    tasks.forEach((task, index) => {
+      const taskY = y + 51 + (index * 37);
+      doc.circle(74, taskY + 7, 7).fill(PURPLE);
+      doc.font('Regular').fontSize(11).fillColor(INK).text(task.title, 92, taskY, {
+        width: 418,
+        ellipsis: true,
+      });
+    });
+
+    y += sectionHeight + 14;
+  });
+};
+
+const createMiniPortfolioPdf = (portfolio) => {
+  const doc = new PDFDocument({ size: 'A4', margin: 0, autoFirstPage: true, info: {
+    Title: `${portfolio.activity_name || '활동'} 미니포트폴리오`,
+    Author: portfolio.user_name || '끼리끼리 사용자',
+    Subject: '끼리끼리 활동 미니포트폴리오',
+  } });
+  doc.registerFont('Regular', REGULAR_FONT);
+  doc.registerFont('Bold', BOLD_FONT);
+  addCoverPage(doc, portfolio);
+  addTaskPage(doc, portfolio);
+  doc.end();
+  return doc;
+};
+
+module.exports = { createMiniPortfolioPdf };
