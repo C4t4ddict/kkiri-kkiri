@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const { PassThrough } = require('node:stream');
 const test = require('node:test');
 const { getRelativePeriodEnd, groupCompletedTasks, normalizePortfolio } = require('../service');
-const { createMiniPortfolioPdf } = require('../pdf');
+const { buildTaskPages, createMiniPortfolioPdf } = require('../pdf');
 
 test('완료 작업을 월간·주간·일일 범위로 분류한다', () => {
   const grouped = groupCompletedTasks([
@@ -63,4 +63,23 @@ test('한글 미니포트폴리오 PDF를 생성한다', async () => {
 
   assert.equal(buffer.subarray(0, 4).toString(), '%PDF');
   assert.ok(buffer.length > 10_000);
+});
+
+test('완료 작업이 많아도 페이지 높이에 맞춰 분할한다', () => {
+  const dailyTasks = Array.from({ length: 61 }, (_, index) => ({
+    todo_id: index + 1,
+    title: `일일 목표 ${index + 1}`,
+  }));
+  const pages = buildTaskPages({ monthly: [], weekly: [], daily: dailyTasks, overall: [] });
+
+  assert.ok(pages.length > 1);
+  assert.deepEqual(
+    pages.flatMap((page) => page.flatMap((section) => section.tasks)),
+    dailyTasks,
+  );
+  pages.forEach((page) => {
+    const usedHeight = page.reduce((total, section) => total + section.height + 14, 0);
+    assert.ok(usedHeight <= 634);
+  });
+  assert.equal(pages[1][0].offset > 0, true);
 });

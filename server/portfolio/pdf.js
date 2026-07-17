@@ -26,6 +26,11 @@ const PURPLE_SOFT = '#F2EEFF';
 const INK = '#172033';
 const MUTED = '#667085';
 const BORDER = '#E7E3F5';
+const TASK_CONTENT_TOP = 136;
+const TASK_CONTENT_BOTTOM = 770;
+const TASK_CARD_HEADER_HEIGHT = 50;
+const TASK_ROW_HEIGHT = 37;
+const TASK_SECTION_GAP = 14;
 
 const taskSections = [
   ['monthly', '월간 목표'],
@@ -98,48 +103,115 @@ const addCoverPage = (doc, portfolio) => {
   );
 };
 
-const addTaskPage = (doc, portfolio) => {
-  doc.addPage();
+const buildTaskPages = (groups = {}) => {
+  const pages = [];
+  let currentPage = [];
+  let remainingHeight = TASK_CONTENT_BOTTOM - TASK_CONTENT_TOP;
+
+  const startNewPage = () => {
+    if (currentPage.length) pages.push(currentPage);
+    currentPage = [];
+    remainingHeight = TASK_CONTENT_BOTTOM - TASK_CONTENT_TOP;
+  };
+
+  taskSections.forEach(([key, title]) => {
+    const tasks = Array.isArray(groups[key]) ? groups[key] : [];
+    let offset = 0;
+
+    while (offset < tasks.length) {
+      const minimumHeight = TASK_CARD_HEADER_HEIGHT + TASK_ROW_HEIGHT;
+      if (remainingHeight < minimumHeight) startNewPage();
+
+      const maxItems = Math.max(
+        1,
+        Math.floor((remainingHeight - TASK_CARD_HEADER_HEIGHT) / TASK_ROW_HEIGHT),
+      );
+      const chunk = tasks.slice(offset, offset + maxItems);
+      const height = TASK_CARD_HEADER_HEIGHT + (chunk.length * TASK_ROW_HEIGHT);
+
+      currentPage.push({
+        key,
+        title,
+        tasks: chunk,
+        offset,
+        total: tasks.length,
+        height,
+      });
+      offset += chunk.length;
+      remainingHeight -= height + TASK_SECTION_GAP;
+    }
+  });
+
+  if (currentPage.length) pages.push(currentPage);
+  return pages;
+};
+
+const drawTaskPageHeader = (doc, pageIndex) => {
   doc.rect(0, 0, 595.28, 108).fill(PURPLE_DARK);
-  doc.font('Bold').fontSize(10).fillColor('#DAD1FF').text('02 · COMPLETED WORK', 48, 34);
+  doc.font('Bold').fontSize(10).fillColor('#DAD1FF').text(
+    pageIndex === 0 ? '02 · COMPLETED WORK' : '02 · COMPLETED WORK · CONTINUED',
+    48,
+    34,
+  );
   doc.font('Bold').fontSize(23).fillColor('#FFFFFF').text('담당해서 완료한 작업', 48, 58);
+  doc.font('Bold').fontSize(9).fillColor('#DAD1FF').text(
+    String(pageIndex + 1).padStart(2, '0'),
+    500,
+    68,
+    { width: 47, align: 'right' },
+  );
+};
 
-  let y = 136;
+const drawTaskSection = (doc, section, y) => {
+  drawRoundedCard(doc, 48, y, 499, section.height, '#FFFFFF', BORDER);
+  doc.roundedRect(64, y + 16, 92, 24, 12).fill(PURPLE_SOFT);
+  doc.font('Bold').fontSize(9).fillColor(PURPLE).text(
+    section.offset > 0 ? `${section.title} · 계속` : section.title,
+    70,
+    y + 23,
+    { width: 80, align: 'center' },
+  );
+  doc.font('Regular').fontSize(9).fillColor(MUTED).text(
+    `${section.offset + 1}–${section.offset + section.tasks.length} / ${section.total}`,
+    408,
+    y + 22,
+    { width: 116, align: 'right' },
+  );
+
+  section.tasks.forEach((task, index) => {
+    const taskY = y + 51 + (index * TASK_ROW_HEIGHT);
+    doc.circle(74, taskY + 7, 7).fill(PURPLE);
+    doc.font('Regular').fontSize(11).fillColor(INK).text(task.title, 92, taskY, {
+      width: 418,
+      ellipsis: true,
+    });
+  });
+};
+
+const addTaskPage = (doc, portfolio) => {
   const groups = portfolio.completed_tasks || {};
-  const visibleSections = taskSections.filter(([key]) => Array.isArray(groups[key]) && groups[key].length);
+  const pages = buildTaskPages(groups);
 
-  if (!visibleSections.length) {
-    drawRoundedCard(doc, 48, y, 499, 88, '#FAFAFC', BORDER);
-    doc.font('Regular').fontSize(12).fillColor(MUTED).text('기록된 완료 작업이 없습니다.', 68, y + 34);
+  if (!pages.length) {
+    doc.addPage();
+    drawTaskPageHeader(doc, 0);
+    drawRoundedCard(doc, 48, TASK_CONTENT_TOP, 499, 88, '#FAFAFC', BORDER);
+    doc.font('Regular').fontSize(12).fillColor(MUTED).text(
+      '기록된 완료 작업이 없습니다.',
+      68,
+      TASK_CONTENT_TOP + 34,
+    );
     return;
   }
 
-  visibleSections.forEach(([key, title]) => {
-    const tasks = groups[key];
-    const sectionHeight = 50 + (tasks.length * 37);
-    if (y + sectionHeight > 770) {
-      doc.addPage();
-      y = 56;
-    }
-
-    drawRoundedCard(doc, 48, y, 499, sectionHeight, '#FFFFFF', BORDER);
-    doc.roundedRect(64, y + 16, 82, 24, 12).fill(PURPLE_SOFT);
-    doc.font('Bold').fontSize(9).fillColor(PURPLE).text(title, 72, y + 23, { width: 66, align: 'center' });
-    doc.font('Regular').fontSize(9).fillColor(MUTED).text(`${tasks.length}개 완료`, 442, y + 22, {
-      width: 82,
-      align: 'right',
+  pages.forEach((sections, pageIndex) => {
+    doc.addPage();
+    drawTaskPageHeader(doc, pageIndex);
+    let y = TASK_CONTENT_TOP;
+    sections.forEach((section) => {
+      drawTaskSection(doc, section, y);
+      y += section.height + TASK_SECTION_GAP;
     });
-
-    tasks.forEach((task, index) => {
-      const taskY = y + 51 + (index * 37);
-      doc.circle(74, taskY + 7, 7).fill(PURPLE);
-      doc.font('Regular').fontSize(11).fillColor(INK).text(task.title, 92, taskY, {
-        width: 418,
-        ellipsis: true,
-      });
-    });
-
-    y += sectionHeight + 14;
   });
 };
 
@@ -157,4 +229,4 @@ const createMiniPortfolioPdf = (portfolio) => {
   return doc;
 };
 
-module.exports = { createMiniPortfolioPdf };
+module.exports = { buildTaskPages, createMiniPortfolioPdf };

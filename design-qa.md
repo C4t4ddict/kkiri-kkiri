@@ -67,4 +67,21 @@
 - P1: 없음
 - P2: 없음
 
+## 이슈 #17 검증
+
+- 진행 활동 빈 상태 캡처: `/tmp/issue17-activity-empty-3.png`
+- 빈 드롭다운 캡처: `/tmp/issue17-activity-dropdown.png`
+- 지난 활동 이동 캡처: `/tmp/issue17-past-from-empty-2.png`
+- 선형대수학 실제 PDF: `/tmp/pdfs/issue17/linear-algebra.pdf`
+- PDF 전체 렌더링: `/tmp/pdfs/issue17/page-1.png` ~ `/tmp/pdfs/issue17/page-6.png`
+- 사용자 1의 진행 팀은 0건, 지난 활동은 11건이며 공모전 정보 70건과 참여 팀 데이터가 별도임을 API와 DB 연동 결과로 확인함
+- 진행 활동이 없을 때 종료된 활동의 위치를 설명하고 `지난 활동 보기` 버튼으로 실제 목록 화면에 이동하는 것을 확인함
+- 완료 작업 61건을 포함한 선형대수학 미니포트폴리오를 A4 6페이지로 생성하고 모든 카드와 작업 항목이 페이지 경계에서 잘리지 않음을 확인함
+
+## 이슈 #17 등급
+
+- P0: 없음
+- P1: 없음
+- P2: 없음
+
 final result: passed

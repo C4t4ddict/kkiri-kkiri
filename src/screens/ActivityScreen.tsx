@@ -85,6 +85,7 @@ export default function ActivityScreen() {
   const [open, setOpen] = useState(false);
   const [options, setOptions] = useState<ActivityOption[]>([]);
   const [selected, setSelected] = useState<ActivityOption | null>(null);
+  const [teamLoadError, setTeamLoadError] = useState(false);
 
   const [monthlyTodos, setMonthlyTodos] = useState<Todo[]>([]);
   const [weeklyTodos, setWeeklyTodos] = useState<Todo[]>([]);
@@ -117,9 +118,14 @@ export default function ActivityScreen() {
     if (!currentUserId) return [];
     try {
       const res = await fetch(`${API_BASE}/users/${currentUserId}/teams`);
+      if (!res.ok) throw new Error(`활동 목록 조회 실패 (${res.status})`);
       const data = await res.json();
-      return Array.isArray(data) ? data : [];
-    } catch {
+      if (!Array.isArray(data)) throw new Error('활동 목록 응답 형식 오류');
+      setTeamLoadError(false);
+      return data;
+    } catch (error) {
+      console.warn('활동 목록 로드 실패:', error);
+      setTeamLoadError(true);
       return [];
     }
   }, [API_BASE, currentUserId]);
@@ -214,7 +220,7 @@ export default function ActivityScreen() {
     (async () => {
       const data = await fetchTeams();
       setOptions(data);
-      if (data.length > 0) setSelected((prev) => prev ?? data[0]);
+      setSelected((prev) => data.find((item) => item.teamId === prev?.teamId) ?? data[0] ?? null);
     })();
   }, [currentUserId, fetchTeams]);
 
@@ -373,33 +379,76 @@ export default function ActivityScreen() {
           <View style={styles.dropdown}>
             <Pressable style={styles.dropdownBtn} onPress={() => setOpen(v => !v)}>
               <Text style={styles.dropdownText}>
-                {selected ? selected.teamName : '내 활동 선택'}
+                {selected
+                  ? selected.teamName
+                  : teamLoadError
+                    ? '활동을 불러오지 못했어요'
+                    : '진행 중인 활동이 없어요'}
               </Text>
               <Text style={styles.chevron}>{open ? '▲' : '▼'}</Text>
             </Pressable>
 
             {open && (
               <View style={styles.dropdownList}>
-                <FlatList
-                  data={options}
-                  keyExtractor={(item) => String(item.teamId)}
-                  renderItem={({ item }) => (
+                {options.length > 0 ? (
+                  <FlatList
+                    data={options}
+                    keyExtractor={(item) => String(item.teamId)}
+                    renderItem={({ item }) => (
+                      <Pressable
+                        onPress={() => {
+                          setSelected(item);
+                          setOpen(false);
+                        }}
+                        style={({ pressed }) => [styles.dropdownItem, pressed && { opacity: 0.6 }]}
+                      >
+                        <Text style={styles.dropdownItemText}>{item.teamName}</Text>
+                      </Pressable>
+                    )}
+                  />
+                ) : (
+                  <View style={styles.dropdownEmpty}>
+                    <View style={styles.dropdownEmptyIcon}>
+                      <Icon
+                        name={teamLoadError ? 'cloud-offline-outline' : 'archive-outline'}
+                        size={20}
+                        color={PURPLE}
+                      />
+                    </View>
+                    <Text style={styles.dropdownEmptyTitle}>
+                      {teamLoadError ? '활동 목록을 불러오지 못했어요' : '진행 중인 활동이 없습니다'}
+                    </Text>
+                    <Text style={styles.dropdownEmptyDescription}>
+                      {teamLoadError
+                        ? '서버 연결을 확인한 뒤 다시 시도해주세요.'
+                        : '종료된 활동과 미니포트폴리오는 지난 활동에서 확인할 수 있어요.'}
+                    </Text>
                     <Pressable
-                      onPress={() => {
-                        setSelected(item);
+                      onPress={async () => {
+                        if (teamLoadError) {
+                          const data = await fetchTeams();
+                          setOptions(data);
+                          setSelected(data[0] ?? null);
+                          if (data.length > 0) setOpen(false);
+                          return;
+                        }
                         setOpen(false);
+                        navigation.navigate('MyActivityScreen');
                       }}
-                      style={({ pressed }) => [styles.dropdownItem, pressed && { opacity: 0.6 }]}
+                      style={({ pressed }) => [styles.dropdownEmptyButton, pressed && styles.dropdownEmptyButtonPressed]}
                     >
-                      <Text style={styles.dropdownItemText}>{item.teamName}</Text>
+                      <Text style={styles.dropdownEmptyButtonText}>
+                        {teamLoadError ? '다시 시도' : '지난 활동 보기'}
+                      </Text>
+                      <Icon name="arrow-forward" size={15} color={PURPLE} />
                     </Pressable>
-                  )}
-                />
+                  </View>
+                )}
               </View>
             )}
           </View>
 
-          <Text style={styles.partText}>{selected?.part ? humanizePart(selected.part) : '—'}</Text>
+          {selected?.part ? <Text style={styles.partText}>{humanizePart(selected.part)}</Text> : null}
         </View>
         {/* 스크롤 컨테이너 */}
       <ScrollView
@@ -561,6 +610,51 @@ const styles = StyleSheet.create({
   dropdownItemText: {
     fontSize: 15,
     color: TEXT_MAIN,
+  },
+  dropdownEmpty: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+  },
+  dropdownEmptyIcon: {
+    width: 40,
+    height: 40,
+    marginBottom: 10,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primarySurface,
+  },
+  dropdownEmptyTitle: {
+    color: TEXT_MAIN,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  dropdownEmptyDescription: {
+    marginTop: 5,
+    color: TEXT_HINT,
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  dropdownEmptyButton: {
+    minHeight: 36,
+    marginTop: 14,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: colors.primarySurface,
+  },
+  dropdownEmptyButtonPressed: {
+    opacity: 0.65,
+  },
+  dropdownEmptyButtonText: {
+    color: PURPLE,
+    fontSize: 12,
+    fontWeight: '800',
   },
   partText: {
     marginLeft: 8,
