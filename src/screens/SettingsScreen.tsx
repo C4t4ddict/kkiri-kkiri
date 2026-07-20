@@ -11,31 +11,19 @@ import {
   ActivityIndicator,
   Platform,
 } from 'react-native';
-import { useNavigation, useRoute, RouteProp, CompositeNavigationProp } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { User } from '../types'; // ✅ 상대 경로 확인
+import { RootStackParamList } from '../types';
+import { useAuth } from '../context/AuthContext';
 
-// 네비게이션 파라미터 정의
-type RootStackParamList = {
-  Login: undefined;
-  Register: undefined;
-  MainTabs: undefined;
-  InfoDetail: undefined;
-  Settings: { user: User };
-  Evaluation: undefined;
-  TeamFind: undefined;
-};
-
-type SettingsNavigationProp = CompositeNavigationProp<
-  NativeStackNavigationProp<RootStackParamList, 'Settings'>,
-  NativeStackNavigationProp<any>
->;
+type SettingsNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Settings'>;
 type SettingsRouteProp = RouteProp<RootStackParamList, 'Settings'>;
 const SettingScreen = () => {
   const route = useRoute<SettingsRouteProp>();
   const navigation = useNavigation<SettingsNavigationProp>();
-  const user = route.params?.user;
+  const { user: authUser } = useAuth();
+  const user = authUser || route.params?.user;
 
   const [settings, setSettings] = useState({
     teamMatching: true,
@@ -53,10 +41,6 @@ const SettingScreen = () => {
 
   const onLogout = () => {
     navigation.replace('Login');
-  };
-
-  const onGoBack = () => {
-    navigation.goBack();
   };
 
   if (!user) {
@@ -144,8 +128,14 @@ const SettingScreen = () => {
           <Text style={styles.itemValue}>{user.email}</Text>
         </View>
 
-        <TouchableOpacity style={styles.itemContainer}>
-          <Text style={styles.itemLabel}>비밀번호 변경</Text>
+        <TouchableOpacity
+          style={styles.itemContainer}
+          onPress={() => navigation.navigate('PersonalInfo')}
+        >
+          <View>
+            <Text style={styles.itemLabel}>개인정보 수정</Text>
+            <Text style={styles.itemDescription}>학과 · 학번 · 생년월일 · 비밀번호</Text>
+          </View>
           <Text style={styles.itemArrow}>{'>'}</Text>
         </TouchableOpacity>
       </View>
@@ -231,6 +221,7 @@ const styles = StyleSheet.create({
   },
   itemLabel: { fontSize: 16, color: '#1F2937' },
   itemValue: { fontSize: 16, color: '#9CA3AF' },
+  itemDescription: { marginTop: 5, fontSize: 12, color: '#98A2B3' },
   itemArrow: { fontSize: 16, color: '#9CA3AF' },
   deleteAccountButton: {
     paddingVertical: 15,

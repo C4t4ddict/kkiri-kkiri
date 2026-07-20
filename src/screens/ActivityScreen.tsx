@@ -386,7 +386,7 @@ export default function ActivityScreen() {
         <View style={styles.selectRow}>
           <View style={styles.dropdown}>
             <Pressable style={styles.dropdownBtn} onPress={() => setOpen(v => !v)}>
-              <Text style={styles.dropdownText}>
+              <Text style={styles.dropdownText} numberOfLines={1} ellipsizeMode="tail">
                 {selected
                   ? selected.teamName
                   : teamLoadError
@@ -410,7 +410,9 @@ export default function ActivityScreen() {
                         }}
                         style={({ pressed }) => [styles.dropdownItem, pressed && { opacity: 0.6 }]}
                       >
-                        <Text style={styles.dropdownItemText}>{item.teamName}</Text>
+                        <Text style={styles.dropdownItemText} numberOfLines={1} ellipsizeMode="tail">
+                          {item.teamName}
+                        </Text>
                       </Pressable>
                     )}
                   />
@@ -456,7 +458,11 @@ export default function ActivityScreen() {
             )}
           </View>
 
-          {selected?.part ? <Text style={styles.partText}>{humanizePart(selected.part)}</Text> : null}
+          {selected?.part ? (
+            <Text style={styles.partText} numberOfLines={1} ellipsizeMode="tail">
+              {humanizePart(selected.part)}
+            </Text>
+          ) : null}
         </View>
         {/* 스크롤 컨테이너 */}
       <ScrollView
@@ -568,6 +574,7 @@ const styles = StyleSheet.create({
     height: 25,
   },
   selectRow: {
+    minHeight: 50,
     marginTop: 18,
     marginHorizontal: 20,
     flexDirection: 'row',
@@ -580,10 +587,10 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   dropdownBtn: {
+    height: 50,
     backgroundColor: INPUT_BG,
     borderRadius: 14,
     paddingHorizontal: 16,
-    paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -617,6 +624,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   dropdownItemText: {
+    flex: 1,
     fontSize: 15,
     color: TEXT_MAIN,
   },
@@ -666,6 +674,8 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   partText: {
+    maxWidth: '42%',
+    flexShrink: 1,
     marginLeft: 8,
     fontSize: 18,
     fontWeight: '800',

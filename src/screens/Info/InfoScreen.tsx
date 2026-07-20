@@ -11,13 +11,15 @@ import {
   Platform,
 } from 'react-native';
 import axios from 'axios';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Icon from 'react-native-vector-icons/Ionicons';
 import AppHeader from '../../components/AppHeader';
 import AppRefreshControl from '../../components/AppRefreshControl';
 import ApplicationStatusBadge from '../../components/ApplicationStatusBadge';
 import { ACTIVITY_FILTER_CATEGORIES } from '../../constants/activityCategories';
+import { useAuth } from '../../context/AuthContext';
+import colors from '../../config/colors';
 
 const BASE_URL =
   Platform.OS === 'android'
@@ -39,10 +41,12 @@ const formatDateRange = (startDate?: string | null, endDate?: string | null) => 
 const InfoScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const route = useRoute<any>();
+  const { user } = useAuth();
 
   const [searchText, setSearchText] = useState('');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<Set<number>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
@@ -61,18 +65,40 @@ const InfoScreen = () => {
     }
   }, []);
 
+  const fetchFavoriteIds = useCallback(async () => {
+    if (!user?.id) {
+      setFavoriteIds(new Set());
+      return;
+    }
+
+    try {
+      const res = await axios.get<number[]>(`${BASE_URL}/api/favorite-activities/ids`, {
+        headers: { 'x-user-id': String(user.id) },
+      });
+      setFavoriteIds(new Set((res.data || []).map(Number)));
+    } catch (error) {
+      console.error('관심 활동 불러오기 오류:', error);
+    }
+  }, [user?.id]);
+
   useEffect(() => {
     fetchActivities();
   }, [fetchActivities]);
 
+  useFocusEffect(
+    useCallback(() => {
+      fetchFavoriteIds();
+    }, [fetchFavoriteIds])
+  );
+
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await fetchActivities();
+      await Promise.all([fetchActivities(), fetchFavoriteIds()]);
     } finally {
       setRefreshing(false);
     }
-  }, [fetchActivities]);
+  }, [fetchActivities, fetchFavoriteIds]);
 
   const filteredActivities = useMemo(() => {
     let filtered = activities;
@@ -194,7 +220,12 @@ const InfoScreen = () => {
               style={styles.activityItem}
               onPress={() => navigation.navigate('InfoDetail', { id: item.activity_id })}
             >
-              <Text style={styles.activityTitle}>{item.title}</Text>
+              <View style={styles.activityHeadingRow}>
+                <Text style={styles.activityTitle} numberOfLines={2}>{item.title}</Text>
+                {favoriteIds.has(Number(item.activity_id)) && (
+                  <Icon name="heart" size={22} color={colors.primary} style={styles.favoriteIcon} />
+                )}
+              </View>
               <Text style={styles.activityCategory}>
                 {[item.category, item.topic_category].filter(Boolean).join(' · ')}
               </Text>
@@ -256,9 +287,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   activityTitle: {
+    flex: 1,
     fontWeight: 'bold',
     fontSize: 16,
     marginBottom: 6,
+  },
+  activityHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  favoriteIcon: {
+    marginTop: 1,
   },
   activityCategory: {
     fontSize: 12,

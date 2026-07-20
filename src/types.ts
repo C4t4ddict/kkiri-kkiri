@@ -13,8 +13,10 @@ export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   MainTabs: { screen?: string; params?: any };
-  InfoDetail: undefined;
+  InfoDetail: { id: number };
   Settings: { user: User };
+  PersonalInfo: undefined;
+  FavoriteActivities: undefined;
   Evaluation: undefined;
   TeamFind: undefined;
   Notifications: undefined;

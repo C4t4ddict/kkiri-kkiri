@@ -19,6 +19,8 @@ import MatchingDetailScreen from './src/screens/MatchingDetailScreen'
 import ActivitySettingScreen from './src/screens/ActivitySettingScreen';
 import MyActivityScreen from './src/screens/MyActivityScreen';
 import MiniPortfolioScreen from './src/screens/MiniPortfolioScreen';
+import PersonalInfoScreen from './src/screens/PersonalInfoScreen';
+import FavoriteActivitiesScreen from './src/screens/FavoriteActivitiesScreen';
 
 // MyPage 관련 스크린 import 추가
 import MyPage2 from './src/screens/mypage2';
@@ -90,6 +92,24 @@ export default function App() {
                 width: '100%',
                 textAlign: 'center',
               }
+            }}
+          />
+          <Stack.Screen
+            name="PersonalInfo"
+            component={PersonalInfoScreen}
+            options={{
+              title: '개인정보 수정',
+              headerBackTitle: '',
+              headerTitleAlign: 'center',
+            }}
+          />
+          <Stack.Screen
+            name="FavoriteActivities"
+            component={FavoriteActivitiesScreen}
+            options={{
+              title: '관심 활동',
+              headerBackTitle: '',
+              headerTitleAlign: 'center',
             }}
           />
           <Stack.Screen name="Evaluation" component={EvaluationScreen} />

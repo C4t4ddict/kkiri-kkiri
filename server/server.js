@@ -225,6 +225,14 @@ const ensureActivityTables = () => {
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_user_notifications_user_created (user_id, created_at)
     )`,
+    `CREATE TABLE IF NOT EXISTS user_favorite_activities (
+      user_id INT NOT NULL,
+      activity_id INT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, activity_id),
+      INDEX idx_favorite_activities_user_created (user_id, created_at),
+      INDEX idx_favorite_activities_activity (activity_id)
+    )`,
   ];
 
   const createNext = (index) => {
@@ -703,6 +711,115 @@ app.get('/api/activities/:id', (req, res) => {
 
     res.status(200).json(normalizeActivity(results[0]));
   });
+});
+
+app.get('/api/favorite-activities', (req, res) => {
+  const userId = getRequestUserId(req);
+
+  if (!userId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+
+  const sql = `
+    SELECT a.*, ufa.created_at AS favorited_at
+    FROM user_favorite_activities ufa
+    JOIN activitys a ON a.activity_id = ufa.activity_id
+    WHERE ufa.user_id = ?
+    ORDER BY ufa.created_at DESC, a.activity_id DESC
+  `;
+
+  db.query(sql, [userId], (err, results) => {
+    if (err) {
+      console.error('관심 활동 조회 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    res.json((results || []).map(normalizeActivity));
+  });
+});
+
+app.get('/api/favorite-activities/ids', (req, res) => {
+  const userId = getRequestUserId(req);
+
+  if (!userId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+
+  db.query(
+    'SELECT activity_id FROM user_favorite_activities WHERE user_id = ? ORDER BY created_at DESC',
+    [userId],
+    (err, results) => {
+      if (err) {
+        console.error('관심 활동 ID 조회 오류:', err);
+        return res.status(500).json({ message: '서버 오류' });
+      }
+
+      res.json((results || []).map((item) => Number(item.activity_id)));
+    }
+  );
+});
+
+app.post('/api/favorite-activities/:activityId', (req, res) => {
+  const userId = getRequestUserId(req);
+  const activityId = Number(req.params.activityId);
+
+  if (!userId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+
+  if (!Number.isInteger(activityId) || activityId <= 0) {
+    return res.status(400).json({ message: '올바른 활동 ID가 필요합니다' });
+  }
+
+  db.query('SELECT activity_id FROM activitys WHERE activity_id = ?', [activityId], (findErr, rows) => {
+    if (findErr) {
+      console.error('관심 활동 대상 조회 오류:', findErr);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    if (!rows.length) {
+      return res.status(404).json({ message: '활동을 찾을 수 없습니다' });
+    }
+
+    db.query(
+      'INSERT IGNORE INTO user_favorite_activities (user_id, activity_id) VALUES (?, ?)',
+      [userId, activityId],
+      (insertErr) => {
+        if (insertErr) {
+          console.error('관심 활동 저장 오류:', insertErr);
+          return res.status(500).json({ message: '서버 오류' });
+        }
+
+        res.status(201).json({ success: true, activity_id: activityId });
+      }
+    );
+  });
+});
+
+app.delete('/api/favorite-activities/:activityId', (req, res) => {
+  const userId = getRequestUserId(req);
+  const activityId = Number(req.params.activityId);
+
+  if (!userId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+
+  if (!Number.isInteger(activityId) || activityId <= 0) {
+    return res.status(400).json({ message: '올바른 활동 ID가 필요합니다' });
+  }
+
+  db.query(
+    'DELETE FROM user_favorite_activities WHERE user_id = ? AND activity_id = ?',
+    [userId, activityId],
+    (err) => {
+      if (err) {
+        console.error('관심 활동 삭제 오류:', err);
+        return res.status(500).json({ message: '서버 오류' });
+      }
+
+      res.json({ success: true, activity_id: activityId });
+    }
+  );
 });
 
 // ===== 매칭/활동 탭 API =====
@@ -1601,6 +1718,50 @@ app.put('/team-members/:teamId/part', (req, res) => {
   );
 });
 
+app.put('/teams/:teamId/name', (req, res) => {
+  const userId = getRequestUserId(req);
+  const teamId = Number(req.params.teamId);
+  const teamName = String(req.body?.team_name || '').trim();
+
+  if (!userId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    return res.status(400).json({ message: '올바른 팀 ID가 필요합니다' });
+  }
+
+  if (!teamName) {
+    return res.status(400).json({ message: '활동 프로젝트명을 입력해주세요' });
+  }
+
+  if (teamName.length > 255) {
+    return res.status(400).json({ message: '활동 프로젝트명은 255자 이하로 입력해주세요' });
+  }
+
+  db.query(
+    `UPDATE teams
+     SET team_name = ?
+     WHERE team_id = ?
+       AND leader_user_id = ?
+       AND status <> 'ARCHIVED'
+       AND activity_status = 'IN_PROGRESS'`,
+    [teamName, teamId, userId],
+    (err, result) => {
+      if (err) {
+        console.error('활동 프로젝트명 수정 오류:', err);
+        return res.status(500).json({ message: '서버 오류' });
+      }
+
+      if (result.affectedRows === 0) {
+        return res.status(403).json({ message: '진행 중인 활동의 팀장만 프로젝트명을 수정할 수 있습니다' });
+      }
+
+      res.json({ success: true, team_id: teamId, team_name: teamName });
+    }
+  );
+});
+
 // ===== 사용자 관련 API =====
 
 // 사용자 정보 조회 API
@@ -2109,6 +2270,53 @@ app.put('/api/user/:id', (req, res) => {
       success: true,
       message: '사용자 정보가 업데이트되었습니다'
     });
+  });
+});
+
+app.put('/api/user/:id/password', (req, res) => {
+  const userId = Number(req.params.id);
+  const requestUserId = getRequestUserId(req);
+  const currentPassword = String(req.body?.current_password || '');
+  const newPassword = String(req.body?.new_password || '');
+
+  if (!requestUserId) {
+    return res.status(401).json({ success: false, message: '로그인이 필요합니다' });
+  }
+
+  if (requestUserId !== userId) {
+    return res.status(403).json({ success: false, message: '본인의 비밀번호만 변경할 수 있습니다' });
+  }
+
+  if (!currentPassword || newPassword.length < 4) {
+    return res.status(400).json({ success: false, message: '현재 비밀번호와 4자 이상의 새 비밀번호를 입력해주세요' });
+  }
+
+  db.query('SELECT password FROM users WHERE id = ?', [userId], (findErr, rows) => {
+    if (findErr) {
+      console.error('비밀번호 변경 사용자 조회 오류:', findErr);
+      return res.status(500).json({ success: false, message: '서버 오류' });
+    }
+
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: '사용자를 찾을 수 없습니다' });
+    }
+
+    if (!isPasswordValid(currentPassword, rows[0].password)) {
+      return res.status(400).json({ success: false, message: '현재 비밀번호가 일치하지 않습니다' });
+    }
+
+    db.query(
+      'UPDATE users SET password = ?, updated_at = NOW() WHERE id = ?',
+      [hashPassword(newPassword), userId],
+      (updateErr) => {
+        if (updateErr) {
+          console.error('비밀번호 변경 오류:', updateErr);
+          return res.status(500).json({ success: false, message: '비밀번호 변경에 실패했습니다' });
+        }
+
+        res.json({ success: true, message: '비밀번호가 변경되었습니다' });
+      }
+    );
   });
 });
 

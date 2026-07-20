@@ -1,5 +1,5 @@
 // src/screens/TodoScreen.tsx
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -45,6 +45,7 @@ type Team = {
   team_id: number;
   team_name: string;
   part: string;
+  leader_user_id: number;
 };
 
 type Period = { start: string; end: string; label: string };
@@ -119,7 +120,10 @@ const periodOf = (scope: Scope, anchor: Date): Period => {
 export default function TodoScreen() {
   const navigation = useNavigation<any>();
   const { user } = useAuth();
-  const authHeader = user ? { 'x-user-id': String(user.id) } : undefined;
+  const authHeader = useMemo(
+    () => user ? { 'x-user-id': String(user.id) } : undefined,
+    [user]
+  );
 
   // 팀 선택
   const [teams, setTeams] = useState<Team[]>([]);
@@ -156,6 +160,8 @@ export default function TodoScreen() {
   // part 수정 모달
   const [partModalVisible, setPartModalVisible] = useState(false);
   const [partInput, setPartInput] = useState('');
+  const [nameModalVisible, setNameModalVisible] = useState(false);
+  const [nameInput, setNameInput] = useState('');
 
   // 팀 목록 로딩
   useEffect(() => {
@@ -170,7 +176,7 @@ export default function TodoScreen() {
       })
       .catch((err) => console.error('팀 목록 불러오기 실패:', err))
       .finally(() => setLoadingTeams(false));
-  }, [user]);
+  }, [authHeader, user]);
 
   // 기간별 데이터 로딩
   const fetchRange = async (scope: Scope) => {
@@ -343,50 +349,83 @@ export default function TodoScreen() {
     setPartModalVisible(true);
   };
 
+  const openNameModal = () => {
+    if (!selected || Number(selected.leader_user_id) !== Number(user?.id)) return;
+    setNameInput(selected.team_name);
+    setNameModalVisible(true);
+  };
+
   const notifyError = (title: string, msg: string) => {
-  if (Platform.OS === 'android') {
-    ToastAndroid.show(`${title}: ${msg}`, ToastAndroid.LONG);
-  } else {
-    Alert.alert(title, msg);
-  }
-};
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(`${title}: ${msg}`, ToastAndroid.LONG);
+    } else {
+      Alert.alert(title, msg);
+    }
+  };
 
   const savePart = async () => {
-  if (!selected || !user) return;
-  const newPart = partInput.trim();
-  if (newPart.length === 0) {
-    setPartModalVisible(false);
-    return;
-  }
+    if (!selected || !user) return;
+    const newPart = partInput.trim();
+    if (newPart.length === 0) {
+      setPartModalVisible(false);
+      return;
+    }
 
-  try {
-    const res = await axios.put(
-      `${API_BASE_URL}/team-members/${selected.team_id}/part`,
-      { part: newPart },
-      { headers: authHeader }
-    );
-    setSelected((prev) =>
-      prev ? { ...prev, part: res.data.part ?? newPart } : prev
-    );
-    setTeams((prev) =>
-      prev.map((t) =>
-        t.team_id === selected.team_id
-          ? { ...t, part: res.data.part ?? newPart }
-          : t
-      )
-    );
-  } catch (e: any) {
-    const msg =
-      e?.response?.data?.message ||
-      e?.response?.data?.error ||
-      e?.message ||
-      'Unknown';
-    console.error('파트 저장 실패:', e?.response?.data || e);
-    notifyError('파트 저장 실패', String(msg));
-  } finally {
-    setPartModalVisible(false);
-  }
-};
+    try {
+      const res = await axios.put(
+        `${API_BASE_URL}/team-members/${selected.team_id}/part`,
+        { part: newPart },
+        { headers: authHeader }
+      );
+      setSelected((prev) =>
+        prev ? { ...prev, part: res.data.part ?? newPart } : prev
+      );
+      setTeams((prev) =>
+        prev.map((t) =>
+          t.team_id === selected.team_id
+            ? { ...t, part: res.data.part ?? newPart }
+            : t
+        )
+      );
+    } catch (e: any) {
+      const msg =
+        e?.response?.data?.message ||
+        e?.response?.data?.error ||
+        e?.message ||
+        'Unknown';
+      console.error('파트 저장 실패:', e?.response?.data || e);
+      notifyError('파트 저장 실패', String(msg));
+    } finally {
+      setPartModalVisible(false);
+    }
+  };
+
+  const saveTeamName = async () => {
+    if (!selected || !user) return;
+    const teamName = nameInput.trim();
+
+    if (!teamName) {
+      notifyError('입력 확인', '활동 프로젝트명을 입력해주세요.');
+      return;
+    }
+
+    try {
+      const { data } = await axios.put(
+        `${API_BASE_URL}/teams/${selected.team_id}/name`,
+        { team_name: teamName },
+        { headers: authHeader }
+      );
+      const savedName = data.team_name ?? teamName;
+      setSelected((prev) => prev ? { ...prev, team_name: savedName } : prev);
+      setTeams((prev) => prev.map((team) =>
+        team.team_id === selected.team_id ? { ...team, team_name: savedName } : team
+      ));
+      setNameModalVisible(false);
+    } catch (e: any) {
+      const message = e?.response?.data?.message || '활동 프로젝트명을 저장하지 못했습니다.';
+      notifyError('저장 실패', String(message));
+    }
+  };
 
   // 행 렌더
   const renderRow = (todo: Todo) => {
@@ -518,7 +557,7 @@ export default function TodoScreen() {
       <View style={styles.selectRow}>
         <View style={styles.dropdown}>
           <Pressable style={styles.dropdownBtn} onPress={() => setOpen((v) => !v)}>
-            <Text style={styles.dropdownText}>
+            <Text style={styles.dropdownText} numberOfLines={1} ellipsizeMode="tail">
               {selected ? selected.team_name : loadingTeams ? '불러오는 중...' : '내 팀 선택'}
             </Text>
             <Text style={styles.chevron}>{open ? '▲' : '▼'}</Text>
@@ -537,7 +576,9 @@ export default function TodoScreen() {
                     }}
                     style={({ pressed }) => [styles.dropdownItem, pressed && { opacity: 0.6 }]}
                   >
-                    <Text style={styles.dropdownItemText}>{item.team_name}</Text>
+                    <Text style={styles.dropdownItemText} numberOfLines={1} ellipsizeMode="tail">
+                      {item.team_name}
+                    </Text>
                   </Pressable>
                 )}
               />
@@ -545,12 +586,30 @@ export default function TodoScreen() {
           )}
         </View>
 
+        {selected && Number(selected.leader_user_id) === Number(user?.id) && (
+          <Pressable
+            onPress={openNameModal}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="활동 프로젝트명 수정"
+            style={styles.nameEditButton}
+          >
+            <Image
+              source={require('../assets/pencil-01.png')}
+              style={styles.smallPencil}
+              resizeMode="contain"
+            />
+          </Pressable>
+        )}
+
         <View style={styles.partWrap}>
-          <Text style={styles.partText}>{selected?.part ?? '미정'}</Text>
+          <Text style={styles.partText} numberOfLines={1} ellipsizeMode="tail">
+            {selected?.part ?? '미정'}
+          </Text>
           <Pressable onPress={openPartModal} hitSlop={8}>
             <Image
               source={require('../assets/pencil-01.png')}
-              style={{ width: 18, height: 18, marginLeft: 6 }}
+              style={styles.partPencil}
               resizeMode="contain"
             />
           </Pressable>
@@ -590,18 +649,46 @@ export default function TodoScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={nameModalVisible} transparent animationType="fade" onRequestClose={() => setNameModalVisible(false)}>
+        <View style={styles.modalBg}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>활동 프로젝트명 수정</Text>
+            <Text style={styles.modalDescription}>팀 전체 활동 화면에 같은 이름으로 표시됩니다.</Text>
+            <TextInput
+              value={nameInput}
+              onChangeText={setNameInput}
+              placeholder="활동 프로젝트명"
+              placeholderTextColor="#A0A0A0"
+              style={styles.modalInput}
+              autoFocus
+              maxLength={255}
+              returnKeyType="done"
+              onSubmitEditing={saveTeamName}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={[styles.modalBtn, styles.modalCancelButton]} onPress={() => setNameModalVisible(false)}>
+                <Text style={[styles.modalBtnText, styles.modalCancelText]}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.modalBtn, styles.modalSaveButton]} onPress={saveTeamName}>
+                <Text style={[styles.modalBtnText, styles.modalSaveText]}>저장</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  selectRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  selectRow: { minHeight: 50, flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   dropdown: { flex: 1, marginRight: 12, position: 'relative' },
   dropdownBtn: {
+    height: 50,
     backgroundColor: INPUT_BG,
     borderRadius: 14,
     paddingHorizontal: 16,
-    paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -622,10 +709,21 @@ const styles = StyleSheet.create({
     elevation: 5,         // Android
   },
   dropdownItem: { paddingHorizontal: 16, paddingVertical: 12 },
-  dropdownItemText: { fontSize: 15, color: TEXT_MAIN },
+  dropdownItemText: { flex: 1, fontSize: 15, color: TEXT_MAIN },
 
-  partWrap: { flexDirection: 'row', alignItems: 'center' },
-  partText: { fontSize: 16, fontWeight: '700', color: '#1F2A37' },
+  nameEditButton: {
+    width: 34,
+    height: 40,
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: LILAC,
+  },
+  smallPencil: { width: 17, height: 17 },
+  partWrap: { maxWidth: '38%', flexDirection: 'row', alignItems: 'center' },
+  partText: { flexShrink: 1, fontSize: 16, fontWeight: '700', color: '#1F2A37' },
+  partPencil: { width: 18, height: 18, marginLeft: 6 },
 
   section: { marginBottom: 24 },
   // 얇은 회색 줄 + 위아래 여백
@@ -701,6 +799,7 @@ const styles = StyleSheet.create({
   modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', alignItems: 'center' },
   modalCard: { width: '86%', backgroundColor: 'white', borderRadius: 14, padding: 16 },
   modalTitle: { fontSize: 16, fontWeight: '700', color: TEXT_MAIN, marginBottom: 10 },
+  modalDescription: { marginTop: -4, marginBottom: 12, color: TEXT_HINT, fontSize: 13, lineHeight: 19 },
   modalInput: {
     backgroundColor: INPUT_BG,
     borderRadius: 10,
@@ -711,6 +810,11 @@ const styles = StyleSheet.create({
   },
   modalBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10 },
   modalBtnText: { fontSize: 15, fontWeight: '700' },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
+  modalCancelButton: { backgroundColor: '#E5E7EB' },
+  modalSaveButton: { backgroundColor: PURPLE },
+  modalCancelText: { color: '#374151' },
+  modalSaveText: { color: '#FFFFFF' },
 
   teamBtn: {
   backgroundColor: '#EFEAFF',

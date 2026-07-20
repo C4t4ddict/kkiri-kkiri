@@ -14,6 +14,8 @@ import { RouteProp, useRoute } from '@react-navigation/native';
 import axios from 'axios';
 import colors from '../../config/colors';
 import ApplicationStatusBadge from '../../components/ApplicationStatusBadge';
+import Icon from 'react-native-vector-icons/Ionicons';
+import { useAuth } from '../../context/AuthContext';
 
 const BASE_URL =
   Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
@@ -50,9 +52,12 @@ const formatDetails = (details?: string | null) => {
 const ActivityDetailScreen = () => {
   const route = useRoute<RouteProp<{ params: { id: number } }, 'params'>>();
   const { id } = route.params;
+  const { user } = useAuth();
 
   const [activity, setActivity] = useState<any>(null);
   const [posterAspectRatio, setPosterAspectRatio] = useState(3 / 4);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [savingFavorite, setSavingFavorite] = useState(false);
 
   useEffect(() => {
     const fetchActivityDetail = async () => {
@@ -66,6 +71,17 @@ const ActivityDetailScreen = () => {
 
     fetchActivityDetail();
   }, [id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    axios
+      .get<number[]>(`${BASE_URL}/api/favorite-activities/ids`, {
+        headers: { 'x-user-id': String(user.id) },
+      })
+      .then((res) => setIsFavorite((res.data || []).map(Number).includes(Number(id))))
+      .catch((error) => console.error('관심 활동 상태 조회 오류:', error));
+  }, [id, user?.id]);
 
   useEffect(() => {
     if (!activity?.main_image_url) return;
@@ -90,10 +106,40 @@ const ActivityDetailScreen = () => {
     }
   };
 
+  const toggleFavorite = async () => {
+    if (!user?.id || savingFavorite) return;
+
+    setSavingFavorite(true);
+    try {
+      const config = { headers: { 'x-user-id': String(user.id) } };
+      if (isFavorite) {
+        await axios.delete(`${BASE_URL}/api/favorite-activities/${id}`, config);
+      } else {
+        await axios.post(`${BASE_URL}/api/favorite-activities/${id}`, {}, config);
+      }
+      setIsFavorite((value) => !value);
+    } catch (error: any) {
+      Alert.alert('저장 실패', error?.response?.data?.message || '관심 활동을 저장하지 못했습니다.');
+    } finally {
+      setSavingFavorite(false);
+    }
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       <View style={styles.headingBlock}>
-        <Text style={styles.eyebrow}>활동 정보</Text>
+        <View style={styles.headingTopRow}>
+          <Text style={styles.eyebrow}>활동 정보</Text>
+          <TouchableOpacity
+            style={[styles.favoriteButton, isFavorite && styles.favoriteButtonSelected]}
+            onPress={toggleFavorite}
+            disabled={savingFavorite}
+            activeOpacity={0.75}
+          >
+            <Icon name={isFavorite ? 'heart' : 'heart-outline'} size={18} color={colors.primary} />
+            <Text style={styles.favoriteButtonText}>{isFavorite ? '저장됨' : '저장'}</Text>
+          </TouchableOpacity>
+        </View>
         <Text style={styles.title}>{activity.title}</Text>
       </View>
 
@@ -193,9 +239,36 @@ const styles = StyleSheet.create({
   headingBlock: {
     marginBottom: 18,
   },
-  eyebrow: {
+  headingTopRow: {
+    minHeight: 36,
     marginBottom: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  eyebrow: {
     color: colors.primary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  favoriteButton: {
+    minWidth: 78,
+    minHeight: 34,
+    paddingHorizontal: 11,
+    borderWidth: 1,
+    borderColor: colors.primaryLight,
+    borderRadius: 17,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: '#FFFFFF',
+  },
+  favoriteButtonSelected: {
+    backgroundColor: colors.primarySurface,
+  },
+  favoriteButtonText: {
+    color: colors.primaryDark,
     fontSize: 13,
     fontWeight: '800',
   },
