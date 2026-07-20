@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,8 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Icon from 'react-native-vector-icons/Ionicons';
 import AppHeader from '../../components/AppHeader';
+import AppRefreshControl from '../../components/AppRefreshControl';
+import ApplicationStatusBadge from '../../components/ApplicationStatusBadge';
 import { ACTIVITY_FILTER_CATEGORIES } from '../../constants/activityCategories';
 
 const BASE_URL =
@@ -41,10 +43,7 @@ const InfoScreen = () => {
   const [searchText, setSearchText] = useState('');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
-
-  useEffect(() => {
-    fetchActivities();
-  }, []);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     const initialCategory = route.params?.initialCategory;
@@ -53,14 +52,27 @@ const InfoScreen = () => {
     }
   }, [route.params?.filterNonce, route.params?.initialCategory]);
 
-  const fetchActivities = async () => {
+  const fetchActivities = useCallback(async () => {
     try {
       const res = await axios.get(`${BASE_URL}/api/activities`);
-      setActivities(res.data);
+      setActivities(Array.isArray(res.data) ? res.data : []);
     } catch (error) {
       console.error('활동 불러오기 오류:', error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchActivities();
+  }, [fetchActivities]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchActivities();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchActivities]);
 
   const filteredActivities = useMemo(() => {
     let filtered = activities;
@@ -156,7 +168,10 @@ const InfoScreen = () => {
       </ScrollView>
 
       {/* 활동 리스트 */}
-      <ScrollView style={styles.activityList}>
+      <ScrollView
+        style={styles.activityList}
+        refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+      >
         {filteredActivities.length === 0 && (
           <View style={styles.emptyState}>
             <Icon name="search-outline" size={30} color="#98A2B3" />
@@ -184,7 +199,13 @@ const InfoScreen = () => {
                 {[item.category, item.topic_category].filter(Boolean).join(' · ')}
               </Text>
               {applicationPeriod && (
-                <Text style={styles.activityText}>신청: {applicationPeriod}</Text>
+                <View style={styles.applicationRow}>
+                  <Text style={styles.activityText}>신청: {applicationPeriod}</Text>
+                  <ApplicationStatusBadge
+                    start={item.application_period_start}
+                    end={item.application_period_end}
+                  />
+                </View>
               )}
               {operationPeriod && (
                 <Text style={styles.activityText}>운영: {operationPeriod}</Text>
@@ -248,6 +269,13 @@ const styles = StyleSheet.create({
   activityText: {
     fontSize: 14,
     color: '#555',
+  },
+  applicationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 7,
+    marginBottom: 3,
   },
   filterScroll: {
     flexGrow: 0,

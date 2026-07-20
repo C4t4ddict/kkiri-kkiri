@@ -16,6 +16,7 @@ const {
   listPastActivities,
 } = require('./portfolio/service');
 const { createMiniPortfolioPdf } = require('./portfolio/pdf');
+const { startCrawlerScheduler } = require('./crawler/scheduler');
 
 try {
   require('dotenv').config({ path: path.join(__dirname, '.env') });
@@ -258,6 +259,7 @@ db.connect((err) => {
     console.log('✅ MySQL 연결 성공!');
     ensureActivityTables();
     ensureTodoCompletionColumn();
+    startCrawlerScheduler();
     ensurePortfolioSchema(portfolioDb)
       .then(() => runArchiveMaintenance())
       .then((archived) => {

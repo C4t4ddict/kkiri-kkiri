@@ -1,5 +1,5 @@
 // HomeScreen.tsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, FlatList, Image,
   TouchableOpacity, Platform, ActivityIndicator, Alert, SafeAreaView
@@ -9,6 +9,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RootStackParamList } from '../types'; // 경로: src/screens 기준
 import AppHeader from '../components/AppHeader';
+import AppRefreshControl from '../components/AppRefreshControl';
 import { HOME_ACTIVITY_CATEGORIES } from '../constants/activityCategories';
 
 type RootNav = StackNavigationProp<RootStackParamList>;
@@ -32,27 +33,32 @@ const BASE_URL =
 export default function HomeScreen() {
   const navigation = useNavigation();
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [activities, setActivities] = useState<Activity[]>([]);
   const rootNav = useNavigation<RootNav>(); // ← 루트 스택 네비게이터
 
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        // 필요시 서버에 status=open 같은 필터를 붙여도 됨
-        const res = await axios.get<Activity[]>(`${BASE_URL}/api/activities`);
-        if (mounted) setActivities(Array.isArray(res.data) ? res.data : []);
-      } catch (e) {
-        console.error(e);
-        Alert.alert('오류', '활동 목록을 불러오지 못했습니다.');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
+  const fetchActivities = useCallback(async (showError = true) => {
+    try {
+      const res = await axios.get<Activity[]>(`${BASE_URL}/api/activities`);
+      setActivities(Array.isArray(res.data) ? res.data : []);
+    } catch (error) {
+      console.error(error);
+      if (showError) Alert.alert('오류', '활동 목록을 불러오지 못했습니다.');
+    }
   }, []);
+
+  useEffect(() => {
+    fetchActivities().finally(() => setLoading(false));
+  }, [fetchActivities]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchActivities(false);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchActivities]);
 
   // 오늘 기준 모집 중(신청 마감일이 오늘 이후)이면 true
   const isOpen = (a: Activity) => {
@@ -135,7 +141,11 @@ export default function HomeScreen() {
           <Image source={require('../assets/bell.png')} style={styles.bellIcon} resizeMode="contain" />
         </TouchableOpacity>
       } />
-      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: 24 }}
+        refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+      >
         {/* 헤더와 활동 사이 여유 공간 */}
         <View style={{ height: 20 }} />
 

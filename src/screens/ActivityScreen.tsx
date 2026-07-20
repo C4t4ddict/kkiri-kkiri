@@ -15,6 +15,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StatusBar, Platform } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import AppHeader from '../components/AppHeader';
+import AppRefreshControl from '../components/AppRefreshControl';
 import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../types';
 import { loadWidgetPrefs } from '../utils/widgetPrefs';
@@ -91,6 +92,7 @@ export default function ActivityScreen() {
   const [weeklyTodos, setWeeklyTodos] = useState<Todo[]>([]);
   const [dailyTodos, setDailyTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedGoalScope, setSelectedGoalScope] = useState<GoalScope>('일일');
 
   const API_BASE = useMemo(() => API_BASE_URL, []);
@@ -229,30 +231,36 @@ export default function ActivityScreen() {
     if (selected?.teamId) fetchAllDataForTeam(selected.teamId);
   }, [selected, fetchAllDataForTeam]);
 
+  const reloadActivityData = useCallback(async () => {
+    const data = await fetchTeams();
+    setOptions(data);
+    const keep = data.find((item) => item.teamId === selected?.teamId);
+    const nextSelected = keep ?? data[0] ?? null;
+    setSelected(nextSelected);
+    if (nextSelected) {
+      await fetchAllDataForTeam(nextSelected.teamId);
+    } else {
+      setMonthlyTodos([]);
+      setWeeklyTodos([]);
+      setDailyTodos([]);
+    }
+  }, [fetchAllDataForTeam, fetchTeams, selected?.teamId]);
+
   // 화면에 다시 들어오면 전체 새로고침(팀 목록 + 섹션 데이터)
   useFocusEffect(
     useCallback(() => {
-      let alive = true;
-      const reload = async () => {
-        const data = await fetchTeams();
-        if (!alive) return;
-        setOptions(data);
-        const keep = data.find((d) => d.teamId === selected?.teamId);
-        const nextSelected = keep ?? data[0] ?? null;
-        setSelected(nextSelected || null);
-        if (nextSelected) await fetchAllDataForTeam(nextSelected.teamId);
-        else {
-          setMonthlyTodos([]);
-          setWeeklyTodos([]);
-          setDailyTodos([]);
-        }
-      };
-      reload();
-      return () => {
-        alive = false;
-      };
-    }, [fetchTeams, fetchAllDataForTeam, selected?.teamId])
+      reloadActivityData();
+    }, [reloadActivityData])
   );
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await reloadActivityData();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [reloadActivityData]);
 
   // 포커스 시 위젯 설정 로드(팀별 커스텀 쓰려면 selected?.teamId 넘겨줘)
   useFocusEffect(
@@ -455,6 +463,7 @@ export default function ActivityScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollBody}  // 패딩/여유공간은 여기서
         keyboardShouldPersistTaps="handled"
+        refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
         {/* 진행률 */}
         {showRing && (

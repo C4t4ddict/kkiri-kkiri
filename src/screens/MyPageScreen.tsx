@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView,
   StatusBar, Image, Alert, ScrollView, Platform
@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { User } from '../types';
 import { launchImageLibrary, ImagePickerResponse } from 'react-native-image-picker';
 import Icon from 'react-native-vector-icons/Ionicons';
-import AppHeader from '../components/AppHeader';
+import AppRefreshControl from '../components/AppRefreshControl';
 
 // ImageAsset 타입 정의
 interface ImageAsset {
@@ -79,6 +79,12 @@ type NavProp = StackNavigationProp<RootStackParamList>;
 const API_BASE_URL =
   Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 
+const getCorrectImageUrl = (imageUrl: string | null | undefined): string | null => {
+  if (!imageUrl) return null;
+  const uploadPath = imageUrl.match(/\/uploads\/[^?#]+/)?.[0];
+  return uploadPath ? `${API_BASE_URL}${uploadPath}` : imageUrl;
+};
+
 const normalizeUser = (raw: any): User => ({
   id: raw.id ?? raw.user_id,
   email: raw.email,
@@ -106,18 +112,12 @@ export default function MyPageScreen() {
   const navigation = useNavigation<NavProp>();
   const { user, setUser } = useAuth();
   const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [editingField, setEditingField] = useState<keyof User | null>(null);
   const [editValue, setEditValue] = useState('');
 
-  // URL 처리 함수 - localhost를 현재 플랫폼에 맞게 변환
-  const getCorrectImageUrl = (imageUrl: string | null | undefined): string | null => {
-    if (!imageUrl) return null;
-    const uploadPath = imageUrl.match(/\/uploads\/[^?#]+/)?.[0];
-    return uploadPath ? `${API_BASE_URL}${uploadPath}` : imageUrl;
-  };
-
   // 사용자 정보 불러오기 (전역 user가 있을 때만)
-  const fetchUserData = async () => {
+  const fetchUserData = useCallback(async () => {
     if (!user?.id) return;
     try {
       const res = await fetch(`${API_BASE_URL}/api/user/${user.id}`);
@@ -138,11 +138,20 @@ export default function MyPageScreen() {
       console.error('사용자 데이터 fetch 에러:', e);
       Alert.alert('오류', '서버 연결에 실패했습니다.');
     }
-  };
+  }, [setUser, user?.id]);
 
   useEffect(() => {
     fetchUserData();
-  }, [user?.id]);
+  }, [fetchUserData]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchUserData();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // 프로필 이미지 동기화
   useEffect(() => {
@@ -265,11 +274,6 @@ export default function MyPageScreen() {
     }
   };
 
-  const toDateOnly = (iso?: string) => {
-    if (!iso) return '';
-    return iso.split('T')[0];
-  };
-
   const isDateOnly = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v);
 
   const startEditing = (field: keyof User, value?: string) => {
@@ -382,8 +386,9 @@ export default function MyPageScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      <AppHeader lowered={false} actions={<Icon name="notifications-outline" size={25} color="#101828" onPress={() => navigation.navigate('Notifications' as never)} />} />
-      <ScrollView>
+      <ScrollView
+        refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+      >
         <View style={styles.profileSection}>
           <View style={styles.profileImageContainer}>
             {profileImage ? (

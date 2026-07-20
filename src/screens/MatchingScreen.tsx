@@ -19,6 +19,7 @@ import { useAuth } from '../context/AuthContext';
 
 import { useFocusEffect } from '@react-navigation/native';
 import AppHeader from '../components/AppHeader';
+import AppRefreshControl from '../components/AppRefreshControl';
 import { MATCHING_ACTIVITY_CATEGORIES } from '../constants/activityCategories';
 
 const BASE_URL =
@@ -59,6 +60,7 @@ const MatchingScreen = () => {
   const [selectedMeetingType, setSelectedMeetingType] = useState('전체');
   const [recruitments, setRecruitments] = useState<Recruitment[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
   const { user } = useAuth();
 
@@ -130,6 +132,15 @@ const MatchingScreen = () => {
     );
   };
 
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchAll();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchAll]);
+
   return (
     <SafeAreaView style={styles.container}>
       {/* 상단 로고 + 알림 */}
@@ -197,7 +208,9 @@ const MatchingScreen = () => {
       </View>
 
       {/* 리스트 */}
-      <ScrollView>
+      <ScrollView
+        refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+      >
         {filtered.map((r) => {
           const current = headcountsByRecruitment.get(r.recruitment_id) || 0;
           return (

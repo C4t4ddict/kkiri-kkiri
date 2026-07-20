@@ -42,3 +42,21 @@ CRAWLER_LIMIT=50
 ```
 
 기본 설정은 사이트별 3페이지, 최대 50건을 조회하고 `robots.txt`를 확인하며 요청 사이에 1초를 둡니다. 한 사이트나 한 항목이 실패해도 나머지 항목은 계속 처리되며 실패 내용은 DB에 남습니다.
+
+## 자동 업데이트
+
+API 서버를 실행하면 기본적으로 30초 뒤 첫 수집을 시작하고 이후 6시간마다 다시 수집합니다. 같은 서버 프로세스 안에서는 이전 수집이 끝나기 전에 다음 수집을 중복 실행하지 않습니다.
+
+```dotenv
+CRAWLER_AUTO_ENABLED=true
+CRAWLER_AUTO_INTERVAL_HOURS=6
+CRAWLER_AUTO_INITIAL_DELAY_SECONDS=30
+```
+
+자동 수집을 끄려면 `CRAWLER_AUTO_ENABLED=false`로 설정합니다. 서버 인스턴스를 여러 개 운영할 때는 중복 수집을 피하도록 한 인스턴스에서만 활성화하거나, 모든 인스턴스에서 자동 수집을 끄고 외부 스케줄러가 `npm run crawl:competitions`를 호출하도록 구성합니다.
+
+활동 탭 기능 확인용 예시 팀은 현재 접수 중인 공모전을 기준으로 아래 명령으로 생성하거나 갱신할 수 있습니다.
+
+```bash
+npm run seed:demo-activity
+```

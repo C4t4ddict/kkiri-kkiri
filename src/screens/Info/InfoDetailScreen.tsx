@@ -13,6 +13,7 @@ import {
 import { RouteProp, useRoute } from '@react-navigation/native';
 import axios from 'axios';
 import colors from '../../config/colors';
+import ApplicationStatusBadge from '../../components/ApplicationStatusBadge';
 
 const BASE_URL =
   Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
@@ -116,9 +117,10 @@ const ActivityDetailScreen = () => {
           label="운영기간"
           value={formatDateRange(activity.operation_period_start, activity.operation_period_end)}
         />
-        <InfoRow
-          label="신청기간"
+        <ApplicationPeriodRow
           value={formatDateRange(activity.application_period_start, activity.application_period_end)}
+          start={activity.application_period_start}
+          end={activity.application_period_end}
         />
         <InfoRow label="문의" value={activity.contact} />
         <InfoRow
@@ -154,6 +156,27 @@ const InfoRow = ({ label, value }: { label: string; value?: string | null }) => 
     <View style={styles.infoRow}>
       <Text style={styles.boldLabel}>{label}</Text>
       <Text style={styles.rowText}>{value}</Text>
+    </View>
+  );
+};
+
+const ApplicationPeriodRow = ({
+  value,
+  start,
+  end,
+}: {
+  value?: string | null;
+  start?: string | null;
+  end?: string | null;
+}) => {
+  if (!value) return null;
+  return (
+    <View style={styles.infoRow}>
+      <Text style={styles.boldLabel}>신청기간</Text>
+      <View style={styles.applicationValue}>
+        <Text style={styles.applicationText}>{value}</Text>
+        <ApplicationStatusBadge start={start} end={end} />
+      </View>
     </View>
   );
 };
@@ -220,6 +243,15 @@ const styles = StyleSheet.create({
   },
   rowText: {
     flex: 1,
+    fontSize: 14,
+    color: colors.textMain,
+    lineHeight: 21,
+  },
+  applicationValue: {
+    flex: 1,
+    gap: 6,
+  },
+  applicationText: {
     fontSize: 14,
     color: colors.textMain,
     lineHeight: 21,
