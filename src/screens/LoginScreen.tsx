@@ -36,7 +36,7 @@ export default function LoginScreen() {
       const data = await response.json();
 
       if (response.ok) {
-        setUser(data.user); // ✅ 전역에 저장
+        setUser({ ...data.user, authToken: data.token }); // ✅ 전역에 저장
         Alert.alert(
         '로그인 성공',
         `${data.user.name}님 환영합니다!`,

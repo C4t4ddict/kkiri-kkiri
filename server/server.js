@@ -8,6 +8,16 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
+
+try {
+  require('dotenv').config({ path: path.join(__dirname, '.env') });
+} catch (error) {
+  // dotenv는 개발 편의용입니다. 설치되어 있지 않으면 환경변수만 사용합니다.
+}
+
+const { attachAuth, getAuthenticatedUserId, issueAuthToken } = require('./lib/auth');
+const { getRequestMetrics, logger, requestLogger } = require('./lib/logger');
+const { createTtlCache } = require('./lib/ttlCache');
 const {
   archiveExpiredTeams,
   archiveTeam,
@@ -18,14 +28,8 @@ const {
 const { createMiniPortfolioPdf } = require('./portfolio/pdf');
 const { startCrawlerScheduler } = require('./crawler/scheduler');
 
-try {
-  require('dotenv').config({ path: path.join(__dirname, '.env') });
-} catch (error) {
-  // dotenv는 개발 편의용입니다. 설치되어 있지 않으면 환경변수만 사용합니다.
-}
-
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 const BCRYPT_SALT_ROUNDS = 10;
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const FALLBACK_UPLOAD_IMAGES = ['info1.png', 'info2.png', 'info3.png', 'info4.png', 'info5.png'];
@@ -118,7 +122,28 @@ const parseIdList = (value) => {
   return [];
 };
 
-const getRequestUserId = (req) => Number(req.get('x-user-id') || req.body?.user_id || req.query?.user_id);
+const parsePagination = (query) => {
+  if (query.page === undefined && query.limit === undefined) return null;
+  const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, Number.parseInt(query.limit, 10) || 20));
+  return { page, limit };
+};
+
+const sendActivityList = (res, activities, pagination) => {
+  const normalized = activities.map(normalizeActivity);
+  if (!pagination) return res.status(200).json(normalized);
+  const start = (pagination.page - 1) * pagination.limit;
+  return res.status(200).json({
+    items: normalized.slice(start, start + pagination.limit),
+    pagination: {
+      ...pagination,
+      total: normalized.length,
+      totalPages: Math.ceil(normalized.length / pagination.limit),
+    },
+  });
+};
+
+const getRequestUserId = getAuthenticatedUserId;
 
 const formatDateOnly = (value) => {
   if (!value) {
@@ -160,10 +185,13 @@ const toClientUser = (user) => ({
 // Middleware 설정
 app.use(cors());
 app.use(bodyParser.json());
+app.use(attachAuth);
+app.use(requestLogger);
 
-// 요청 로깅
+const privateApiPattern = /^(?:\/api\/(?:user(?:\/|$)|delete-user(?:\/|$)|upload(?:\/|$)|favorite-activities(?:\/|$)|my-(?:recruitments|applications)(?:\/|$)|applications(?:\/|$)|reviews(?:\/|$)|participations(?:\/|$)|team-join-offers(?:\/|$))|\/(?:users|teams|todos|notifications)(?:\/|$))/;
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  if (!privateApiPattern.test(req.path)) return next();
+  if (!getRequestUserId(req)) return res.status(401).json({ message: '로그인이 필요합니다' });
   next();
 });
 
@@ -171,14 +199,25 @@ app.use((req, res, next) => {
 app.use('/uploads', express.static(UPLOADS_DIR));
 
 // MySQL 연결 설정
-const db = mysql.createConnection({
+const db = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'myappdb', // 범수 프로젝트 DB
-  port: Number(process.env.DB_PORT || 3306)
+  port: Number(process.env.DB_PORT || 3306),
+  waitForConnections: true,
+  connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 10),
+  maxIdle: Number(process.env.DB_MAX_IDLE || 10),
+  idleTimeout: Number(process.env.DB_IDLE_TIMEOUT_MS || 60_000),
+  queueLimit: Number(process.env.DB_QUEUE_LIMIT || 0),
+  charset: 'utf8mb4',
 });
+db.state = 'connecting';
 const portfolioDb = db.promise();
+const activityCache = createTtlCache({
+  ttlMs: Number(process.env.ACTIVITY_CACHE_TTL_MS || 30_000),
+  maxEntries: 20,
+});
 let portfolioQueue = Promise.resolve();
 let matchingSchemaReady = Promise.resolve();
 
@@ -383,11 +422,14 @@ const ensureRecruitmentTeam = async (connection, recruitment) => {
 };
 
 // 데이터베이스 연결 테스트
-db.connect((err) => {
+db.getConnection((err, connection) => {
   if (err) {
+    db.state = 'disconnected';
     console.error('❌ MySQL 연결 실패:', err.message);
     console.log('MySQL 없이 서버 계속 실행...');
   } else {
+    connection.release();
+    db.state = 'connected';
     console.log('✅ MySQL 연결 성공!');
     ensureActivityTables();
     ensureTodoCompletionColumn();
@@ -424,13 +466,16 @@ app.get('/', (req, res) => {
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
+    uptime_seconds: Math.round(process.uptime()),
+    database: db.state,
+    activity_cache_entries: activityCache.size(),
     timestamp: new Date().toISOString()
   });
 });
 
 // 데이터베이스 연결 상태 확인
 app.get('/api/db-health', (req, res) => {
-  if (!db || db.state === 'disconnected') {
+  if (db.state !== 'connected') {
     return res.status(500).json({
       status: 'error',
       message: 'Database not connected'
@@ -442,7 +487,7 @@ app.get('/api/db-health', (req, res) => {
       res.status(500).json({
         status: 'error',
         message: 'Database query failed',
-        error: err.message
+        requestId: res.getHeader('x-request-id')
       });
     } else {
       res.json({
@@ -454,12 +499,41 @@ app.get('/api/db-health', (req, res) => {
   });
 });
 
+const requireOpsToken = (req, res, next) => {
+  const configuredToken = String(process.env.OPS_API_TOKEN || '');
+  if (!configuredToken || req.get('x-ops-token') !== configuredToken) {
+    return res.status(403).json({ message: '운영 API 접근 권한이 없습니다' });
+  }
+  next();
+};
+
+app.get('/api/ops/status', requireOpsToken, async (req, res) => {
+  try {
+    const [crawlerRuns] = await portfolioDb.query(
+      `SELECT run_id, source_name, status, discovered_count, saved_count, error_count, started_at, finished_at
+       FROM crawler_runs ORDER BY started_at DESC LIMIT 10`
+    );
+    res.json({
+      server: {
+        uptimeSeconds: Math.round(process.uptime()),
+        memory: process.memoryUsage(),
+        requests: getRequestMetrics(),
+      },
+      database: { state: db.state, pool: db.pool?._allConnections?.length ?? null },
+      cache: { activityEntries: activityCache.size() },
+      crawlerRuns,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('ops_status_failed', { error: error.message });
+    res.status(503).json({ message: '운영 상태를 조회하지 못했습니다' });
+  }
+});
+
 // ===== 인증 관련 API =====
 
 // 새로운 로그인 API (LoginScreen0에서 사용)
 app.post('/api/login', (req, res) => {
-  console.log('새로운 로그인 API 요청:', req.body);
-  
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -489,7 +563,8 @@ app.post('/api/login', (req, res) => {
       return res.json({
         success: true,
         message: '로그인 성공',
-        user: dummyUser
+        user: dummyUser,
+        token: issueAuthToken(dummyUser.id),
       });
     } else {
       return res.status(401).json({
@@ -540,11 +615,11 @@ app.post('/api/login', (req, res) => {
       });
     }
 
-    console.log('로그인 성공:', user.email);
     res.json({
       success: true,
       message: '로그인 성공',
-      user: toClientUser(user)
+      user: toClientUser(user),
+      token: issueAuthToken(user.user_id),
     });
   });
 });
@@ -582,7 +657,8 @@ app.post('/login', (req, res) => {
       return res.json({
         success: true,
         message: '로그인 성공',
-        user: dummyUser
+        user: dummyUser,
+        token: issueAuthToken(dummyUser.id),
       });
     } else {
       return res.status(401).json({
@@ -633,19 +709,17 @@ app.post('/login', (req, res) => {
       });
     }
 
-    console.log('로그인 성공:', user.email);
     res.json({
       success: true,
       message: '로그인 성공',
-      user: toClientUser(user)
+      user: toClientUser(user),
+      token: issueAuthToken(user.user_id),
     });
   });
 });
 
 // 새로운 회원가입 API
 app.post('/api/register', (req, res) => {
-  console.log('새로운 회원가입 API 요청:', req.body);
-  
   const { email, password, name, department, student_number, birth_date } = req.body;
 
   // 필수값 확인
@@ -750,6 +824,7 @@ app.post('/register', (req, res) => {
 
 // 활동 목록 조회 API
 app.get('/api/activities', (req, res) => {
+  const pagination = parsePagination(req.query);
   // 더미 데이터 (DB 연결 전)
   if (!db || db.state === 'disconnected') {
     console.log('더미 활동 데이터 반환 (MySQL 미연결)');
@@ -791,6 +866,9 @@ app.get('/api/activities', (req, res) => {
     return res.status(200).json(dummyActivities);
   }
 
+  const cached = activityCache.get('activities:all');
+  if (cached) return sendActivityList(res, cached, pagination);
+
   // 실제 DB 쿼리
   const sql = `
     SELECT
@@ -812,7 +890,9 @@ app.get('/api/activities', (req, res) => {
       return res.status(500).json({ message: '서버 오류' });
     }
 
-    res.status(200).json((results || []).map(normalizeActivity));
+    const activities = results || [];
+    activityCache.set('activities:all', activities);
+    sendActivityList(res, activities, pagination);
   });
 });
 
@@ -820,6 +900,10 @@ app.get('/api/activities/open', (req, res) => {
   if (!db || db.state === 'disconnected') {
     return res.json([]);
   }
+
+  const pagination = parsePagination(req.query);
+  const cached = activityCache.get('activities:open');
+  if (cached) return sendActivityList(res, cached, pagination);
 
   const sql = `
     SELECT
@@ -843,7 +927,9 @@ app.get('/api/activities/open', (req, res) => {
       return res.status(500).json({ message: '서버 오류' });
     }
 
-    res.json((results || []).map(normalizeActivity));
+    const activities = results || [];
+    activityCache.set('activities:open', activities);
+    sendActivityList(res, activities, pagination);
   });
 });
 
@@ -2735,7 +2821,6 @@ app.put('/teams/:teamId/name', (req, res) => {
 app.get('/api/user/:id', (req, res) => {
   const userId = req.params.id;
   
-  console.log(`사용자 정보 조회 요청: 사용자 ID ${userId}`);
   
   if (!userId) {
     return res.status(400).json({
@@ -2784,7 +2869,6 @@ app.get('/api/user/:id', (req, res) => {
     }
     
     const userData = toClientUser(results[0]);
-    console.log('조회된 사용자 정보:', userData);
     
     res.json({
       success: true,
@@ -2799,7 +2883,6 @@ app.get('/api/user/:id', (req, res) => {
 app.get('/api/participations/user/:userId', (req, res) => {
   const userId = req.params.userId;
   
-  console.log(`사용자 참여 활동 조회: 사용자 ID ${userId}`);
   
   // 더미 데이터 (DB 연결 전)
   if (!db || db.state === 'disconnected') {
@@ -2881,7 +2964,6 @@ app.get('/api/participations/user/:userId', (req, res) => {
 app.post('/api/users/batch', (req, res) => {
   const user_ids = req.body.user_ids || req.body.userIds;
   
-  console.log('배치 사용자 정보 조회:', user_ids);
   
   if (!user_ids || !Array.isArray(user_ids) || user_ids.length === 0) {
     return res.status(400).json({
@@ -2969,8 +3051,14 @@ app.get('/api/reviews/existing/:reviewerId/:revieweeId/:activityId', (req, res) 
 // 평가 저장/수정 (MyPage3에서 사용)
 app.post('/api/reviews', (req, res) => {
   const { reviewer_id, reviewee_id, related_team_id, review_high, review_medium, review_low, comment, is_update } = req.body;
-  
-  console.log('평가 저장/수정 요청:', req.body);
+  const requestUserId = getRequestUserId(req);
+
+  if (!requestUserId) {
+    return res.status(401).json({ success: false, message: '로그인이 필요합니다' });
+  }
+  if (Number(reviewer_id) !== requestUserId) {
+    return res.status(403).json({ success: false, message: '본인의 평가만 작성할 수 있습니다' });
+  }
   
   // 더미 응답 (DB 연결 전)
   if (!db || db.state === 'disconnected') {
@@ -3031,7 +3119,6 @@ app.post('/api/reviews', (req, res) => {
 app.get('/api/user/:id/evaluations', (req, res) => {
   const userId = req.params.id;
   
-  console.log(`사용자 평가 통계 조회: 사용자 ID ${userId}`);
   
   // 더미 데이터 (DB 연결 전)
   if (!db || db.state === 'disconnected') {
@@ -3131,7 +3218,6 @@ app.get('/api/user/:id/reviews', (req, res) => {
 app.get('/api/user/:id/activities', (req, res) => {
   const userId = req.params.id;
   
-  console.log(`사용자 활동 이력 조회: 사용자 ID ${userId}`);
   
   // 더미 데이터 (DB 연결 전)
   if (!db || db.state === 'disconnected') {
@@ -3187,10 +3273,17 @@ app.get('/api/user/:id/activities', (req, res) => {
 
 // 사용자 정보 업데이트 (MyPage1에서 사용)
 app.put('/api/user/:id', (req, res) => {
-  const userId = req.params.id;
+  const userId = Number(req.params.id);
+  const requestUserId = getRequestUserId(req);
   const updateData = req.body;
+
+  if (!requestUserId) {
+    return res.status(401).json({ success: false, message: '로그인이 필요합니다' });
+  }
+  if (requestUserId !== userId) {
+    return res.status(403).json({ success: false, message: '본인의 정보만 수정할 수 있습니다' });
+  }
   
-  console.log(`사용자 정보 업데이트: 사용자 ID ${userId}`, updateData);
   
   // 더미 응답 (DB 연결 전)
   if (!db || db.state === 'disconnected') {
@@ -3288,88 +3381,36 @@ app.put('/api/user/:id/password', (req, res) => {
 });
 
 // 사용자 탈퇴 (Setting에서 사용)
-app.delete('/api/delete-user/:id', (req, res) => {
-  const userId = req.params.id;
-  
-  console.log(`사용자 탈퇴 요청: 사용자 ID ${userId}`);
-  
-  // 더미 응답 (DB 연결 전)
-  if (!db || db.state === 'disconnected') {
-    console.log('더미 사용자 탈퇴 (MySQL 미연결)');
-    return res.json({
-      success: true,
-      message: '회원 탈퇴가 완료되었습니다'
-    });
+app.delete('/api/delete-user/:id', async (req, res) => {
+  const userId = Number(req.params.id);
+  const requestUserId = getRequestUserId(req);
+
+  if (!requestUserId) {
+    return res.status(401).json({ success: false, message: '로그인이 필요합니다' });
+  }
+  if (requestUserId !== userId) {
+    return res.status(403).json({ success: false, message: '본인의 계정만 탈퇴할 수 있습니다' });
+  }
+  if (db.state !== 'connected') {
+    return res.status(503).json({ success: false, message: '데이터베이스 연결을 확인해주세요' });
   }
 
-  // 실제 DB 쿼리 - 관련된 모든 데이터 삭제
-  db.beginTransaction((err) => {
-    if (err) {
-      console.error('트랜잭션 시작 에러:', err);
-      return res.status(500).json({
-        success: false,
-        message: '탈퇴 처리 실패'
-      });
-    }
-
-    // 1. 리뷰 삭제 (평가자, 피평가자 모두)
-    db.query('DELETE FROM reviews WHERE reviewer_id = ? OR reviewee_id = ?', [userId, userId], (err) => {
-      if (err) {
-        return db.rollback(() => {
-          console.error('리뷰 삭제 에러:', err);
-          res.status(500).json({
-            success: false,
-            message: '탈퇴 처리 실패'
-          });
-        });
-      }
-
-      // 2. 참여 정보 삭제
-      db.query('DELETE FROM user_activity_participations WHERE user_id = ?', [userId], (err) => {
-        if (err) {
-          return db.rollback(() => {
-            console.error('참여 정보 삭제 에러:', err);
-            res.status(500).json({
-              success: false,
-              message: '탈퇴 처리 실패'
-            });
-          });
-        }
-
-        // 3. 사용자 정보 삭제
-        db.query('DELETE FROM users WHERE id = ?', [userId], (err) => {
-          if (err) {
-            return db.rollback(() => {
-              console.error('사용자 삭제 에러:', err);
-              res.status(500).json({
-                success: false,
-                message: '탈퇴 처리 실패'
-              });
-            });
-          }
-
-          // 트랜잭션 커밋
-          db.commit((err) => {
-            if (err) {
-              return db.rollback(() => {
-                console.error('트랜잭션 커밋 에러:', err);
-                res.status(500).json({
-                  success: false,
-                  message: '탈퇴 처리 실패'
-                });
-              });
-            }
-
-            console.log(`사용자 ${userId} 탈퇴 완료`);
-            res.json({
-              success: true,
-              message: '회원 탈퇴가 완료되었습니다'
-            });
-          });
-        });
-      });
-    });
-  });
+  const connection = await portfolioDb.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.query('DELETE FROM reviews WHERE reviewer_id = ? OR reviewee_id = ?', [userId, userId]);
+    await connection.query('DELETE FROM user_activity_participations WHERE user_id = ?', [userId]);
+    await connection.query('DELETE FROM users WHERE id = ?', [userId]);
+    await connection.commit();
+    logger.info('user_deleted', { userId });
+    res.json({ success: true, message: '회원 탈퇴가 완료되었습니다' });
+  } catch (error) {
+    await connection.rollback();
+    logger.error('user_delete_failed', { userId, error: error.message });
+    res.status(500).json({ success: false, message: '탈퇴 처리 실패' });
+  } finally {
+    connection.release();
+  }
 });
 
 // ===== 파일 업로드 API =====
@@ -3431,6 +3472,20 @@ app.post('/api/upload/profile/:userId', upload.single('image'), (req, res) => {
   });
 });
 
+app.use((error, req, res, next) => {
+  logger.error('unhandled_request_error', {
+    requestId: res.getHeader('x-request-id'),
+    method: req.method,
+    path: req.originalUrl,
+    error: error.message,
+  });
+  if (res.headersSent) return next(error);
+  return res.status(500).json({
+    message: '서버 오류가 발생했습니다',
+    requestId: res.getHeader('x-request-id'),
+  });
+});
+
 // 404 처리
 app.use((req, res) => {
   res.status(404).json({
@@ -3483,10 +3538,6 @@ app.listen(PORT, () => {
   console.log('  📚 GET  http://localhost:3000/api/user/:id/activities');
   console.log('  🗑️  DELETE http://localhost:3000/api/delete-user/:id');
   console.log('  📁 POST http://localhost:3000/api/upload');
-  console.log('');
-  console.log('🧪 테스트용 계정:');
-  console.log('  📧 이메일: test@test.com');
-  console.log('  🔑 비밀번호: test123');
   console.log('');
   console.log('✅ 서버 설정 완료!');
 });

@@ -100,6 +100,25 @@ const startRun = async (pool, sourceName) => {
   return result.insertId;
 };
 
+const acquireCrawlerLock = async (pool) => {
+  const connection = await pool.getConnection();
+  const [rows] = await connection.execute("SELECT GET_LOCK('kkiri_competition_crawler', 0) AS acquired");
+  if (Number(rows[0]?.acquired) !== 1) {
+    connection.release();
+    return null;
+  }
+  return connection;
+};
+
+const releaseCrawlerLock = async (connection) => {
+  if (!connection) return;
+  try {
+    await connection.execute("SELECT RELEASE_LOCK('kkiri_competition_crawler')");
+  } finally {
+    connection.release();
+  }
+};
+
 const finishRun = async (pool, runId, summary) => {
   await pool.execute(
     `UPDATE crawler_runs
@@ -219,9 +238,11 @@ const saveActivity = async (pool, runId, activity, rawHtml) => {
 };
 
 module.exports = {
+  acquireCrawlerLock,
   createPool,
   ensureCrawlerSchema,
   finishRun,
+  releaseCrawlerLock,
   saveActivity,
   saveCrawlError,
   startRun,

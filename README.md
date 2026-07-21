@@ -2,6 +2,19 @@ This is a new [**React Native**](https://reactnative.dev) project, bootstrapped 
 
 # Getting Started
 
+## 운영 안정성 설정
+
+서버는 MySQL 커넥션 풀, 활동 목록 단기 캐시, 서명된 로그인 토큰을 사용합니다. `server/.env.example`을 기준으로 환경변수를 준비하고, 운영 환경에서는 반드시 `NODE_ENV=production`, 충분히 긴 `AUTH_TOKEN_SECRET`, `ALLOW_LEGACY_USER_HEADER=false`, `OPS_API_TOKEN`을 설정합니다.
+
+- `GET /api/health`: 공개 생존 상태와 DB 연결 상태 확인
+- `GET /api/db-health`: 실제 DB 쿼리 상태 확인
+- `GET /api/ops/status`: `x-ops-token` 헤더가 필요한 요청·메모리·캐시·최근 크롤링 상태 확인
+- `DB_CONNECTION_LIMIT`: API 서버의 MySQL 동시 연결 상한
+- `ACTIVITY_CACHE_TTL_MS`: 활동 목록 캐시 유지 시간
+- `LOG_LEVEL`: 운영은 `info`, 상세 진단은 일시적으로 `debug` 권장
+
+크롤러 운영 방법과 수집 이력 테이블은 `server/crawler/README.md`를 참고합니다.
+
 > **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
 
 ## Step 1: Start Metro
