@@ -1,0 +1,28 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "crawl:competitions": "node crawler/index.js",
+    "crawl:competitions:dry": "node crawler/index.js --dry-run --limit 5",
+    "seed:demo-activity": "node seeds/seedCurrentActivity.js",
+    "test": "node --test crawler/test/*.tests.js portfolio/test/*.tests.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@fontsource/noto-sans-kr": "^5.2.9",
+    "bcryptjs": "^3.0.3",
+    "body-parser": "^2.2.0",
+    "cheerio": "1.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "mysql2": "^3.14.1",
+    "pdfkit": "^0.19.1"
+  }
+}
