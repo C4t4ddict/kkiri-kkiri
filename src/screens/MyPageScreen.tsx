@@ -193,6 +193,16 @@ export default function MyPageScreen() {
       icon: 'heart-outline',
       onPress: () => navigation.navigate('FavoriteActivities'),
     },
+    {
+      label: '나의 모집',
+      icon: 'megaphone-outline',
+      onPress: () => navigation.navigate('MyRecruitments'),
+    },
+    {
+      label: '나의 지원',
+      icon: 'paper-plane-outline',
+      onPress: () => navigation.navigate('MyApplications'),
+    },
   ];
 
   return (

@@ -21,8 +21,10 @@ export type RootStackParamList = {
   TeamFind: undefined;
   Notifications: undefined;
   MakeTeam: undefined;
-  TeamMake: { user?: User };
+  TeamMake: { user?: User; recruitmentId?: number };
   MatchingDetail: { id: number };
+  MyRecruitments: undefined;
+  MyApplications: undefined;
   MyPage2: { user: User };
   MyPage3: {
     user: User;

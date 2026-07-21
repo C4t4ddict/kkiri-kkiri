@@ -15,12 +15,13 @@ import {
 } from 'react-native';
 import axios from 'axios';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { useNavigation } from '@react-navigation/native';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MATCHING_ACTIVITY_CATEGORIES } from '../constants/activityCategories';
 import { useAuth } from '../context/AuthContext';
 import colors from '../config/colors';
 import MiniCalendarModal from '../components/MiniCalendarModal';
+import { RootStackParamList } from '../types';
 
 const BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 const CATEGORIES = [...MATCHING_ACTIVITY_CATEGORIES];
@@ -47,8 +48,11 @@ const toDateString = (date: Date) => [
 const formatDate = (value: string) => value.replace(/-/g, '. ');
 
 export default function TeamMakeScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<any>>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, 'TeamMake'>>();
   const { user } = useAuth();
+  const recruitmentId = route.params?.recruitmentId;
+  const isEditing = Number.isInteger(recruitmentId);
   const today = useMemo(() => toDateString(new Date()), []);
   const defaultEnd = useMemo(() => {
     const date = new Date();
@@ -75,7 +79,61 @@ export default function TeamMakeScreen() {
   const [favoriteActivities, setFavoriteActivities] = useState<Activity[]>([]);
   const [loadingActivities, setLoadingActivities] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [initializing, setInitializing] = useState(isEditing);
   const categoryProgress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    navigation.setOptions({ title: isEditing ? '모집글 수정' : '팀 만들기' });
+  }, [isEditing, navigation]);
+
+  useEffect(() => {
+    if (!isEditing || !recruitmentId || !user?.id) return;
+
+    const fetchRecruitment = async () => {
+      setInitializing(true);
+      try {
+        const response = await axios.get(`${BASE_URL}/api/team-recruitments/${recruitmentId}`, {
+          headers: { 'x-user-id': String(user.id) },
+        });
+        const recruitment = response.data;
+        if (Number(recruitment.owner_user_id) !== Number(user.id)) {
+          Alert.alert('수정 불가', '작성자만 모집글을 수정할 수 있습니다.', [
+            { text: '확인', onPress: () => navigation.goBack() },
+          ]);
+          return;
+        }
+
+        setPostTitle(recruitment.post_name || '');
+        setSelectedCategory(recruitment.activity_type || null);
+        setCategoryCollapsed(Boolean(recruitment.activity_type));
+        categoryProgress.setValue(recruitment.activity_type ? 1 : 0);
+        setDepartment(recruitment.qualification_department || '모집학과');
+        setMembers(String(recruitment.required_members || 4));
+        setMeetingType(recruitment.meeting_type || '대면');
+        setConditions(recruitment.memo || '');
+        setStartDate(recruitment.activity_start_date || today);
+        setEndDate(recruitment.activity_end_date || defaultEnd);
+        if (recruitment.activity_id) {
+          setSelectedActivity({
+            activity_id: Number(recruitment.activity_id),
+            title: recruitment.activity_name,
+            category: recruitment.activity_category,
+            topic_category: recruitment.activity_topic_category,
+            organizer: recruitment.activity_organizer,
+            application_period_end: recruitment.activity_application_period_end,
+          });
+        }
+      } catch (error: any) {
+        Alert.alert('조회 실패', error?.response?.data?.message || '모집글을 불러오지 못했습니다.', [
+          { text: '확인', onPress: () => navigation.goBack() },
+        ]);
+      } finally {
+        setInitializing(false);
+      }
+    };
+
+    fetchRecruitment();
+  }, [categoryProgress, defaultEnd, isEditing, navigation, recruitmentId, today, user?.id]);
 
   useEffect(() => {
     if (!activityPickerVisible) return;
@@ -185,9 +243,12 @@ export default function TeamMakeScreen() {
     if (!validate() || !user?.id || !selectedActivity || submitting) return;
     setSubmitting(true);
     try {
-      await axios.post(
-        `${BASE_URL}/api/team-recruitments`,
-        {
+      await axios.request({
+        method: isEditing ? 'put' : 'post',
+        url: isEditing
+          ? `${BASE_URL}/api/team-recruitments/${recruitmentId}`
+          : `${BASE_URL}/api/team-recruitments`,
+        data: {
           owner_user_id: user.id,
           activity_id: selectedActivity.activity_id,
           post_name: postTitle.trim(),
@@ -199,14 +260,14 @@ export default function TeamMakeScreen() {
           meeting_type: meetingType,
           memo: conditions.trim(),
         },
-        { headers: { 'x-user-id': String(user.id) } }
-      );
-      Alert.alert('완료', '모집글이 등록되었습니다.', [
+        headers: { 'x-user-id': String(user.id) },
+      });
+      Alert.alert('완료', isEditing ? '모집글이 수정되었습니다.' : '모집글이 등록되었습니다.', [
         { text: '확인', onPress: () => navigation.goBack() },
       ]);
     } catch (error: any) {
-      console.error('모집글 등록 실패:', error?.response?.data || error);
-      Alert.alert('등록 실패', error?.response?.data?.message || '잠시 후 다시 시도해주세요.');
+      console.error('모집글 저장 실패:', error?.response?.data || error);
+      Alert.alert('저장 실패', error?.response?.data?.message || '잠시 후 다시 시도해주세요.');
     } finally {
       setSubmitting(false);
     }
@@ -221,6 +282,7 @@ export default function TeamMakeScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        {initializing ? <Text style={styles.initializingText}>모집글을 불러오는 중...</Text> : null}
         <InputBox>
           <TextInput
             value={postTitle}
@@ -337,8 +399,14 @@ export default function TeamMakeScreen() {
           />
         </InputBox>
 
-        <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={submitting}>
-          <Text style={styles.submitText}>{submitting ? '등록 중...' : '모집글 등록'}</Text>
+        <TouchableOpacity
+          style={[styles.submitButton, (submitting || initializing) && styles.submitButtonDisabled]}
+          onPress={handleSubmit}
+          disabled={submitting || initializing}
+        >
+          <Text style={styles.submitText}>
+            {submitting ? '저장 중...' : isEditing ? '수정 완료' : '모집글 등록'}
+          </Text>
         </TouchableOpacity>
       </ScrollView>
 
@@ -693,7 +761,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.primary,
   },
+  submitButtonDisabled: { opacity: 0.55 },
   submitText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  initializingText: { marginBottom: 14, color: colors.textSub, fontSize: 13, textAlign: 'center' },
   pickerBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(16, 24, 40, 0.42)' },
   pickerCard: {
     height: '84%',

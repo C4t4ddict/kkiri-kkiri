@@ -15,6 +15,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StatusBar, Platform } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import AppHeader from '../components/AppHeader';
+import NotificationBell from '../components/NotificationBell';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { useAuth } from '../context/AuthContext';
 import { RootStackParamList } from '../types';
@@ -370,15 +371,7 @@ export default function ActivityScreen() {
             >
               <Image source={require('../assets/settings-01.png')} style={styles.icon} resizeMode="contain" />
             </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="알림"
-              hitSlop={4}
-              onPress={() => navigation.navigate('Notifications')}
-              style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
-            >
-              <Image source={require('../assets/bell.png')} style={styles.icon} resizeMode="contain" />
-            </Pressable>
+            <NotificationBell />
           </View>
         } />
 

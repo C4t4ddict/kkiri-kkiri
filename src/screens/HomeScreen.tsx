@@ -6,13 +6,11 @@ import {
 } from 'react-native';
 import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
-import type { StackNavigationProp } from '@react-navigation/stack';
-import type { RootStackParamList } from '../types'; // 경로: src/screens 기준
 import AppHeader from '../components/AppHeader';
+import NotificationBell from '../components/NotificationBell';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { HOME_ACTIVITY_CATEGORIES } from '../constants/activityCategories';
 
-type RootNav = StackNavigationProp<RootStackParamList>;
 // const H_PADDING = 22; // ← 화면 좌우 공통 여백
 const LIST_H_PADDING = 28;  // ← '모집중' 이하 좌우 여백(더 넓게)
 
@@ -36,7 +34,6 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activities, setActivities] = useState<Activity[]>([]);
-  const rootNav = useNavigation<RootNav>(); // ← 루트 스택 네비게이터
 
   const fetchActivities = useCallback(async (showError = true) => {
     try {
@@ -138,9 +135,7 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container}>
       {/* 헤더 */}
       <AppHeader actions={
-        <TouchableOpacity onPress={() => rootNav.navigate('Notifications')}>
-          <Image source={require('../assets/bell.png')} style={styles.bellIcon} resizeMode="contain" />
-        </TouchableOpacity>
+        <NotificationBell />
       } />
       <ScrollView
         style={styles.container}

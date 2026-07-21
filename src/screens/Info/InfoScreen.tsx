@@ -6,7 +6,6 @@ import {
   ScrollView,
   SafeAreaView,
   TouchableOpacity,
-  Image,
   StyleSheet,
   Platform,
 } from 'react-native';
@@ -15,6 +14,7 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Icon from 'react-native-vector-icons/Ionicons';
 import AppHeader from '../../components/AppHeader';
+import NotificationBell from '../../components/NotificationBell';
 import AppRefreshControl from '../../components/AppRefreshControl';
 import ApplicationStatusBadge from '../../components/ApplicationStatusBadge';
 import { ACTIVITY_FILTER_CATEGORIES } from '../../constants/activityCategories';
@@ -148,9 +148,7 @@ const InfoScreen = () => {
     <SafeAreaView style={styles.container}>
       {/* 상단 로고 + 종 아이콘 */}
       <AppHeader actions={
-        <TouchableOpacity onPress={() => navigation.navigate('Notifications')}>
-          <Image source={require('../../assets/bell.png')} style={styles.bellIcon} resizeMode="contain" />
-        </TouchableOpacity>
+        <NotificationBell />
       } />
 
       {/* 검색창 */}

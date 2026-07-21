@@ -7,7 +7,6 @@ import {
   ScrollView,
   SafeAreaView,
   TouchableOpacity,
-  Image,
   StyleSheet,
   Platform,
 } from 'react-native';
@@ -19,6 +18,7 @@ import { useAuth } from '../context/AuthContext';
 
 import { useFocusEffect } from '@react-navigation/native';
 import AppHeader from '../components/AppHeader';
+import NotificationBell from '../components/NotificationBell';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { MATCHING_ACTIVITY_CATEGORIES } from '../constants/activityCategories';
 
@@ -145,9 +145,7 @@ const MatchingScreen = () => {
     <SafeAreaView style={styles.container}>
       {/* 상단 로고 + 알림 */}
       <AppHeader actions={
-        <TouchableOpacity onPress={() => navigation.navigate('Notifications')}>
-          <Image source={require('../assets/bell.png')} style={styles.bellIcon} resizeMode="contain" />
-        </TouchableOpacity>
+        <NotificationBell />
       } />
 
       {/* 검색창 */}

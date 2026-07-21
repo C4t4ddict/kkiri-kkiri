@@ -13,14 +13,12 @@ import {
   Platform,
 } from 'react-native';
 import axios from 'axios';
-import { useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
+import { RootStackParamList } from '../types';
 
 const BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
-
-type RootStackParamList = {
-  RecruitDetail: { id: number };
-};
 
 type Recruitment = {
   recruitment_id: number;
@@ -32,8 +30,10 @@ type Recruitment = {
   activity_period?: string;
   activity_start_date?: string;
   activity_end_date?: string;
+  activity_application_period_end?: string;
   meeting_type?: string; // '대면' | '비대면' | '혼합'
   required_members: number;
+  status?: 'OPEN' | 'CLOSED';
   memo?: string;
   created_at?: string;
   // 자격 조건 등 필요시 추가
@@ -46,6 +46,8 @@ type Application = {
   memo?: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELED';
   created_at: string;
+  offer_id?: number | null;
+  offer_status?: 'PENDING' | 'ACCEPTED' | 'REJECTED' | null;
   // 아래는 클라이언트에서 합친 정보
   applicant?: {
     id: number;
@@ -55,10 +57,11 @@ type Application = {
   };
 };
 
-type RouteProps = RouteProp<RootStackParamList, 'RecruitDetail'>;
+type RouteProps = RouteProp<RootStackParamList, 'MatchingDetail'>;
 
 const MatchingDetailScreen = () => {
   const route = useRoute<RouteProps>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { user: me } = useAuth();
 
   const [recruit, setRecruit] = useState<Recruitment | null>(null);
@@ -82,7 +85,9 @@ const MatchingDetailScreen = () => {
       setOwner(u.data.user);
 
       // 지원 목록(작성자/일반 공통으로 필요)
-      const a = await axios.get(`${BASE_URL}/api/team-recruitments/${route.params.id}/applications`);
+      const a = await axios.get(`${BASE_URL}/api/team-recruitments/${route.params.id}/applications`, {
+        headers: me?.id ? { 'x-user-id': String(me.id) } : undefined,
+      });
       const list: Application[] = a.data || [];
 
       // 지원자 상세 붙이기(가벼운 N회 호출; 필요시 서버 join으로 대체 가능)
@@ -101,7 +106,7 @@ const MatchingDetailScreen = () => {
       console.error('상세 조회 오류:', e);
       Alert.alert('오류', '상세 정보를 불러오지 못했습니다.');
     }
-  }, [route.params.id]);
+  }, [me?.id, route.params.id]);
 
   // 뒤로갔다가 다시 들어오거나, 승인/반려 후 갱신
   useFocusEffect(
@@ -118,6 +123,17 @@ const MatchingDetailScreen = () => {
   const currentCount = useMemo(() => {
     return apps.reduce((acc, a) => acc + (a.status === 'REJECTED' || a.status === 'CANCELED' ? 0 : 1), 0);
   }, [apps]);
+
+  const myApplication = useMemo(() => {
+    if (!me?.id) return null;
+    return apps.find((application) => application.applicant_id === me.id) || null;
+  }, [apps, me?.id]);
+
+  const canEditRecruitment = useMemo(() => {
+    if (!recruit || !isOwner || recruit.status !== 'OPEN') return false;
+    if (!recruit.activity_application_period_end) return true;
+    return new Date(recruit.activity_application_period_end).getTime() >= Date.now();
+  }, [isOwner, recruit]);
 
   const handleApply = async () => {
     if (!me?.id) {
@@ -165,6 +181,79 @@ const MatchingDetailScreen = () => {
     }
   };
 
+  const sendJoinOffer = async (applicationId: number) => {
+    if (!me?.id || loading) return;
+    try {
+      setLoading(true);
+      await axios.post(
+        `${BASE_URL}/api/team-recruitments/${route.params.id}/applications/${applicationId}/invite`,
+        {},
+        { headers: { 'x-user-id': String(me.id) } },
+      );
+      Alert.alert('합류 제안 발송', '지원자에게 팀 합류 여부를 묻는 알림을 보냈습니다.');
+      await fetchDetail();
+    } catch (error: any) {
+      console.error('팀 합류 제안 오류:', error);
+      Alert.alert('제안 발송 실패', error?.response?.data?.message || '잠시 후 다시 시도해주세요.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteRecruitment = () => {
+    if (!me?.id || !recruit || loading) return;
+    Alert.alert('모집글 삭제', '이 모집글을 삭제할까요?', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setLoading(true);
+            await axios.delete(`${BASE_URL}/api/team-recruitments/${recruit.recruitment_id}`, {
+              headers: { 'x-user-id': String(me.id) },
+            });
+            navigation.goBack();
+          } catch (error: any) {
+            console.error('모집글 삭제 오류:', error);
+            Alert.alert('삭제 실패', error?.response?.data?.message || '잠시 후 다시 시도해주세요.');
+          } finally {
+            setLoading(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const cancelApplication = () => {
+    if (!myApplication || loading) return;
+
+    Alert.alert('지원 취소', '이 모집글에 대한 지원을 취소할까요?', [
+      { text: '돌아가기', style: 'cancel' },
+      {
+        text: '지원 취소',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setLoading(true);
+            await axios.put(
+              `${BASE_URL}/api/applications/${myApplication.application_id}/cancel`,
+              {},
+              { headers: { 'x-user-id': String(me?.id || '') } }
+            );
+            Alert.alert('완료', '지원이 취소되었습니다.');
+            await fetchDetail();
+          } catch (e: any) {
+            console.error('지원 취소 오류:', e);
+            Alert.alert('지원 취소 실패', e?.response?.data?.message || '잠시 후 다시 시도해주세요.');
+          } finally {
+            setLoading(false);
+          }
+        },
+      },
+    ]);
+  };
+
   if (!recruit) return null;
 
   return (
@@ -178,6 +267,20 @@ const MatchingDetailScreen = () => {
       </View> */}
 
       <ScrollView contentContainerStyle={{ paddingBottom: 24, paddingTop: 16 }}>
+        {isOwner && (
+          <View style={styles.ownerActions}>
+            <TouchableOpacity
+              disabled={!canEditRecruitment || loading}
+              onPress={() => navigation.navigate('TeamMake', { user: me || undefined, recruitmentId: recruit.recruitment_id })}
+            >
+              <Text style={[styles.ownerActionText, !canEditRecruitment && styles.ownerActionDisabled]}>수정</Text>
+            </TouchableOpacity>
+            <Text style={styles.ownerActionDivider}>|</Text>
+            <TouchableOpacity disabled={loading} onPress={deleteRecruitment}>
+              <Text style={styles.ownerDeleteText}>삭제</Text>
+            </TouchableOpacity>
+          </View>
+        )}
         {/* 제목 */}
         <Text style={styles.title}>{recruit.post_name}</Text>
         <Text style={styles.activityName}>{recruit.activity_name}</Text>
@@ -213,26 +316,42 @@ const MatchingDetailScreen = () => {
         {/* --- 일반 사용자 뷰 --- */}
         {!isOwner && (
           <>
-            <View style={styles.inputBox}>
-              <TextInput
-                placeholder="본인에 대해 알려주세요"
-                placeholderTextColor="#98A2B3"
-                value={intro}
-                onChangeText={setIntro}
-                style={styles.input}
-                multiline
-              />
-            </View>
+            {myApplication && myApplication.status !== 'REJECTED' && myApplication.status !== 'CANCELED' ? (
+              <View style={styles.applicationActions}>
+                <View style={styles.appliedNotice}>
+                  <Text style={styles.appliedNoticeTitle}>지원 상태: {labelStatus(myApplication.status)}</Text>
+                  <Text style={styles.appliedNoticeText}>지원 내용을 취소하고 다시 지원할 수 있습니다.</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.cancelBtn, loading && styles.disabledBtn]}
+                  onPress={cancelApplication}
+                  disabled={loading}
+                >
+                  <Text style={styles.cancelBtnText}>{loading ? '처리 중...' : '지원 취소'}</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <>
+                <View style={styles.inputBox}>
+                  <TextInput
+                    placeholder="본인에 대해 알려주세요"
+                    placeholderTextColor="#98A2B3"
+                    value={intro}
+                    onChangeText={setIntro}
+                    style={styles.input}
+                    multiline
+                  />
+                </View>
 
-            <TouchableOpacity
-              style={[styles.primaryBtn, (alreadyApplied || loading) && { opacity: 0.6 }]}
-              onPress={handleApply}
-              disabled={alreadyApplied || loading}
-            >
-              <Text style={styles.primaryBtnText}>
-                {alreadyApplied ? '이미 지원함' : '지원하기'}
-              </Text>
-            </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.primaryBtn, loading && { opacity: 0.6 }]}
+                  onPress={handleApply}
+                  disabled={loading}
+                >
+                  <Text style={styles.primaryBtnText}>지원하기</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </>
         )}
 
@@ -262,16 +381,18 @@ const MatchingDetailScreen = () => {
 
                   <View style={styles.appButtons}>
                     <TouchableOpacity
-                      style={[styles.smallBtn, styles.acceptBtn, loading && { opacity: 0.6 }]}
-                      onPress={() => updateAppStatus(a.application_id, 'APPROVED')}
-                      disabled={loading || a.status === 'APPROVED'}
+                      style={[styles.smallBtn, styles.acceptBtn, (loading || a.status !== 'PENDING' || Boolean(a.offer_id)) && { opacity: 0.6 }]}
+                      onPress={() => sendJoinOffer(a.application_id)}
+                      disabled={loading || a.status !== 'PENDING' || Boolean(a.offer_id)}
                     >
-                      <Text style={[styles.smallBtnText, styles.acceptText]}>수락</Text>
+                      <Text style={[styles.smallBtnText, styles.acceptText]}>
+                        {a.offer_status === 'PENDING' ? '제안 대기' : a.offer_status === 'ACCEPTED' ? '합류 완료' : '합류 제안'}
+                      </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.smallBtn, styles.rejectBtn, loading && { opacity: 0.6 }]}
+                      style={[styles.smallBtn, styles.rejectBtn, (loading || a.status !== 'PENDING' || Boolean(a.offer_id)) && { opacity: 0.6 }]}
                       onPress={() => updateAppStatus(a.application_id, 'REJECTED')}
-                      disabled={loading || a.status === 'REJECTED'}
+                      disabled={loading || a.status !== 'PENDING' || Boolean(a.offer_id)}
                     >
                       <Text style={styles.smallBtnText}>반려</Text>
                     </TouchableOpacity>
@@ -313,6 +434,11 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: '700', color: '#101828' },
 
   title: { fontSize: 22, fontWeight: '800', color: '#101828', paddingHorizontal: 16, marginBottom: 12 },
+  ownerActions: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 9, marginRight: 16, marginBottom: 8 },
+  ownerActionText: { color: '#667085', fontSize: 13, fontWeight: '700' },
+  ownerActionDisabled: { color: '#C7CAD1' },
+  ownerActionDivider: { color: '#D0D5DD', fontSize: 13 },
+  ownerDeleteText: { color: '#B42318', fontSize: 13, fontWeight: '700' },
   activityName: { marginTop: -6, marginBottom: 14, paddingHorizontal: 16, color: '#7A5AF8', fontSize: 14, fontWeight: '700' },
   metaRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16 },
   avatar: { width: 56, height: 56, borderRadius: 28, marginRight: 12, backgroundColor: '#E5E7EB' },
@@ -333,6 +459,27 @@ const styles = StyleSheet.create({
     borderRadius: 16, paddingVertical: 16, alignItems: 'center',
   },
   primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  applicationActions: { marginTop: 20, marginHorizontal: 16 },
+  appliedNotice: {
+    padding: 15,
+    borderRadius: 14,
+    backgroundColor: '#F7F5FF',
+    borderWidth: 1,
+    borderColor: '#E9DFFF',
+  },
+  appliedNoticeTitle: { color: '#5B36B8', fontSize: 14, fontWeight: '800' },
+  appliedNoticeText: { marginTop: 5, color: '#667085', fontSize: 12, lineHeight: 18 },
+  cancelBtn: {
+    marginTop: 10,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    backgroundColor: '#FEF3F2',
+    borderWidth: 1,
+    borderColor: '#FECDCA',
+  },
+  disabledBtn: { opacity: 0.6 },
+  cancelBtnText: { color: '#B42318', fontSize: 14, fontWeight: '800' },
 
   appCard: {
     backgroundColor: '#F3F4F6', borderRadius: 18, padding: 14, marginBottom: 12,

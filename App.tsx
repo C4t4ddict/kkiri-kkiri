@@ -21,6 +21,8 @@ import MyActivityScreen from './src/screens/MyActivityScreen';
 import MiniPortfolioScreen from './src/screens/MiniPortfolioScreen';
 import PersonalInfoScreen from './src/screens/PersonalInfoScreen';
 import FavoriteActivitiesScreen from './src/screens/FavoriteActivitiesScreen';
+import MyRecruitmentsScreen from './src/screens/MyRecruitmentsScreen';
+import MyApplicationsScreen from './src/screens/MyApplicationsScreen';
 
 // MyPage 관련 스크린 import 추가
 import MyPage2 from './src/screens/mypage2';
@@ -108,6 +110,24 @@ export default function App() {
             component={FavoriteActivitiesScreen}
             options={{
               title: '관심 활동',
+              headerBackTitle: '',
+              headerTitleAlign: 'center',
+            }}
+          />
+          <Stack.Screen
+            name="MyRecruitments"
+            component={MyRecruitmentsScreen}
+            options={{
+              title: '나의 모집',
+              headerBackTitle: '',
+              headerTitleAlign: 'center',
+            }}
+          />
+          <Stack.Screen
+            name="MyApplications"
+            component={MyApplicationsScreen}
+            options={{
+              title: '나의 지원',
               headerBackTitle: '',
               headerTitleAlign: 'center',
             }}
