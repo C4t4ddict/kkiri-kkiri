@@ -25,6 +25,7 @@ type Activity = {
   main_image_url?: string | null;
   application_period_end?: string | null;
   created_at?: string;
+  open_recruitment_count?: number;
 };
 
 const BASE_URL =
@@ -172,7 +173,10 @@ export default function HomeScreen() {
               <Text style={styles.posterCategory} numberOfLines={1}>
                 {item.topic_category || item.category}
               </Text>
-              <Text style={styles.posterTitle} numberOfLines={2}>{item.title}</Text>
+              <View style={styles.posterTitleRow}>
+                <Text style={styles.posterTitle} numberOfLines={2}>{item.title}</Text>
+                <RecruitmentBadge count={item.open_recruitment_count} />
+              </View>
             </TouchableOpacity>
           )}
         />
@@ -211,9 +215,10 @@ export default function HomeScreen() {
                       onPress={() => goDetail(item.activity_id)}
                       activeOpacity={0.7}
                     >
-                      <Text style={styles.rowTitle} numberOfLines={1}>
-                        {item.title}
-                      </Text>
+                      <View style={styles.rowTitleGroup}>
+                        <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>
+                        <RecruitmentBadge count={item.open_recruitment_count} compact />
+                      </View>
                     </TouchableOpacity>
                   ))
                 )}
@@ -223,6 +228,15 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function RecruitmentBadge({ count, compact = false }: { count?: number; compact?: boolean }) {
+  if (!count || count <= 0) return null;
+  return (
+    <View style={[styles.recruitmentBadge, compact && styles.recruitmentBadgeCompact]}>
+      <Text style={[styles.recruitmentBadgeText, compact && styles.recruitmentBadgeTextCompact]}>+{count}</Text>
+    </View>
   );
 }
 
@@ -255,12 +269,35 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   posterTitle: {
+    flexShrink: 1,
     marginTop: 3,
     color: '#101828',
     fontSize: 13,
     fontWeight: '700',
     lineHeight: 18,
   },
+  posterTitleRow: {
+    marginTop: 3,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 5,
+  },
+  recruitmentBadge: {
+    minWidth: 24,
+    height: 24,
+    paddingHorizontal: 4,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#7A5AF8',
+  },
+  recruitmentBadgeCompact: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+  },
+  recruitmentBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '800' },
+  recruitmentBadgeTextCompact: { fontSize: 9 },
   recruitmentHeaderWrapper: {
     paddingHorizontal: 20,
     marginTop: 24,
@@ -292,6 +329,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#ECEFF3',
   },
-  rowTitle: { fontSize: 14, color: '#101828' },
+  rowTitleGroup: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  rowTitle: { flexShrink: 1, fontSize: 14, color: '#101828' },
   emptyRow: { paddingVertical: 8, color: '#667085' },
 });

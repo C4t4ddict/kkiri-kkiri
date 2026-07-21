@@ -1,374 +1,754 @@
-// MakeTeamScreen.tsx
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View,
+  Alert,
+  Animated,
+  Easing,
+  Modal,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  ScrollView,
-  SafeAreaView,
-  StyleSheet,
-  Platform,
-  Alert,
+  View,
 } from 'react-native';
 import axios from 'axios';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MATCHING_ACTIVITY_CATEGORIES } from '../constants/activityCategories';
+import { useAuth } from '../context/AuthContext';
+import colors from '../config/colors';
+import MiniCalendarModal from '../components/MiniCalendarModal';
 
-const BASE_URL =
-  Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
-
-const CATEGORIES = MATCHING_ACTIVITY_CATEGORIES;
-
+const BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
+const CATEGORIES = [...MATCHING_ACTIVITY_CATEGORIES];
 const DEPARTMENTS = ['전학과', '컴퓨터공학과', '디자인학부', '경영학과', '기타'];
-const PERIODS = ['4주', '8주', '한 학기', '상시'];
-const MEMBERS = ['2', '3', '4', '5', '6', '8', '10', '20'];
 
-type RootStackParamList = {
-  MakeTeamScreen: { user?: { id: number; name?: string } } | undefined;
+type Activity = {
+  activity_id: number;
+  title: string;
+  category?: string | null;
+  topic_category?: string | null;
+  organizer?: string | null;
+  application_period_end?: string | null;
 };
 
-type RouteProps = RouteProp<RootStackParamList, 'MakeTeamScreen'>;
+type ActivitySource = 'open' | 'favorite';
+type CalendarTarget = 'start' | 'end' | null;
 
-const MakeTeamScreen = () => {
+const toDateString = (date: Date) => [
+  date.getFullYear(),
+  String(date.getMonth() + 1).padStart(2, '0'),
+  String(date.getDate()).padStart(2, '0'),
+].join('-');
+
+const formatDate = (value: string) => value.replace(/-/g, '. ');
+
+export default function TeamMakeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
-  const route = useRoute<RouteProps>();
+  const { user } = useAuth();
+  const today = useMemo(() => toDateString(new Date()), []);
+  const defaultEnd = useMemo(() => {
+    const date = new Date();
+    date.setDate(date.getDate() + 30);
+    return toDateString(date);
+  }, []);
 
-  // form states
-  // const [teamName, setTeamName] = useState('');
+  const [postTitle, setPostTitle] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [categoryCollapsed, setCategoryCollapsed] = useState(false);
+  const [department, setDepartment] = useState('모집학과');
   const [departmentOpen, setDepartmentOpen] = useState(false);
-  const [periodOpen, setPeriodOpen] = useState(false);
-  const [memberOpen, setMemberOpen] = useState(false);
-
-  const [department, setDepartment] = useState<string>('모집학과');
-  const [period, setPeriod] = useState<string>('기간');
-  const [members, setMembers] = useState<string>('인원');
-  const [meetingType, setMeetingType] = useState<'대면' | '비대면'>('대면');
-
-  const [activityName, setActivityName] = useState('');
+  const [members, setMembers] = useState('4');
+  const [meetingType, setMeetingType] = useState<'대면' | '비대면' | '혼합'>('대면');
   const [conditions, setConditions] = useState('');
-  const [postTitle, setPostTitle] = useState('');   // ← 기존 teamName 대체 (글 제목)
+  const [startDate, setStartDate] = useState(today);
+  const [endDate, setEndDate] = useState(defaultEnd);
+  const [calendarTarget, setCalendarTarget] = useState<CalendarTarget>(null);
+  const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
+  const [activityPickerVisible, setActivityPickerVisible] = useState(false);
+  const [activitySource, setActivitySource] = useState<ActivitySource>('open');
+  const [activitySearch, setActivitySearch] = useState('');
+  const [openActivities, setOpenActivities] = useState<Activity[]>([]);
+  const [favoriteActivities, setFavoriteActivities] = useState<Activity[]>([]);
+  const [loadingActivities, setLoadingActivities] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const categoryProgress = useRef(new Animated.Value(0)).current;
 
-  const ownerUserId = useMemo(() => {
-    const id = route.params?.user?.id ?? 1; // 로그인 연동 시 user.id 전달 권장
-    if (!route.params?.user?.id) console.warn('owner_user_id가 없어 1로 대체했습니다.');
-    return id;
-  }, [route.params?.user?.id]);
+  useEffect(() => {
+    if (!activityPickerVisible) return;
+    const fetchActivities = async () => {
+      setLoadingActivities(true);
+      try {
+        const requests = [axios.get<Activity[]>(`${BASE_URL}/api/activities/open`)];
+        if (user?.id) {
+          requests.push(axios.get<Activity[]>(`${BASE_URL}/api/favorite-activities`, {
+            headers: { 'x-user-id': String(user.id) },
+          }));
+        }
+        const [openResponse, favoriteResponse] = await Promise.all(requests);
+        const openList = Array.isArray(openResponse.data) ? openResponse.data : [];
+        const openIds = new Set(openList.map((activity) => Number(activity.activity_id)));
+        const favorites = favoriteResponse && Array.isArray(favoriteResponse.data)
+          ? favoriteResponse.data.filter((activity) => openIds.has(Number(activity.activity_id)))
+          : [];
+        setOpenActivities(openList);
+        setFavoriteActivities(favorites);
+      } catch (error) {
+        console.error('팀 활동 후보 조회 오류:', error);
+        Alert.alert('오류', '모집 중인 활동을 불러오지 못했습니다.');
+      } finally {
+        setLoadingActivities(false);
+      }
+    };
+    fetchActivities();
+  }, [activityPickerVisible, user?.id]);
+
+  const animateCategory = (toValue: number, onEnd?: () => void) => {
+    Animated.timing(categoryProgress, {
+      toValue,
+      duration: 320,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start(({ finished }) => {
+      if (finished) onEnd?.();
+    });
+  };
+
+  const chooseCategory = (category: string) => {
+    if (selectedCategory === category) {
+      setCategoryCollapsed(false);
+      animateCategory(0, () => setSelectedCategory(null));
+      return;
+    }
+    setSelectedCategory(category);
+    setCategoryCollapsed(true);
+    categoryProgress.setValue(0);
+    animateCategory(1);
+  };
+
+  const displayedCategories = useMemo(() => {
+    if (!selectedCategory) return CATEGORIES;
+    if (categoryCollapsed) return [selectedCategory];
+    return [selectedCategory, ...CATEGORIES.filter((category) => category !== selectedCategory)];
+  }, [categoryCollapsed, selectedCategory]);
+
+  const filteredActivities = useMemo(() => {
+    const source = activitySource === 'favorite' ? favoriteActivities : openActivities;
+    const keyword = activitySearch.trim().toLowerCase();
+    if (!keyword) return source;
+    return source.filter((activity) =>
+      [activity.title, activity.organizer, activity.category, activity.topic_category]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(keyword))
+    );
+  }, [activitySearch, activitySource, favoriteActivities, openActivities]);
+
+  const selectActivity = (activity: Activity) => {
+    setSelectedActivity(activity);
+    setActivityPickerVisible(false);
+    setActivitySearch('');
+    const activityCategory = String(activity.category || '');
+    const suggestedCategory = CATEGORIES.some((category) => category === activityCategory)
+      ? activityCategory
+      : '기타';
+    if (!selectedCategory) chooseCategory(suggestedCategory);
+  };
+
+  const selectCalendarDate = (date: string) => {
+    if (calendarTarget === 'start') {
+      setStartDate(date);
+      if (date > endDate) setEndDate(date);
+    } else if (calendarTarget === 'end') {
+      setEndDate(date);
+    }
+    setCalendarTarget(null);
+  };
 
   const validate = () => {
-    if (!postTitle.trim()) return Alert.alert('확인', '팀 이름을 입력하세요.');
+    if (!user?.id) return Alert.alert('확인', '로그인이 필요합니다.');
+    if (!postTitle.trim()) return Alert.alert('확인', '글 제목을 입력하세요.');
+    if (!selectedActivity) return Alert.alert('확인', '모집 중인 활동을 선택하세요.');
     if (!selectedCategory) return Alert.alert('확인', '카테고리를 선택하세요.');
-    if (!activityName.trim()) return Alert.alert('확인', '활동이름을 입력하세요.');
     if (!DEPARTMENTS.includes(department)) return Alert.alert('확인', '모집학과를 선택하세요.');
-    if (!PERIODS.includes(period)) return Alert.alert('확인', '기간을 선택하세요.');
-    if (!MEMBERS.includes(members)) return Alert.alert('확인', '인원을 선택하세요.');
+    const memberCount = Number(members);
+    if (!Number.isInteger(memberCount) || memberCount < 2 || memberCount > 99) {
+      return Alert.alert('확인', '모집 인원은 2명에서 99명 사이로 입력하세요.');
+    }
+    if (startDate > endDate) return Alert.alert('확인', '종료일은 시작일 이후여야 합니다.');
     return true;
   };
 
   const handleSubmit = async () => {
-    if (!validate()) return;
-
+    if (!validate() || !user?.id || !selectedActivity || submitting) return;
+    setSubmitting(true);
     try {
-      const payload = {
-        owner_user_id: ownerUserId,
-        post_name: postTitle,               // ← 목록/상세 제목으로 사용
-        activity_name: activityName,               // 리스트에 보일 제목
-        activity_type: selectedCategory,           // 카테고리
-        qualification_department: department,      // 모집학과
-        qualification_student_number: null,
-        qualification_age: null,
-        required_members: Number(members),
-        activity_period: period,
-        meeting_type: meetingType,
-        memo: conditions,
-        status: 'OPEN',
-      };
-
-      await axios.post(`${BASE_URL}/api/team-recruitments`, payload);
+      await axios.post(
+        `${BASE_URL}/api/team-recruitments`,
+        {
+          owner_user_id: user.id,
+          activity_id: selectedActivity.activity_id,
+          post_name: postTitle.trim(),
+          activity_type: selectedCategory,
+          qualification_department: department,
+          required_members: Number(members),
+          activity_start_date: startDate,
+          activity_end_date: endDate,
+          meeting_type: meetingType,
+          memo: conditions.trim(),
+        },
+        { headers: { 'x-user-id': String(user.id) } }
+      );
       Alert.alert('완료', '모집글이 등록되었습니다.', [
         { text: '확인', onPress: () => navigation.goBack() },
       ]);
-    } catch (e: any) {
-      console.error('모집글 등록 실패:', e?.response?.data || e?.message || e);
-      Alert.alert('오류', '등록에 실패했습니다. 잠시 후 다시 시도해주세요.');
+    } catch (error: any) {
+      console.error('모집글 등록 실패:', error?.response?.data || error);
+      Alert.alert('등록 실패', error?.response?.data?.message || '잠시 후 다시 시도해주세요.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const DropDown = ({
-    open,
-    setOpen,
-    label,
-    value,
-    items,
-    onSelect,
-  }: {
-    open: boolean;
-    setOpen: (b: boolean) => void;
-    label: string;
-    value: string;
-    items: string[];
-    onSelect: (val: string) => void;
-  }) => {
-  const [btnH, setBtnH] = useState(0);
-
-  return (
-    // 포지셔닝 기준점
-    <View style={[{ flex: 1, marginHorizontal: 6, position: 'relative' }, open && { zIndex: 100 }]}>
-      <TouchableOpacity
-        activeOpacity={0.8}
-        style={styles.ddButton}
-        onLayout={(e) => setBtnH(e.nativeEvent.layout.height)}
-        onPress={() => setOpen(!open)}
-      >
-        <Text style={[styles.ddLabel, value === label && { color: '#667085' }]}>{value}</Text>
-        <Icon name={open ? 'chevron-up' : 'chevron-down'} size={18} color="#101828" />
-      </TouchableOpacity>
-
-      {open && (
-        <>
-          {/* 클로즈용 투명 오버레이 (같은 스크린 안에서 이벤트만 받음) */}
-          <TouchableOpacity
-            style={StyleSheet.absoluteFill}
-            onPress={() => setOpen(false)}
-          />
-
-          {/* 드롭다운 메뉴를 버튼 "아래"에 겹쳐서 띄우기 */}
-          <View
-            style={[
-              styles.ddMenuOverlay,
-              { top: btnH + 6 }, // 버튼 높이 + 간격만큼 아래에 표시
-            ]}
-          >
-            {items.map((it) => (
-              <TouchableOpacity
-                key={it}
-                style={styles.ddItem}
-                onPress={() => {
-                  onSelect(it);
-                  setOpen(false);
-                }}
-              >
-                <Text style={styles.ddItemText}>{it}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </>
-      )}
-    </View>
-  );
-};
+  const categoryBoxStyle = {
+    width: categoryProgress.interpolate({ inputRange: [0, 1], outputRange: ['100%', '58%'] }),
+    maxHeight: categoryProgress.interpolate({ inputRange: [0, 1], outputRange: [340, 62] }),
+    paddingVertical: categoryProgress.interpolate({ inputRange: [0, 1], outputRange: [8, 3] }),
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <View style={styles.inputBox}>
+        <InputBox>
           <TextInput
             value={postTitle}
             onChangeText={setPostTitle}
             placeholder="글 제목"
-            placeholderTextColor="#667085"
+            placeholderTextColor={colors.inputPlaceholder}
             style={styles.input}
           />
-        </View>
+        </InputBox>
 
-        {/* 카테고리 */}
-        <View style={styles.filterBox}>
-          <View style={styles.checkboxGrid}>
-            {CATEGORIES.map((c) => {
-              const selected = selectedCategory === c;
-              return (
-                <TouchableOpacity
-                  key={c}
-                  style={styles.checkboxItem}
-                  onPress={() => setSelectedCategory(selected ? null : c)}
-                >
-                  <View style={[styles.checkboxSquare, selected && styles.checkboxSquareSelected]} />
-                  <Text style={styles.checkboxLabel}>{c}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-
-        {/* 드롭다운 3개 */}
-        <View style={styles.ddRow}>
-          <DropDown
-            open={departmentOpen}
-            setOpen={setDepartmentOpen}
-            label="모집학과"
-            value={department}
-            items={DEPARTMENTS}
-            onSelect={setDepartment}
-          />
-          <DropDown
-            open={periodOpen}
-            setOpen={setPeriodOpen}
-            label="기간"
-            value={period}
-            items={PERIODS}
-            onSelect={setPeriod}
-          />
-          <DropDown
-            open={memberOpen}
-            setOpen={setMemberOpen}
-            label="인원"
-            value={members}
-            items={MEMBERS}
-            onSelect={setMembers}
-          />
-        </View>
-
-        {/* 미팅 방식 토글 */}
-        <View style={styles.meetingRow}>
-          <TouchableOpacity
-            style={[styles.meetingBtn, meetingType === '대면' && styles.meetingBtnActive]}
-            onPress={() => setMeetingType('대면')}
-          >
-            <Text style={[styles.meetingText, meetingType === '대면' && styles.meetingTextActive]}>대면</Text>
+        <Text style={styles.sectionLabel}>팀 활동</Text>
+        {selectedActivity ? (
+          <TouchableOpacity style={styles.selectedActivityCard} onPress={() => setActivityPickerVisible(true)}>
+            <View style={styles.activityIcon}><Icon name="trophy-outline" size={22} color={colors.primary} /></View>
+            <View style={styles.activityInfo}>
+              <Text style={styles.selectedActivityTitle} numberOfLines={2}>{selectedActivity.title}</Text>
+              <Text style={styles.activityMeta} numberOfLines={1}>
+                {[selectedActivity.category, selectedActivity.topic_category].filter(Boolean).join(' · ')}
+              </Text>
+            </View>
+            <Text style={styles.changeText}>변경</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.meetingBtn, meetingType === '비대면' && styles.meetingBtnActive]}
-            onPress={() => setMeetingType('비대면')}
-          >
-            <Text style={[styles.meetingText, meetingType === '비대면' && styles.meetingTextActive]}>비대면</Text>
+        ) : (
+          <TouchableOpacity style={styles.activitySelectButton} onPress={() => setActivityPickerVisible(true)}>
+            <Icon name="search" size={20} color={colors.primary} />
+            <Text style={styles.activitySelectText}>모집 중인 활동 검색</Text>
+            <Icon name="chevron-forward" size={18} color={colors.textSub} />
           </TouchableOpacity>
+        )}
+
+        <Text style={styles.sectionLabel}>카테고리</Text>
+        <View style={styles.categoryStage}>
+          <Animated.View style={[styles.filterBox, categoryBoxStyle]}>
+            <View style={[styles.checkboxGrid, selectedCategory && styles.checkboxGridSelected]}>
+              {displayedCategories.map((category) => {
+                const selected = selectedCategory === category;
+                return (
+                  <TouchableOpacity
+                    key={category}
+                    style={[styles.checkboxItem, selected && styles.checkboxItemSelected]}
+                    onPress={() => chooseCategory(category)}
+                    activeOpacity={0.75}
+                  >
+                    <View style={[styles.checkboxSquare, selected && styles.checkboxSquareSelected]}>
+                      {selected && <Icon name="checkmark" size={12} color="#FFFFFF" />}
+                    </View>
+                    <Text style={[styles.checkboxLabel, selected && styles.checkboxLabelSelected]}>{category}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </Animated.View>
+        </View>
+        {selectedCategory && categoryCollapsed && (
+          <Text style={styles.categoryHelper}>선택 항목을 누르면 다시 펼쳐집니다.</Text>
+        )}
+
+        <Text style={styles.sectionLabel}>팀 조건</Text>
+        <SelectField
+          label={department}
+          placeholder={department === '모집학과'}
+          open={departmentOpen}
+          items={DEPARTMENTS}
+          onToggle={() => setDepartmentOpen((value) => !value)}
+          onSelect={(value) => {
+            setDepartment(value);
+            setDepartmentOpen(false);
+          }}
+        />
+
+        <View style={styles.conditionRow}>
+          <DateField label="시작일" value={startDate} onPress={() => setCalendarTarget('start')} />
+          <View style={styles.dateDivider}><Icon name="arrow-forward" size={17} color={colors.textSub} /></View>
+          <DateField label="종료일" value={endDate} onPress={() => setCalendarTarget('end')} />
         </View>
 
-        {/* 활동이름 */}
-        <View style={styles.inputBox}>
+        <View style={styles.memberField}>
+          <View style={styles.memberIcon}><Icon name="people-outline" size={20} color={colors.primary} /></View>
+          <Text style={styles.memberLabel}>모집 인원</Text>
           <TextInput
-            value={activityName}
-            onChangeText={setActivityName}
-            placeholder="활동이름"
-            placeholderTextColor="#667085"
-            style={styles.input}
+            value={members}
+            onChangeText={(value) => setMembers(value.replace(/[^0-9]/g, '').slice(0, 2))}
+            keyboardType="number-pad"
+            maxLength={2}
+            style={styles.memberInput}
+            selectTextOnFocus
           />
+          <Text style={styles.memberUnit}>명</Text>
         </View>
 
-        {/* 조건 */}
-        <View style={[styles.inputBox, { height: 140, paddingVertical: 8 }]}>
+        <View style={styles.meetingRow}>
+          {(['대면', '비대면', '혼합'] as const).map((type) => {
+            const active = meetingType === type;
+            return (
+              <TouchableOpacity
+                key={type}
+                style={[styles.meetingButton, active && styles.meetingButtonActive]}
+                onPress={() => setMeetingType(type)}
+              >
+                <Text style={[styles.meetingText, active && styles.meetingTextActive]}>{type}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <InputBox large>
           <TextInput
             value={conditions}
             onChangeText={setConditions}
-            placeholder="원하는 팀의 조건을 입력하세요"
-            placeholderTextColor="#667085"
-            style={[styles.input, { height: '100%', textAlignVertical: 'top' }]}
+            placeholder="간단한 자기소개와 찾고 있는 팀원의 조건을 입력하세요"
+            placeholderTextColor={colors.inputPlaceholder}
+            style={[styles.input, styles.memoInput]}
             multiline
           />
-        </View>
+        </InputBox>
 
-        {/* 등록 버튼 */}
-        <TouchableOpacity style={styles.submitBtn} activeOpacity={0.9} onPress={handleSubmit}>
-          <Text style={styles.submitText}>등록</Text>
+        <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={submitting}>
+          <Text style={styles.submitText}>{submitting ? '등록 중...' : '모집글 등록'}</Text>
         </TouchableOpacity>
-
-        <View style={{ height: 24 }} />
       </ScrollView>
+
+      <ActivityPickerModal
+        visible={activityPickerVisible}
+        source={activitySource}
+        search={activitySearch}
+        loading={loadingActivities}
+        activities={filteredActivities}
+        favoriteCount={favoriteActivities.length}
+        onClose={() => setActivityPickerVisible(false)}
+        onSourceChange={setActivitySource}
+        onSearchChange={setActivitySearch}
+        onSelect={selectActivity}
+      />
+
+      <MiniCalendarModal
+        visible={calendarTarget !== null}
+        title={calendarTarget === 'start' ? '활동 시작일' : '활동 종료일'}
+        value={calendarTarget === 'start' ? startDate : endDate}
+        minDate={calendarTarget === 'end' ? startDate : today}
+        onClose={() => setCalendarTarget(null)}
+        onSelect={selectCalendarDate}
+      />
     </SafeAreaView>
   );
-};
+}
+
+function InputBox({ children, large = false }: { children: React.ReactNode; large?: boolean }) {
+  return <View style={[styles.inputBox, large && styles.largeInputBox]}>{children}</View>;
+}
+
+function DateField({ label, value, onPress }: { label: string; value: string; onPress: () => void }) {
+  return (
+    <TouchableOpacity style={styles.dateField} onPress={onPress}>
+      <Text style={styles.dateLabel}>{label}</Text>
+      <View style={styles.dateValueRow}>
+        <Icon name="calendar-outline" size={18} color={colors.primary} />
+        <Text style={styles.dateValue}>{formatDate(value)}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function SelectField({
+  label,
+  placeholder,
+  open,
+  items,
+  onToggle,
+  onSelect,
+}: {
+  label: string;
+  placeholder: boolean;
+  open: boolean;
+  items: string[];
+  onToggle: () => void;
+  onSelect: (value: string) => void;
+}) {
+  return (
+    <View style={styles.selectWrapper}>
+      <TouchableOpacity style={styles.selectButton} onPress={onToggle}>
+        <Text style={[styles.selectText, placeholder && styles.placeholderText]}>{label}</Text>
+        <Icon name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMain} />
+      </TouchableOpacity>
+      {open && (
+        <View style={styles.selectMenu}>
+          {items.map((item) => (
+            <TouchableOpacity key={item} style={styles.selectItem} onPress={() => onSelect(item)}>
+              <Text style={styles.selectItemText}>{item}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function ActivityPickerModal({
+  visible,
+  source,
+  search,
+  loading,
+  activities,
+  favoriteCount,
+  onClose,
+  onSourceChange,
+  onSearchChange,
+  onSelect,
+}: {
+  visible: boolean;
+  source: ActivitySource;
+  search: string;
+  loading: boolean;
+  activities: Activity[];
+  favoriteCount: number;
+  onClose: () => void;
+  onSourceChange: (source: ActivitySource) => void;
+  onSearchChange: (value: string) => void;
+  onSelect: (activity: Activity) => void;
+}) {
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.pickerBackdrop}>
+        <View style={styles.pickerCard}>
+          <View style={styles.pickerHeader}>
+            <View>
+              <Text style={styles.pickerTitle}>팀 활동 선택</Text>
+              <Text style={styles.pickerDescription}>현재 접수 중인 활동만 선택할 수 있어요.</Text>
+            </View>
+            <TouchableOpacity style={styles.pickerClose} onPress={onClose}>
+              <Icon name="close" size={21} color={colors.textSub} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.sourceTabs}>
+            <SourceTab label="모집 중" active={source === 'open'} onPress={() => onSourceChange('open')} />
+            <SourceTab
+              label={`관심 활동${favoriteCount ? ` ${favoriteCount}` : ''}`}
+              active={source === 'favorite'}
+              onPress={() => onSourceChange('favorite')}
+            />
+          </View>
+
+          <View style={styles.searchBox}>
+            <Icon name="search" size={19} color={colors.textSub} />
+            <TextInput
+              value={search}
+              onChangeText={onSearchChange}
+              placeholder="활동명이나 주최기관 검색"
+              placeholderTextColor={colors.inputPlaceholder}
+              style={styles.searchInput}
+            />
+          </View>
+
+          <ScrollView style={styles.activityList} keyboardShouldPersistTaps="handled">
+            {loading ? (
+              <Text style={styles.emptyText}>활동을 불러오는 중...</Text>
+            ) : activities.length === 0 ? (
+              <View style={styles.activityEmpty}>
+                <Icon name={source === 'favorite' ? 'heart-outline' : 'search-outline'} size={28} color={colors.primary} />
+                <Text style={styles.emptyTitle}>
+                  {source === 'favorite' ? '접수 중인 관심 활동이 없어요' : '검색 결과가 없어요'}
+                </Text>
+                <Text style={styles.emptyText}>정보 탭에서 활동을 저장하거나 다른 검색어를 입력해보세요.</Text>
+              </View>
+            ) : (
+              activities.map((activity) => (
+                <TouchableOpacity
+                  key={activity.activity_id}
+                  style={styles.activityRow}
+                  onPress={() => onSelect(activity)}
+                >
+                  <View style={styles.activityRowBody}>
+                    <Text style={styles.activityRowTitle} numberOfLines={2}>{activity.title}</Text>
+                    <Text style={styles.activityRowMeta} numberOfLines={1}>
+                      {[activity.organizer, activity.category, activity.topic_category].filter(Boolean).join(' · ')}
+                    </Text>
+                    {activity.application_period_end ? (
+                      <Text style={styles.activityDeadline}>접수 마감 {String(activity.application_period_end).slice(0, 10)}</Text>
+                    ) : null}
+                  </View>
+                  <Icon name="chevron-forward" size={18} color={colors.primary} />
+                </TouchableOpacity>
+              ))
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function SourceTab({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  return (
+    <TouchableOpacity style={[styles.sourceTab, active && styles.sourceTabActive]} onPress={onPress}>
+      <Text style={[styles.sourceTabText, active && styles.sourceTabTextActive]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff' },
-  header: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 10,
+  safe: { flex: 1, backgroundColor: '#FFFFFF' },
+  container: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 42 },
+  sectionLabel: { marginBottom: 9, color: colors.textSub, fontSize: 13, fontWeight: '800' },
+  inputBox: {
+    minHeight: 50,
+    marginBottom: 16,
+    paddingHorizontal: 15,
+    paddingVertical: 11,
+    borderRadius: 14,
+    backgroundColor: colors.inputBackground,
+  },
+  largeInputBox: { height: 142, paddingVertical: 12 },
+  input: { flex: 1, color: colors.textMain, fontSize: 15 },
+  memoInput: { height: '100%', textAlignVertical: 'top', lineHeight: 21 },
+  activitySelectButton: {
+    minHeight: 58,
+    marginBottom: 18,
+    paddingHorizontal: 15,
+    borderWidth: 1,
+    borderColor: colors.primaryLight,
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 9,
+    backgroundColor: colors.primarySurface,
   },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#101828' },
-
-  container: { paddingHorizontal: 20, paddingBottom: 12, paddingTop: 16 },
-  inputBox: {
-    backgroundColor: '#F2F4F7',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 14,
+  activitySelectText: { flex: 1, color: colors.primaryDark, fontSize: 15, fontWeight: '800' },
+  selectedActivityCard: {
+    minHeight: 76,
+    marginBottom: 18,
+    padding: 13,
+    borderWidth: 1,
+    borderColor: colors.primaryLight,
+    borderRadius: 17,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primarySurface,
   },
-  input: { fontSize: 16, color: '#101828' },
-
+  activityIcon: {
+    width: 44,
+    height: 44,
+    marginRight: 11,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  activityInfo: { flex: 1 },
+  selectedActivityTitle: { color: colors.textMain, fontSize: 15, lineHeight: 21, fontWeight: '800' },
+  activityMeta: { marginTop: 4, color: colors.textSub, fontSize: 12 },
+  changeText: { marginLeft: 10, color: colors.primary, fontSize: 12, fontWeight: '800' },
+  categoryStage: { alignItems: 'center', marginBottom: 4 },
   filterBox: {
-    backgroundColor: '#F9F5FF',
-    borderRadius: 16,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    marginBottom: 14,
+    overflow: 'hidden',
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    backgroundColor: colors.primarySurface,
   },
   checkboxGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  checkboxItem: { flexDirection: 'row', alignItems: 'center', width: '50%', marginVertical: 12 },
-  checkboxSquare: {
-    width: 16, height: 16, borderRadius: 4, borderWidth: 2, borderColor: '#344054', marginRight: 8, backgroundColor: '#fff',
+  checkboxGridSelected: { justifyContent: 'center' },
+  checkboxItem: {
+    width: '50%',
+    minHeight: 47,
+    paddingHorizontal: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  checkboxSquareSelected: { backgroundColor: '#344054', borderColor: '#344054' },
-  checkboxLabel: { fontSize: 14, color: '#101828', fontWeight: '600' },
-
-  ddRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
-  ddButton: {
-    backgroundColor: '#F2F4F7',
-    borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+  checkboxItemSelected: { justifyContent: 'center' },
+  checkboxSquare: {
+    width: 18,
+    height: 18,
+    marginRight: 8,
+    borderWidth: 1.5,
+    borderColor: colors.textSub,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  checkboxSquareSelected: { borderColor: colors.primary, backgroundColor: colors.primary },
+  checkboxLabel: { color: colors.textMain, fontSize: 13, fontWeight: '700' },
+  checkboxLabelSelected: { color: colors.primaryDark, fontWeight: '800' },
+  categoryHelper: { marginBottom: 16, color: colors.textSub, fontSize: 11, textAlign: 'center' },
+  selectWrapper: { marginBottom: 12, zIndex: 20 },
+  selectButton: {
+    minHeight: 50,
+    paddingHorizontal: 15,
+    borderRadius: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    backgroundColor: colors.inputBackground,
   },
-  ddLabel: { fontSize: 14, color: '#101828', fontWeight: '700' },
-  ddMenu: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
+  selectText: { color: colors.textMain, fontSize: 14, fontWeight: '700' },
+  placeholderText: { color: colors.inputPlaceholder },
+  selectMenu: {
     marginTop: 6,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 14,
     overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
   },
-  ddItem: { paddingVertical: 10, paddingHorizontal: 12 },
-  ddItemText: { fontSize: 14, color: '#101828' },
-
-  meetingRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 },
-  meetingBtn: {
+  selectItem: { paddingHorizontal: 15, paddingVertical: 12 },
+  selectItemText: { color: colors.textMain, fontSize: 14 },
+  conditionRow: { marginBottom: 12, flexDirection: 'row', alignItems: 'center' },
+  dateField: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 24,
-    backgroundColor: '#E9D7FE',
-    marginHorizontal: 6,
-    alignItems: 'center',
+    minHeight: 68,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 15,
+    backgroundColor: '#FFFFFF',
   },
-  meetingBtnActive: { backgroundColor: '#7A5AF8' },
-  meetingText: { fontSize: 15, fontWeight: '700', color: '#7A5AF8' },
-  meetingTextActive: { color: '#fff' },
-
-  submitBtn: {
-    backgroundColor: '#7A5AF8',
-    paddingVertical: 16,
+  dateDivider: { width: 34, alignItems: 'center' },
+  dateLabel: { color: colors.textSub, fontSize: 11, fontWeight: '700' },
+  dateValueRow: { marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  dateValue: { color: colors.textMain, fontSize: 13, fontWeight: '800' },
+  memberField: {
+    minHeight: 54,
+    marginBottom: 12,
+    paddingHorizontal: 13,
+    borderRadius: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.inputBackground,
+  },
+  memberIcon: {
+    width: 34,
+    height: 34,
+    marginRight: 9,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primarySurface,
+  },
+  memberLabel: { flex: 1, color: colors.textMain, fontSize: 14, fontWeight: '700' },
+  memberInput: {
+    width: 54,
+    height: 38,
+    paddingVertical: 0,
+    borderWidth: 1,
+    borderColor: colors.primaryLight,
+    borderRadius: 11,
+    color: colors.primaryDark,
+    fontSize: 16,
+    fontWeight: '800',
+    textAlign: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  memberUnit: { marginLeft: 7, color: colors.textSub, fontSize: 13, fontWeight: '700' },
+  meetingRow: {
+    marginBottom: 16,
+    padding: 4,
+    borderRadius: 14,
+    flexDirection: 'row',
+    backgroundColor: colors.inputBackground,
+  },
+  meetingButton: { flex: 1, paddingVertical: 9, borderRadius: 11, alignItems: 'center' },
+  meetingButtonActive: { backgroundColor: colors.primary },
+  meetingText: { color: colors.textSub, fontSize: 13, fontWeight: '700' },
+  meetingTextActive: { color: '#FFFFFF', fontWeight: '800' },
+  submitButton: {
+    minHeight: 54,
+    marginTop: 3,
     borderRadius: 16,
     alignItems: 'center',
-    marginTop: 6,
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
   },
-  submitText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  ddMenuOverlay: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+  submitText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  pickerBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(16, 24, 40, 0.42)' },
+  pickerCard: {
+    height: '84%',
+    paddingTop: 19,
+    paddingHorizontal: 18,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    backgroundColor: '#FFFFFF',
+  },
+  pickerHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  pickerTitle: { color: colors.textMain, fontSize: 20, fontWeight: '800' },
+  pickerDescription: { marginTop: 5, color: colors.textSub, fontSize: 12 },
+  pickerClose: {
+    width: 36,
+    height: 36,
     borderRadius: 12,
-    // 겹침 보장
-    zIndex: 999,
-    elevation: 10,
-    // iOS 그림자
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.inputBackground,
   },
+  sourceTabs: {
+    marginTop: 18,
+    padding: 4,
+    borderRadius: 13,
+    flexDirection: 'row',
+    backgroundColor: colors.inputBackground,
+  },
+  sourceTab: { flex: 1, paddingVertical: 9, borderRadius: 10, alignItems: 'center' },
+  sourceTabActive: { backgroundColor: '#FFFFFF' },
+  sourceTabText: { color: colors.textSub, fontSize: 13, fontWeight: '700' },
+  sourceTabTextActive: { color: colors.primary, fontWeight: '800' },
+  searchBox: {
+    minHeight: 48,
+    marginTop: 13,
+    paddingHorizontal: 13,
+    borderRadius: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.inputBackground,
+  },
+  searchInput: { flex: 1, marginLeft: 8, color: colors.textMain, fontSize: 14 },
+  activityList: { marginTop: 8 },
+  activityRow: {
+    minHeight: 86,
+    paddingVertical: 13,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  activityRowBody: { flex: 1, paddingRight: 10 },
+  activityRowTitle: { color: colors.textMain, fontSize: 15, lineHeight: 21, fontWeight: '800' },
+  activityRowMeta: { marginTop: 5, color: colors.textSub, fontSize: 11 },
+  activityDeadline: { marginTop: 5, color: colors.primary, fontSize: 11, fontWeight: '700' },
+  activityEmpty: { alignItems: 'center', paddingTop: 70, paddingHorizontal: 24 },
+  emptyTitle: { marginTop: 12, color: colors.textMain, fontSize: 15, fontWeight: '800' },
+  emptyText: { marginTop: 7, color: colors.textSub, fontSize: 12, lineHeight: 18, textAlign: 'center' },
 });
-
-export default MakeTeamScreen;

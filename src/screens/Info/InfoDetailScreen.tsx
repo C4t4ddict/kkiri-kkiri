@@ -10,7 +10,8 @@ import {
   TouchableOpacity,
   Alert,
 } from 'react-native';
-import { RouteProp, useRoute } from '@react-navigation/native';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import axios from 'axios';
 import colors from '../../config/colors';
 import ApplicationStatusBadge from '../../components/ApplicationStatusBadge';
@@ -50,6 +51,7 @@ const formatDetails = (details?: string | null) => {
 };
 
 const ActivityDetailScreen = () => {
+  const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const route = useRoute<RouteProp<{ params: { id: number } }, 'params'>>();
   const { id } = route.params;
   const { user } = useAuth();
@@ -58,12 +60,17 @@ const ActivityDetailScreen = () => {
   const [posterAspectRatio, setPosterAspectRatio] = useState(3 / 4);
   const [isFavorite, setIsFavorite] = useState(false);
   const [savingFavorite, setSavingFavorite] = useState(false);
+  const [recruitments, setRecruitments] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchActivityDetail = async () => {
       try {
-        const res = await axios.get(`${BASE_URL}/api/activities/${id}`);
-        setActivity(res.data);
+        const [activityResponse, recruitmentResponse] = await Promise.all([
+          axios.get(`${BASE_URL}/api/activities/${id}`),
+          axios.get(`${BASE_URL}/api/activities/${id}/recruitments`),
+        ]);
+        setActivity(activityResponse.data);
+        setRecruitments(Array.isArray(recruitmentResponse.data) ? recruitmentResponse.data : []);
       } catch (error) {
         console.error('활동 상세 조회 오류:', error);
       }
@@ -140,7 +147,14 @@ const ActivityDetailScreen = () => {
             <Text style={styles.favoriteButtonText}>{isFavorite ? '저장됨' : '저장'}</Text>
           </TouchableOpacity>
         </View>
-        <Text style={styles.title}>{activity.title}</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>{activity.title}</Text>
+          {Number(activity.open_recruitment_count) > 0 && (
+            <View style={styles.recruitmentBadge}>
+              <Text style={styles.recruitmentBadgeText}>+{activity.open_recruitment_count}</Text>
+            </View>
+          )}
+        </View>
       </View>
 
       {activity.main_image_url && (
@@ -191,6 +205,38 @@ const ActivityDetailScreen = () => {
           <Text style={styles.sourceText}>출처: {activity.source_name}</Text>
         )}
       </View>
+
+      {recruitments.length > 0 && (
+        <View style={styles.recruitmentSection}>
+          <View style={styles.recruitmentHeadingRow}>
+            <Text style={styles.sectionTitle}>현재 모집 중인 팀</Text>
+            <View style={styles.recruitmentCountPill}>
+              <Text style={styles.recruitmentCountText}>{recruitments.length}개</Text>
+            </View>
+          </View>
+          {recruitments.map((recruitment) => (
+            <TouchableOpacity
+              key={recruitment.recruitment_id}
+              style={styles.recruitmentCard}
+              onPress={() => navigation.navigate('MatchingDetail', { id: recruitment.recruitment_id })}
+              activeOpacity={0.78}
+            >
+              <View style={styles.recruitmentCardBody}>
+                <Text style={styles.recruitmentTitle} numberOfLines={2}>{recruitment.post_name}</Text>
+                <Text style={styles.recruitmentMeta} numberOfLines={1}>
+                  {[recruitment.activity_type, recruitment.meeting_type, `${recruitment.required_members}명 모집`]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </Text>
+                {recruitment.memo ? (
+                  <Text style={styles.recruitmentMemo} numberOfLines={2}>{recruitment.memo}</Text>
+                ) : null}
+              </View>
+              <Icon name="chevron-forward" size={20} color={colors.primary} />
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
     </ScrollView>
   );
 };
@@ -273,10 +319,30 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   title: {
+    flexShrink: 1,
     fontSize: 24,
     lineHeight: 33,
     fontWeight: '800',
     color: colors.textMain,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  recruitmentBadge: {
+    minWidth: 30,
+    height: 30,
+    paddingHorizontal: 6,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
+  recruitmentBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
   },
   loadingText: {
     padding: 20,
@@ -341,6 +407,58 @@ const styles = StyleSheet.create({
     padding: 17,
     borderRadius: 18,
     backgroundColor: colors.primarySurface,
+  },
+  recruitmentSection: {
+    marginTop: 16,
+    padding: 17,
+    borderWidth: 1,
+    borderColor: colors.primaryLight,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+  },
+  recruitmentHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  recruitmentCountPill: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 12,
+    backgroundColor: colors.primarySurface,
+  },
+  recruitmentCountText: {
+    color: colors.primaryDark,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  recruitmentCard: {
+    minHeight: 82,
+    marginTop: 10,
+    padding: 13,
+    borderRadius: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.inputBackground,
+  },
+  recruitmentCardBody: { flex: 1, paddingRight: 10 },
+  recruitmentTitle: {
+    color: colors.textMain,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '800',
+  },
+  recruitmentMeta: {
+    marginTop: 5,
+    color: colors.primaryDark,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  recruitmentMemo: {
+    marginTop: 6,
+    color: colors.textSub,
+    fontSize: 12,
+    lineHeight: 17,
   },
   sectionTitle: {
     fontSize: 17,

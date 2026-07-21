@@ -258,6 +258,39 @@ const ensureTodoCompletionColumn = () => {
   });
 };
 
+const ensureRecruitmentActivityColumns = async () => {
+  const requiredColumns = [
+    ['activity_id', 'INT NULL AFTER team_id'],
+    ['activity_start_date', 'DATE NULL AFTER required_members'],
+    ['activity_end_date', 'DATE NULL AFTER activity_start_date'],
+  ];
+
+  const [columns] = await portfolioDb.query('SHOW COLUMNS FROM team_recruitments');
+  const existingColumns = new Set(columns.map((column) => column.Field));
+
+  for (const [columnName, definition] of requiredColumns) {
+    if (!existingColumns.has(columnName)) {
+      await portfolioDb.query(`ALTER TABLE team_recruitments ADD COLUMN \`${columnName}\` ${definition}`);
+    }
+  }
+
+  const [indexes] = await portfolioDb.query(
+    "SHOW INDEX FROM team_recruitments WHERE Key_name = 'idx_team_recruitments_activity_status'"
+  );
+  if (!indexes.length) {
+    await portfolioDb.query(
+      'ALTER TABLE team_recruitments ADD INDEX idx_team_recruitments_activity_status (activity_id, status)'
+    );
+  }
+
+  await portfolioDb.query(`
+    UPDATE team_recruitments tr
+    JOIN activitys a ON TRIM(a.title) = TRIM(tr.activity_name)
+    SET tr.activity_id = a.activity_id
+    WHERE tr.activity_id IS NULL
+  `);
+};
+
 // 데이터베이스 연결 테스트
 db.connect((err) => {
   if (err) {
@@ -268,14 +301,15 @@ db.connect((err) => {
     ensureActivityTables();
     ensureTodoCompletionColumn();
     startCrawlerScheduler();
-    ensurePortfolioSchema(portfolioDb)
+    ensureRecruitmentActivityColumns()
+      .then(() => ensurePortfolioSchema(portfolioDb))
       .then(() => runArchiveMaintenance())
       .then((archived) => {
         if (archived.length) {
           console.log(`✅ 지난 활동 자동 아카이브 ${archived.length}개 팀 완료`);
         }
       })
-      .catch((portfolioError) => console.error('미니포트폴리오 초기화 오류:', portfolioError));
+      .catch((portfolioError) => console.error('DB 스키마 초기화 오류:', portfolioError));
   }
 });
 
@@ -665,7 +699,19 @@ app.get('/api/activities', (req, res) => {
   }
 
   // 실제 DB 쿼리
-  const sql = 'SELECT * FROM activitys ORDER BY created_at DESC';
+  const sql = `
+    SELECT
+      a.*,
+      COALESCE(rc.open_recruitment_count, 0) AS open_recruitment_count
+    FROM activitys a
+    LEFT JOIN (
+      SELECT activity_id, COUNT(*) AS open_recruitment_count
+      FROM team_recruitments
+      WHERE status = 'OPEN' AND activity_id IS NOT NULL
+      GROUP BY activity_id
+    ) rc ON rc.activity_id = a.activity_id
+    ORDER BY a.created_at DESC
+  `;
 
   db.query(sql, (err, results) => {
     if (err) {
@@ -674,6 +720,37 @@ app.get('/api/activities', (req, res) => {
     }
 
     res.status(200).json((results || []).map(normalizeActivity));
+  });
+});
+
+app.get('/api/activities/open', (req, res) => {
+  if (!db || db.state === 'disconnected') {
+    return res.json([]);
+  }
+
+  const sql = `
+    SELECT
+      a.*,
+      COALESCE(rc.open_recruitment_count, 0) AS open_recruitment_count
+    FROM activitys a
+    LEFT JOIN (
+      SELECT activity_id, COUNT(*) AS open_recruitment_count
+      FROM team_recruitments
+      WHERE status = 'OPEN' AND activity_id IS NOT NULL
+      GROUP BY activity_id
+    ) rc ON rc.activity_id = a.activity_id
+    WHERE (a.application_period_start IS NULL OR a.application_period_start <= NOW())
+      AND (a.application_period_end IS NULL OR a.application_period_end >= CURDATE())
+    ORDER BY a.application_period_end ASC, a.created_at DESC
+  `;
+
+  db.query(sql, (err, results) => {
+    if (err) {
+      console.error('모집 중 활동 조회 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    res.json((results || []).map(normalizeActivity));
   });
 });
 
@@ -698,7 +775,17 @@ app.get('/api/activities/:id', (req, res) => {
   }
 
   // 실제 DB 쿼리
-  const sql = 'SELECT * FROM activitys WHERE activity_id = ?';
+  const sql = `
+    SELECT
+      a.*,
+      (
+        SELECT COUNT(*)
+        FROM team_recruitments tr
+        WHERE tr.activity_id = a.activity_id AND tr.status = 'OPEN'
+      ) AS open_recruitment_count
+    FROM activitys a
+    WHERE a.activity_id = ?
+  `;
   db.query(sql, [activityId], (err, results) => {
     if (err) {
       console.error('활동 상세 조회 오류:', err);
@@ -710,6 +797,46 @@ app.get('/api/activities/:id', (req, res) => {
     }
 
     res.status(200).json(normalizeActivity(results[0]));
+  });
+});
+
+app.get('/api/activities/:id/recruitments', (req, res) => {
+  const activityId = Number(req.params.id);
+
+  if (!Number.isInteger(activityId) || activityId <= 0) {
+    return res.status(400).json({ message: '올바른 활동 ID가 필요합니다' });
+  }
+
+  const sql = `
+    SELECT
+      recruitment_id,
+      owner_user_id,
+      team_id,
+      activity_id,
+      post_name,
+      activity_name,
+      activity_type,
+      qualification_department,
+      required_members,
+      activity_start_date,
+      activity_end_date,
+      activity_period,
+      meeting_type,
+      memo,
+      status,
+      created_at
+    FROM team_recruitments
+    WHERE activity_id = ? AND status = 'OPEN'
+    ORDER BY created_at DESC, recruitment_id DESC
+  `;
+
+  db.query(sql, [activityId], (err, results) => {
+    if (err) {
+      console.error('활동별 모집글 조회 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+
+    res.json(results || []);
   });
 });
 
@@ -833,21 +960,26 @@ app.get('/api/team-recruitments', (req, res) => {
     SELECT
       recruitment_id,
       owner_user_id,
-      team_id,
-      post_name,
-      activity_name,
-      activity_type,
+      tr.team_id,
+      tr.activity_id,
+      tr.post_name,
+      COALESCE(a.title, tr.activity_name) AS activity_name,
+      tr.activity_type,
       qualification_department,
       qualification_student_number,
       qualification_age,
-      required_members,
-      activity_period,
-      meeting_type,
-      memo,
-      status,
-      created_at
-    FROM team_recruitments
-    ORDER BY created_at DESC, recruitment_id DESC
+      tr.required_members,
+      tr.activity_start_date,
+      tr.activity_end_date,
+      tr.activity_period,
+      tr.meeting_type,
+      tr.memo,
+      tr.status,
+      tr.created_at
+    FROM team_recruitments tr
+    LEFT JOIN activitys a ON a.activity_id = tr.activity_id
+    WHERE tr.status = 'OPEN'
+    ORDER BY tr.created_at DESC, tr.recruitment_id DESC
   `;
 
   db.query(sql, (err, results) => {
@@ -857,6 +989,218 @@ app.get('/api/team-recruitments', (req, res) => {
     }
 
     res.json(results || []);
+  });
+});
+
+app.post('/api/team-recruitments', async (req, res) => {
+  const ownerUserId = getRequestUserId(req);
+  const activityId = Number(req.body?.activity_id);
+  const postName = String(req.body?.post_name || '').trim();
+  const activityType = String(req.body?.activity_type || '').trim();
+  const department = String(req.body?.qualification_department || '').trim();
+  const requiredMembers = Number(req.body?.required_members);
+  const startDate = String(req.body?.activity_start_date || '').slice(0, 10);
+  const endDate = String(req.body?.activity_end_date || '').slice(0, 10);
+  const meetingType = String(req.body?.meeting_type || '대면');
+  const memo = String(req.body?.memo || '').trim();
+
+  if (!ownerUserId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+  if (!postName || !activityType || !department) {
+    return res.status(400).json({ message: '글 제목, 카테고리, 모집학과를 입력해주세요' });
+  }
+  if (!Number.isInteger(activityId) || activityId <= 0) {
+    return res.status(400).json({ message: '모집 중인 활동을 선택해주세요' });
+  }
+  if (!Number.isInteger(requiredMembers) || requiredMembers < 2 || requiredMembers > 99) {
+    return res.status(400).json({ message: '모집 인원은 2명에서 99명 사이로 입력해주세요' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+    return res.status(400).json({ message: '활동 시작일과 종료일을 선택해주세요' });
+  }
+  if (startDate > endDate) {
+    return res.status(400).json({ message: '종료일은 시작일 이후여야 합니다' });
+  }
+  if (!['대면', '비대면', '혼합'].includes(meetingType)) {
+    return res.status(400).json({ message: '올바른 모임 방식을 선택해주세요' });
+  }
+
+  try {
+    const [activities] = await portfolioDb.query(
+      `SELECT activity_id, title, category, topic_category
+       FROM activitys
+       WHERE activity_id = ?
+         AND (application_period_start IS NULL OR application_period_start <= NOW())
+         AND (application_period_end IS NULL OR application_period_end >= CURDATE())`,
+      [activityId]
+    );
+
+    if (!activities.length) {
+      return res.status(400).json({ message: '현재 모집 중인 활동만 팀 활동으로 지정할 수 있습니다' });
+    }
+
+    const activity = activities[0];
+    const activityPeriod = `${startDate} ~ ${endDate}`;
+    const [result] = await portfolioDb.query(
+      `INSERT INTO team_recruitments (
+        owner_user_id,
+        team_id,
+        activity_id,
+        post_name,
+        activity_name,
+        activity_type,
+        qualification_department,
+        qualification_student_number,
+        qualification_age,
+        required_members,
+        activity_start_date,
+        activity_end_date,
+        activity_period,
+        meeting_type,
+        memo,
+        status
+      ) VALUES (?, NULL, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, 'OPEN')`,
+      [
+        ownerUserId,
+        activityId,
+        postName,
+        activity.title,
+        activityType || activity.topic_category || activity.category || '기타',
+        department,
+        requiredMembers,
+        startDate,
+        endDate,
+        activityPeriod,
+        meetingType,
+        memo,
+      ]
+    );
+
+    res.status(201).json({
+      success: true,
+      recruitment_id: result.insertId,
+      activity_id: activityId,
+    });
+  } catch (error) {
+    console.error('팀 모집글 등록 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
+});
+
+app.get('/api/team-recruitments/:id', (req, res) => {
+  const recruitmentId = Number(req.params.id);
+
+  if (!Number.isInteger(recruitmentId) || recruitmentId <= 0) {
+    return res.status(400).json({ message: '올바른 모집글 ID가 필요합니다' });
+  }
+
+  const sql = `
+    SELECT
+      tr.*,
+      COALESCE(a.title, tr.activity_name) AS activity_name
+    FROM team_recruitments tr
+    LEFT JOIN activitys a ON a.activity_id = tr.activity_id
+    WHERE tr.recruitment_id = ?
+  `;
+
+  db.query(sql, [recruitmentId], (err, results) => {
+    if (err) {
+      console.error('팀 모집글 상세 조회 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+    if (!results.length) {
+      return res.status(404).json({ message: '모집글을 찾을 수 없습니다' });
+    }
+    res.json(results[0]);
+  });
+});
+
+app.get('/api/team-recruitments/:id/applications', (req, res) => {
+  db.query(
+    `SELECT application_id, recruitment_id, applicant_id, memo, status, created_at
+     FROM applications
+     WHERE recruitment_id = ?
+     ORDER BY created_at DESC, application_id DESC`,
+    [req.params.id],
+    (err, results) => {
+      if (err) {
+        console.error('모집글 지원 목록 조회 오류:', err);
+        return res.status(500).json({ message: '서버 오류' });
+      }
+      res.json(results || []);
+    }
+  );
+});
+
+app.post('/api/applications', (req, res) => {
+  const recruitmentId = Number(req.body?.recruitment_id);
+  const applicantId = getRequestUserId(req);
+  const memo = String(req.body?.memo || '').trim();
+
+  if (!applicantId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+  if (!Number.isInteger(recruitmentId) || recruitmentId <= 0) {
+    return res.status(400).json({ message: '올바른 모집글 ID가 필요합니다' });
+  }
+
+  const sql = `
+    INSERT INTO applications (recruitment_id, applicant_id, memo, status)
+    SELECT ?, ?, ?, 'PENDING'
+    WHERE EXISTS (
+      SELECT 1 FROM team_recruitments
+      WHERE recruitment_id = ? AND status = 'OPEN' AND owner_user_id <> ?
+    )
+      AND NOT EXISTS (
+        SELECT 1 FROM applications
+        WHERE recruitment_id = ? AND applicant_id = ? AND status IN ('PENDING', 'APPROVED')
+      )
+  `;
+
+  db.query(
+    sql,
+    [recruitmentId, applicantId, memo, recruitmentId, applicantId, recruitmentId, applicantId],
+    (err, result) => {
+      if (err) {
+        console.error('팀 지원 등록 오류:', err);
+        return res.status(500).json({ message: '서버 오류' });
+      }
+      if (!result.affectedRows) {
+        return res.status(409).json({ message: '지원할 수 없거나 이미 지원한 모집글입니다' });
+      }
+      res.status(201).json({ success: true, application_id: result.insertId });
+    }
+  );
+});
+
+app.put('/api/applications/:id/status', (req, res) => {
+  const applicationId = Number(req.params.id);
+  const ownerUserId = getRequestUserId(req);
+  const status = String(req.body?.status || '');
+
+  if (!ownerUserId) {
+    return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+  if (!['APPROVED', 'REJECTED'].includes(status)) {
+    return res.status(400).json({ message: '올바른 지원 상태가 필요합니다' });
+  }
+
+  const sql = `
+    UPDATE applications a
+    JOIN team_recruitments tr ON tr.recruitment_id = a.recruitment_id
+    SET a.status = ?
+    WHERE a.application_id = ? AND tr.owner_user_id = ?
+  `;
+  db.query(sql, [status, applicationId, ownerUserId], (err, result) => {
+    if (err) {
+      console.error('지원 상태 변경 오류:', err);
+      return res.status(500).json({ message: '서버 오류' });
+    }
+    if (!result.affectedRows) {
+      return res.status(403).json({ message: '모집글 작성자만 지원 상태를 변경할 수 있습니다' });
+    }
+    res.json({ success: true, status });
   });
 });
 

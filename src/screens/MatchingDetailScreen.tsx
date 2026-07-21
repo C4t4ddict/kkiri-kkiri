@@ -1,5 +1,5 @@
 // src/screens/MatchingDetailScreen.tsx
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,10 +12,8 @@ import {
   Alert,
   Platform,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/Ionicons';
 import axios from 'axios';
-import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 
 const BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
@@ -27,9 +25,13 @@ type RootStackParamList = {
 type Recruitment = {
   recruitment_id: number;
   owner_user_id: number;
+  activity_id?: number;
+  post_name: string;
   activity_name: string;
   activity_type: string;
   activity_period?: string;
+  activity_start_date?: string;
+  activity_end_date?: string;
   meeting_type?: string; // '대면' | '비대면' | '혼합'
   required_members: number;
   memo?: string;
@@ -56,7 +58,6 @@ type Application = {
 type RouteProps = RouteProp<RootStackParamList, 'RecruitDetail'>;
 
 const MatchingDetailScreen = () => {
-  const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const route = useRoute<RouteProps>();
   const { user: me } = useAuth();
 
@@ -71,7 +72,7 @@ const MatchingDetailScreen = () => {
     [recruit, me?.id]
   );
 
-  const fetchDetail = async () => {
+  const fetchDetail = useCallback(async () => {
     try {
       const r = await axios.get(`${BASE_URL}/api/team-recruitments/${route.params.id}`);
       setRecruit(r.data);
@@ -100,17 +101,13 @@ const MatchingDetailScreen = () => {
       console.error('상세 조회 오류:', e);
       Alert.alert('오류', '상세 정보를 불러오지 못했습니다.');
     }
-  };
-
-  useEffect(() => {
-    fetchDetail();
   }, [route.params.id]);
 
   // 뒤로갔다가 다시 들어오거나, 승인/반려 후 갱신
   useFocusEffect(
     useCallback(() => {
       fetchDetail();
-    }, [route.params.id])
+    }, [fetchDetail])
   );
 
   const alreadyApplied = useMemo(() => {
@@ -138,7 +135,7 @@ const MatchingDetailScreen = () => {
         applicant_id: me.id,
         memo: intro,
         status: 'PENDING',
-      });
+      }, { headers: { 'x-user-id': String(me.id) } });
       Alert.alert('완료', '지원이 등록되었습니다.');
       setIntro('');
       fetchDetail();
@@ -154,7 +151,11 @@ const MatchingDetailScreen = () => {
     try {
       setLoading(true);
       // 권장: 상태 변경 API
-      await axios.put(`${BASE_URL}/api/applications/${application_id}/status`, { status });
+      await axios.put(
+        `${BASE_URL}/api/applications/${application_id}/status`,
+        { status },
+        { headers: { 'x-user-id': String(me?.id || '') } }
+      );
       fetchDetail();
     } catch (e) {
       console.error('상태 변경 오류:', e);
@@ -178,7 +179,8 @@ const MatchingDetailScreen = () => {
 
       <ScrollView contentContainerStyle={{ paddingBottom: 24, paddingTop: 16 }}>
         {/* 제목 */}
-        <Text style={styles.title}>{recruit.activity_name}</Text>
+        <Text style={styles.title}>{recruit.post_name}</Text>
+        <Text style={styles.activityName}>{recruit.activity_name}</Text>
 
         {/* 작성자 요약 */}
         <View style={styles.metaRow}>
@@ -311,6 +313,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: '700', color: '#101828' },
 
   title: { fontSize: 22, fontWeight: '800', color: '#101828', paddingHorizontal: 16, marginBottom: 12 },
+  activityName: { marginTop: -6, marginBottom: 14, paddingHorizontal: 16, color: '#7A5AF8', fontSize: 14, fontWeight: '700' },
   metaRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16 },
   avatar: { width: 56, height: 56, borderRadius: 28, marginRight: 12, backgroundColor: '#E5E7EB' },
   ownerName: { fontSize: 16, fontWeight: '700', color: '#101828' },

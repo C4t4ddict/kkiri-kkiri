@@ -221,7 +221,14 @@ const InfoScreen = () => {
               onPress={() => navigation.navigate('InfoDetail', { id: item.activity_id })}
             >
               <View style={styles.activityHeadingRow}>
-                <Text style={styles.activityTitle} numberOfLines={2}>{item.title}</Text>
+                <View style={styles.activityTitleGroup}>
+                  <Text style={styles.activityTitle} numberOfLines={2}>{item.title}</Text>
+                  {Number(item.open_recruitment_count) > 0 && (
+                    <View style={styles.recruitmentBadge}>
+                      <Text style={styles.recruitmentBadgeText}>+{item.open_recruitment_count}</Text>
+                    </View>
+                  )}
+                </View>
                 {favoriteIds.has(Number(item.activity_id)) && (
                   <Icon name="heart" size={22} color={colors.primary} style={styles.favoriteIcon} />
                 )}
@@ -287,10 +294,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   activityTitle: {
-    flex: 1,
+    flexShrink: 1,
     fontWeight: 'bold',
     fontSize: 16,
     marginBottom: 6,
+  },
+  activityTitleGroup: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 7,
   },
   activityHeadingRow: {
     flexDirection: 'row',
@@ -299,6 +312,21 @@ const styles = StyleSheet.create({
   },
   favoriteIcon: {
     marginTop: 1,
+  },
+  recruitmentBadge: {
+    minWidth: 26,
+    height: 26,
+    marginTop: -3,
+    paddingHorizontal: 5,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
+  recruitmentBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
   },
   activityCategory: {
     fontSize: 12,
