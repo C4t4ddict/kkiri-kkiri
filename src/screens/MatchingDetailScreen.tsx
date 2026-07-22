@@ -57,6 +57,13 @@ type Application = {
   };
 };
 
+type ApplicationTemplate = {
+  template_id: number;
+  title: string;
+  content: string;
+  is_default: number | boolean;
+};
+
 type RouteProps = RouteProp<RootStackParamList, 'MatchingDetail'>;
 
 const MatchingDetailScreen = () => {
@@ -68,6 +75,8 @@ const MatchingDetailScreen = () => {
   const [owner, setOwner] = useState<any>(null);
   const [apps, setApps] = useState<Application[]>([]);
   const [intro, setIntro] = useState(''); // 일반 사용자 자기소개
+  const [templates, setTemplates] = useState<ApplicationTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
 
   const isOwner = useMemo(
@@ -89,6 +98,21 @@ const MatchingDetailScreen = () => {
         headers: me?.id ? { 'x-user-id': String(me.id) } : undefined,
       });
       const list: Application[] = a.data || [];
+
+      if (me?.id && Number(r.data.owner_user_id) !== Number(me.id)) {
+        try {
+          const templateResponse = await axios.get<ApplicationTemplate[]>(`${BASE_URL}/api/application-templates`);
+          const templateList = Array.isArray(templateResponse.data) ? templateResponse.data : [];
+          setTemplates(templateList);
+          const defaultTemplate = templateList.find((template) => Boolean(template.is_default));
+          if (defaultTemplate) {
+            setSelectedTemplateId((current) => current || defaultTemplate.template_id);
+            setIntro((current) => current || defaultTemplate.content);
+          }
+        } catch {
+          setTemplates([]);
+        }
+      }
 
       // 지원자 상세 붙이기(가벼운 N회 호출; 필요시 서버 join으로 대체 가능)
       const enriched = await Promise.all(
@@ -150,6 +174,7 @@ const MatchingDetailScreen = () => {
         recruitment_id: route.params.id,
         applicant_id: me.id,
         memo: intro,
+        template_id: selectedTemplateId,
         status: 'PENDING',
       }, { headers: { 'x-user-id': String(me.id) } });
       Alert.alert('완료', '지원이 등록되었습니다.');
@@ -266,7 +291,7 @@ const MatchingDetailScreen = () => {
         <View style={{ width: 24 }} />
       </View> */}
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 24, paddingTop: 16 }}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         {isOwner && (
           <View style={styles.ownerActions}>
             <TouchableOpacity
@@ -291,12 +316,12 @@ const MatchingDetailScreen = () => {
             source={{ uri: owner?.profile_picture || 'https://via.placeholder.com/56' }}
             style={styles.avatar}
           />
-          <View style={{ flex: 1 }}>
+          <View style={styles.flexOne}>
             <Text style={styles.ownerName}>{owner?.name || '작성자'}</Text>
             <Text style={styles.ownerSub}>{timeAgo(recruit.created_at)} 전</Text>
           </View>
 
-          <View style={{ alignItems: 'flex-end' }}>
+          <View style={styles.metaSummary}>
             <Text style={styles.badge}>
               {recruit.activity_type || '-'} | {recruit.meeting_type || '-'} | {recruit.activity_period || '-'}
             </Text>
@@ -332,6 +357,37 @@ const MatchingDetailScreen = () => {
               </View>
             ) : (
               <>
+                <View style={styles.templateHeader}>
+                  <View>
+                    <Text style={styles.templateTitle}>지원서 불러오기</Text>
+                    <Text style={styles.templateHelper}>선택 후 내용을 자유롭게 수정할 수 있어요.</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => navigation.navigate('ApplicationTemplates')}>
+                    <Text style={styles.templateManage}>관리</Text>
+                  </TouchableOpacity>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.templateList}>
+                  {templates.map((template) => (
+                    <TouchableOpacity
+                      key={template.template_id}
+                      activeOpacity={0.75}
+                      onPress={() => {
+                        setSelectedTemplateId(template.template_id);
+                        setIntro(template.content);
+                      }}
+                      style={[styles.templateChip, selectedTemplateId === template.template_id && styles.templateChipSelected]}
+                    >
+                      <Text style={[styles.templateChipText, selectedTemplateId === template.template_id && styles.templateChipTextSelected]}>
+                        {template.title}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                  {!templates.length ? (
+                    <TouchableOpacity style={styles.emptyTemplateChip} onPress={() => navigation.navigate('ApplicationTemplates')}>
+                      <Text style={styles.emptyTemplateText}>+ 첫 지원서 만들기</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </ScrollView>
                 <View style={styles.inputBox}>
                   <TextInput
                     placeholder="본인에 대해 알려주세요"
@@ -344,7 +400,7 @@ const MatchingDetailScreen = () => {
                 </View>
 
                 <TouchableOpacity
-                  style={[styles.primaryBtn, loading && { opacity: 0.6 }]}
+                  style={[styles.primaryBtn, loading && styles.disabledBtn]}
                   onPress={handleApply}
                   disabled={loading}
                 >
@@ -357,20 +413,20 @@ const MatchingDetailScreen = () => {
 
         {/* --- 작성자 뷰 --- */}
         {isOwner && (
-          <View style={{ paddingHorizontal: 16, marginTop: 8 }}>
+          <View style={styles.applicationsSection}>
             {apps.length === 0 ? (
-              <Text style={{ color: '#475467' }}>아직 신청자가 없습니다.</Text>
+              <Text style={styles.emptyApplicationsText}>아직 신청자가 없습니다.</Text>
             ) : (
               apps
                 .sort((a, b) => (a.status === 'PENDING' ? -1 : 1) - (b.status === 'PENDING' ? -1 : 1))
                 .map((a) => (
                 <View key={a.application_id} style={styles.appCard}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <View style={styles.applicantRow}>
                     <Image
                       source={{ uri: a.applicant?.profile_picture || 'https://via.placeholder.com/40' }}
                       style={styles.appAvatar}
                     />
-                    <View style={{ flex: 1 }}>
+                    <View style={styles.flexOne}>
                       <Text style={styles.appTitle}>
                         {(a.applicant?.department ? `${a.applicant.department} ` : '') + (a.applicant?.name || `user#${a.applicant_id}`)}
                       </Text>
@@ -381,7 +437,7 @@ const MatchingDetailScreen = () => {
 
                   <View style={styles.appButtons}>
                     <TouchableOpacity
-                      style={[styles.smallBtn, styles.acceptBtn, (loading || a.status !== 'PENDING' || Boolean(a.offer_id)) && { opacity: 0.6 }]}
+                      style={[styles.smallBtn, styles.acceptBtn, (loading || a.status !== 'PENDING' || Boolean(a.offer_id)) && styles.disabledBtn]}
                       onPress={() => sendJoinOffer(a.application_id)}
                       disabled={loading || a.status !== 'PENDING' || Boolean(a.offer_id)}
                     >
@@ -390,7 +446,7 @@ const MatchingDetailScreen = () => {
                       </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.smallBtn, styles.rejectBtn, (loading || a.status !== 'PENDING' || Boolean(a.offer_id)) && { opacity: 0.6 }]}
+                      style={[styles.smallBtn, styles.rejectBtn, (loading || a.status !== 'PENDING' || Boolean(a.offer_id)) && styles.disabledBtn]}
                       onPress={() => updateAppStatus(a.application_id, 'REJECTED')}
                       disabled={loading || a.status !== 'PENDING' || Boolean(a.offer_id)}
                     >
@@ -427,6 +483,8 @@ function labelStatus(s: Application['status']) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
+  scrollContent: { paddingBottom: 24, paddingTop: 16 },
+  flexOne: { flex: 1 },
   header: {
     paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -446,12 +504,25 @@ const styles = StyleSheet.create({
   ownerSub: { fontSize: 13, color: '#667085', marginTop: 2 },
   badge: { fontSize: 13, color: '#475467' },
   headcount: { fontSize: 13, color: '#475467', marginTop: 6 },
+  metaSummary: { alignItems: 'flex-end' },
   divider: { height: 1, backgroundColor: '#E5E7EB', marginVertical: 16, marginHorizontal: 16 },
   body: { color: '#101828', fontSize: 15, paddingHorizontal: 16, lineHeight: 22 },
 
+  templateHeader: { marginTop: 20, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  templateTitle: { color: '#101828', fontSize: 14, fontWeight: '800' },
+  templateHelper: { marginTop: 3, color: '#98A2B3', fontSize: 11 },
+  templateManage: { color: '#7A5AF8', fontSize: 12, fontWeight: '800' },
+  templateList: { gap: 8, paddingHorizontal: 16, paddingTop: 11 },
+  templateChip: { paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: '#D0D5DD', borderRadius: 999, backgroundColor: '#FFFFFF' },
+  templateChipSelected: { borderColor: '#7A5AF8', backgroundColor: '#F4F1FF' },
+  templateChipText: { color: '#667085', fontSize: 11, fontWeight: '700' },
+  templateChipTextSelected: { color: '#7A5AF8' },
+  emptyTemplateChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: '#F4F1FF' },
+  emptyTemplateText: { color: '#7A5AF8', fontSize: 11, fontWeight: '800' },
+
   inputBox: {
     backgroundColor: '#F2F4F7', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
-    marginHorizontal: 16, marginTop: 20, height: 140,
+    marginHorizontal: 16, marginTop: 12, height: 140,
   },
   input: { flex: 1, fontSize: 15, color: '#101828', textAlignVertical: 'top' },
   primaryBtn: {
@@ -460,6 +531,8 @@ const styles = StyleSheet.create({
   },
   primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   applicationActions: { marginTop: 20, marginHorizontal: 16 },
+  applicationsSection: { paddingHorizontal: 16, marginTop: 8 },
+  emptyApplicationsText: { color: '#475467' },
   appliedNotice: {
     padding: 15,
     borderRadius: 14,
@@ -484,6 +557,7 @@ const styles = StyleSheet.create({
   appCard: {
     backgroundColor: '#F3F4F6', borderRadius: 18, padding: 14, marginBottom: 12,
   },
+  applicantRow: { flexDirection: 'row', alignItems: 'center' },
   appAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 10, backgroundColor: '#E5E7EB' },
   appTitle: { fontSize: 14, color: '#101828', fontWeight: '800' },
   appSub: { fontSize: 12, color: '#667085', marginTop: 2 },

@@ -25,6 +25,8 @@ import PersonalInfoScreen from './src/screens/PersonalInfoScreen';
 import FavoriteActivitiesScreen from './src/screens/FavoriteActivitiesScreen';
 import MyRecruitmentsScreen from './src/screens/MyRecruitmentsScreen';
 import MyApplicationsScreen from './src/screens/MyApplicationsScreen';
+import ApplicationDetailScreen from './src/screens/ApplicationDetailScreen';
+import ApplicationTemplatesScreen from './src/screens/ApplicationTemplatesScreen';
 
 // MyPage 관련 스크린 import 추가
 import MyPage2 from './src/screens/mypage2';
@@ -133,6 +135,16 @@ export default function App() {
               headerBackTitle: '',
               headerTitleAlign: 'center',
             }}
+          />
+          <Stack.Screen
+            name="ApplicationDetail"
+            component={ApplicationDetailScreen}
+            options={{ title: '지원 현황', headerBackTitle: '', headerTitleAlign: 'center' }}
+          />
+          <Stack.Screen
+            name="ApplicationTemplates"
+            component={ApplicationTemplatesScreen}
+            options={{ title: '지원서 관리', headerBackTitle: '', headerTitleAlign: 'center' }}
           />
           <Stack.Screen name="Evaluation" component={EvaluationScreen} />
           <Stack.Screen name="TeamFind" component={TeamFindScreen} />

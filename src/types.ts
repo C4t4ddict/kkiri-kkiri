@@ -28,6 +28,8 @@ export type RootStackParamList = {
   MatchingDetail: { id: number };
   MyRecruitments: undefined;
   MyApplications: undefined;
+  ApplicationDetail: { applicationId: number };
+  ApplicationTemplates: undefined;
   MyPage2: { user: User };
   MyPage3: {
     user: User;

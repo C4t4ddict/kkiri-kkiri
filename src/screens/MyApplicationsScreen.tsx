@@ -99,7 +99,7 @@ export default function MyApplicationsScreen() {
               key={application.application_id}
               style={styles.card}
               activeOpacity={0.75}
-              onPress={() => navigation.navigate('MatchingDetail', { id: application.recruitment_id })}
+              onPress={() => navigation.navigate('ApplicationDetail', { applicationId: application.application_id })}
             >
               <View style={styles.cardHeader}>
                 <View style={[styles.statusBadge, styles[`status${application.application_status}`]]}>

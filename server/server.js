@@ -19,6 +19,13 @@ const { attachAuth, getAuthenticatedUserId, issueAuthToken } = require('./lib/au
 const { getRequestMetrics, logger, requestLogger } = require('./lib/logger');
 const { createTtlCache } = require('./lib/ttlCache');
 const {
+  buildApplicationTimeline,
+  ensureApplicationSchema,
+  getApplicationTimeline,
+  recordApplicationEvent,
+  sanitizeTemplate,
+} = require('./applications/service');
+const {
   archiveExpiredTeams,
   archiveTeam,
   ensurePortfolioSchema,
@@ -190,7 +197,7 @@ app.use(bodyParser.json());
 app.use(attachAuth);
 app.use(requestLogger);
 
-const privateApiPattern = /^(?:\/api\/(?:user(?:\/|$)|delete-user(?:\/|$)|upload(?:\/|$)|favorite-activities(?:\/|$)|my-(?:recruitments|applications)(?:\/|$)|applications(?:\/|$)|reviews(?:\/|$)|participations(?:\/|$)|team-join-offers(?:\/|$))|\/(?:users|teams|todos|notifications)(?:\/|$))/;
+const privateApiPattern = /^(?:\/api\/(?:user(?:\/|$)|delete-user(?:\/|$)|upload(?:\/|$)|favorite-activities(?:\/|$)|application-templates(?:\/|$)|my-(?:recruitments|applications)(?:\/|$)|applications(?:\/|$)|reviews(?:\/|$)|participations(?:\/|$)|team-join-offers(?:\/|$))|\/(?:users|teams|todos|notifications)(?:\/|$))/;
 app.use((req, res, next) => {
   if (!privateApiPattern.test(req.path)) return next();
   if (!getRequestUserId(req)) return res.status(401).json({ message: '로그인이 필요합니다' });
@@ -483,7 +490,8 @@ db.getConnection((err, connection) => {
     ensureTodoCompletionColumn();
     crawlerScheduler = startCrawlerScheduler();
     matchingSchemaReady = ensureRecruitmentActivityColumns()
-      .then(() => ensureMatchingInvitationSchema());
+      .then(() => ensureMatchingInvitationSchema())
+      .then(() => ensureApplicationSchema(portfolioDb));
     adminSchemaReady = ensureAdminSchema();
     matchingSchemaReady
       .then(() => adminSchemaReady)
@@ -1186,6 +1194,137 @@ app.delete('/api/favorite-activities/:activityId', (req, res) => {
 
 // ===== 매칭/활동 탭 API =====
 
+app.get('/api/application-templates', async (req, res) => {
+  const userId = getRequestUserId(req);
+  try {
+    await matchingSchemaReady;
+    const [templates] = await portfolioDb.query(
+      `SELECT template_id, title, content, is_default, created_at, updated_at
+       FROM application_templates
+       WHERE user_id = ?
+       ORDER BY is_default DESC, updated_at DESC, template_id DESC`,
+      [userId],
+    );
+    res.json(templates);
+  } catch (error) {
+    logger.error('application_templates_list_failed', { userId, error: error.message });
+    res.status(500).json({ message: '지원서 템플릿을 불러오지 못했습니다' });
+  }
+});
+
+app.post('/api/application-templates', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const template = sanitizeTemplate(req.body);
+  if (!template.title || !template.content) {
+    return res.status(400).json({ message: '템플릿 제목과 내용을 입력해주세요' });
+  }
+
+  const connection = await portfolioDb.getConnection();
+  try {
+    await matchingSchemaReady;
+    await connection.beginTransaction();
+    const [[countRow]] = await connection.query(
+      'SELECT COUNT(*) AS template_count FROM application_templates WHERE user_id = ?',
+      [userId],
+    );
+    const shouldDefault = template.isDefault || Number(countRow.template_count) === 0;
+    if (shouldDefault) {
+      await connection.query('UPDATE application_templates SET is_default = 0 WHERE user_id = ?', [userId]);
+    }
+    const [result] = await connection.query(
+      `INSERT INTO application_templates (user_id, title, content, is_default)
+       VALUES (?, ?, ?, ?)`,
+      [userId, template.title, template.content, shouldDefault ? 1 : 0],
+    );
+    await connection.commit();
+    res.status(201).json({ success: true, template_id: result.insertId, is_default: shouldDefault });
+  } catch (error) {
+    await connection.rollback();
+    logger.error('application_template_create_failed', { userId, error: error.message });
+    res.status(500).json({ message: '지원서 템플릿을 저장하지 못했습니다' });
+  } finally {
+    connection.release();
+  }
+});
+
+app.put('/api/application-templates/:templateId', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const templateId = Number(req.params.templateId);
+  const template = sanitizeTemplate(req.body);
+  if (!Number.isInteger(templateId) || templateId <= 0 || !template.title || !template.content) {
+    return res.status(400).json({ message: '템플릿 제목과 내용을 확인해주세요' });
+  }
+
+  const connection = await portfolioDb.getConnection();
+  try {
+    await matchingSchemaReady;
+    await connection.beginTransaction();
+    if (template.isDefault) {
+      await connection.query('UPDATE application_templates SET is_default = 0 WHERE user_id = ?', [userId]);
+    }
+    const [result] = await connection.query(
+      `UPDATE application_templates
+       SET title = ?, content = ?, is_default = IF(?, 1, is_default)
+       WHERE template_id = ? AND user_id = ?`,
+      [template.title, template.content, template.isDefault ? 1 : 0, templateId, userId],
+    );
+    if (!result.affectedRows) {
+      await connection.rollback();
+      return res.status(404).json({ message: '지원서 템플릿을 찾을 수 없습니다' });
+    }
+    await connection.commit();
+    res.json({ success: true, template_id: templateId });
+  } catch (error) {
+    await connection.rollback();
+    logger.error('application_template_update_failed', { userId, templateId, error: error.message });
+    res.status(500).json({ message: '지원서 템플릿을 수정하지 못했습니다' });
+  } finally {
+    connection.release();
+  }
+});
+
+app.delete('/api/application-templates/:templateId', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const templateId = Number(req.params.templateId);
+  if (!Number.isInteger(templateId) || templateId <= 0) {
+    return res.status(400).json({ message: '올바른 템플릿 ID가 필요합니다' });
+  }
+
+  const connection = await portfolioDb.getConnection();
+  try {
+    await matchingSchemaReady;
+    await connection.beginTransaction();
+    const [[template]] = await connection.query(
+      'SELECT is_default FROM application_templates WHERE template_id = ? AND user_id = ? FOR UPDATE',
+      [templateId, userId],
+    );
+    if (!template) {
+      await connection.rollback();
+      return res.status(404).json({ message: '지원서 템플릿을 찾을 수 없습니다' });
+    }
+    await connection.query('DELETE FROM application_templates WHERE template_id = ? AND user_id = ?', [templateId, userId]);
+    if (template.is_default) {
+      await connection.query(
+        `UPDATE application_templates SET is_default = 1
+         WHERE template_id = (
+           SELECT template_id FROM (
+             SELECT template_id FROM application_templates WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1
+           ) latest
+         )`,
+        [userId],
+      );
+    }
+    await connection.commit();
+    res.json({ success: true });
+  } catch (error) {
+    await connection.rollback();
+    logger.error('application_template_delete_failed', { userId, templateId, error: error.message });
+    res.status(500).json({ message: '지원서 템플릿을 삭제하지 못했습니다' });
+  } finally {
+    connection.release();
+  }
+});
+
 app.get('/api/team-recruitments', (req, res) => {
   if (!db || db.state === 'disconnected') {
     return res.json([]);
@@ -1586,10 +1725,11 @@ app.get('/api/team-recruitments/:id/applications', async (req, res) => {
   }
 });
 
-app.post('/api/applications', (req, res) => {
+app.post('/api/applications', async (req, res) => {
   const recruitmentId = Number(req.body?.recruitment_id);
   const applicantId = getRequestUserId(req);
-  const memo = String(req.body?.memo || '').trim();
+  const templateId = Number(req.body?.template_id) || null;
+  const memo = String(req.body?.memo || '').trim().slice(0, 2000);
 
   if (!applicantId) {
     return res.status(401).json({ message: '로그인이 필요합니다' });
@@ -1598,33 +1738,50 @@ app.post('/api/applications', (req, res) => {
     return res.status(400).json({ message: '올바른 모집글 ID가 필요합니다' });
   }
 
-  const sql = `
-    INSERT INTO applications (recruitment_id, applicant_id, memo, status)
-    SELECT ?, ?, ?, 'PENDING'
-    WHERE EXISTS (
-      SELECT 1 FROM team_recruitments
-      WHERE recruitment_id = ? AND status = 'OPEN' AND deleted_at IS NULL AND owner_user_id <> ?
-    )
-      AND NOT EXISTS (
-        SELECT 1 FROM applications
-        WHERE recruitment_id = ? AND applicant_id = ? AND status IN ('PENDING', 'APPROVED')
-      )
-  `;
+  if (!memo) return res.status(400).json({ message: '지원 내용을 입력해주세요' });
 
-  db.query(
-    sql,
-    [recruitmentId, applicantId, memo, recruitmentId, applicantId, recruitmentId, applicantId],
-    (err, result) => {
-      if (err) {
-        console.error('팀 지원 등록 오류:', err);
-        return res.status(500).json({ message: '서버 오류' });
+  const connection = await portfolioDb.getConnection();
+  try {
+    await matchingSchemaReady;
+    await connection.beginTransaction();
+    if (templateId) {
+      const [[template]] = await connection.query(
+        'SELECT template_id FROM application_templates WHERE template_id = ? AND user_id = ?',
+        [templateId, applicantId],
+      );
+      if (!template) {
+        await connection.rollback();
+        return res.status(400).json({ message: '사용할 수 없는 지원서 템플릿입니다' });
       }
-      if (!result.affectedRows) {
-        return res.status(409).json({ message: '지원할 수 없거나 이미 지원한 모집글입니다' });
-      }
-      res.status(201).json({ success: true, application_id: result.insertId });
     }
-  );
+    const [result] = await connection.query(
+      `INSERT INTO applications (recruitment_id, applicant_id, template_id, memo, status)
+       SELECT ?, ?, ?, ?, 'PENDING'
+       WHERE EXISTS (
+         SELECT 1 FROM team_recruitments
+         WHERE recruitment_id = ? AND status = 'OPEN' AND deleted_at IS NULL AND owner_user_id <> ?
+       )
+         AND NOT EXISTS (
+           SELECT 1 FROM applications
+           WHERE recruitment_id = ? AND applicant_id = ? AND status IN ('PENDING', 'APPROVED')
+         )`,
+      [recruitmentId, applicantId, templateId, memo, recruitmentId, applicantId, recruitmentId, applicantId],
+    );
+    if (!result.affectedRows) {
+      await connection.rollback();
+      return res.status(409).json({ message: '지원할 수 없거나 이미 지원한 모집글입니다' });
+    }
+    await recordApplicationEvent(connection, result.insertId, 'APPLIED', applicantId);
+    await recordApplicationEvent(connection, result.insertId, 'REVIEWING', applicantId);
+    await connection.commit();
+    res.status(201).json({ success: true, application_id: result.insertId });
+  } catch (error) {
+    await connection.rollback();
+    logger.error('application_create_failed', { applicantId, recruitmentId, error: error.message });
+    res.status(500).json({ message: '지원서를 등록하지 못했습니다' });
+  } finally {
+    connection.release();
+  }
 });
 
 app.post('/api/team-recruitments/:recruitmentId/applications/:applicationId/invite', async (req, res) => {
@@ -1637,11 +1794,12 @@ app.post('/api/team-recruitments/:recruitmentId/applications/:applicationId/invi
     return res.status(400).json({ message: '모집글과 지원 정보가 올바르지 않습니다' });
   }
 
+  const connection = await portfolioDb.getConnection();
   try {
     await matchingSchemaReady;
-    await portfolioDb.beginTransaction();
+    await connection.beginTransaction();
 
-    const [applications] = await portfolioDb.query(
+    const [applications] = await connection.query(
       `SELECT
         ap.application_id,
         ap.applicant_id,
@@ -1667,36 +1825,36 @@ app.post('/api/team-recruitments/:recruitmentId/applications/:applicationId/invi
     const application = applications[0];
 
     if (!application || application.deleted_at) {
-      await portfolioDb.rollback();
+      await connection.rollback();
       return res.status(404).json({ message: '지원 정보를 찾을 수 없습니다' });
     }
     if (Number(application.owner_user_id) !== ownerUserId) {
-      await portfolioDb.rollback();
+      await connection.rollback();
       return res.status(403).json({ message: '모집글 작성자만 합류 제안을 보낼 수 있습니다' });
     }
     if (application.recruitment_status !== 'OPEN') {
-      await portfolioDb.rollback();
+      await connection.rollback();
       return res.status(409).json({ message: '모집 중인 글에만 합류 제안을 보낼 수 있습니다' });
     }
     if (application.application_status !== 'PENDING') {
-      await portfolioDb.rollback();
+      await connection.rollback();
       return res.status(409).json({ message: '검토 중인 지원에만 합류 제안을 보낼 수 있습니다' });
     }
     if (application.offer_id) {
-      await portfolioDb.rollback();
+      await connection.rollback();
       return res.status(409).json({
         message: application.offer_status === 'PENDING' ? '이미 합류 제안을 보냈습니다' : '처리된 합류 제안입니다',
       });
     }
 
-    const teamId = await ensureRecruitmentTeam(portfolioDb, application);
-    const [offerResult] = await portfolioDb.query(
+    const teamId = await ensureRecruitmentTeam(connection, application);
+    const [offerResult] = await connection.query(
       `INSERT INTO team_join_offers
         (application_id, recruitment_id, team_id, inviter_id, invitee_id, status)
        VALUES (?, ?, ?, ?, ?, 'PENDING')`,
       [applicationId, recruitmentId, teamId, ownerUserId, application.applicant_id],
     );
-    await portfolioDb.query(
+    await connection.query(
       `INSERT INTO user_notifications
         (user_id, team_id, offer_id, type, title, content)
        VALUES (?, ?, ?, 'team_invitation', '팀 합류 제안이 도착했어요', ?)`,
@@ -1708,16 +1866,19 @@ app.post('/api/team-recruitments/:recruitmentId/applications/:applicationId/invi
       ],
     );
 
-    await portfolioDb.commit();
+    await recordApplicationEvent(connection, applicationId, 'JOIN_OFFERED', ownerUserId);
+    await connection.commit();
     res.status(201).json({ success: true, offer_id: offerResult.insertId, team_id: teamId });
   } catch (error) {
-    await portfolioDb.rollback().catch(() => undefined);
+    await connection.rollback().catch(() => undefined);
     console.error('팀 합류 제안 생성 오류:', error);
     res.status(500).json({ message: '팀 합류 제안을 보내지 못했습니다' });
+  } finally {
+    connection.release();
   }
 });
 
-app.put('/api/applications/:id/status', (req, res) => {
+app.put('/api/applications/:id/status', async (req, res) => {
   const applicationId = Number(req.params.id);
   const ownerUserId = getRequestUserId(req);
   const status = String(req.body?.status || '');
@@ -1729,22 +1890,31 @@ app.put('/api/applications/:id/status', (req, res) => {
     return res.status(400).json({ message: '올바른 지원 상태가 필요합니다' });
   }
 
-  const sql = `
-    UPDATE applications a
-    JOIN team_recruitments tr ON tr.recruitment_id = a.recruitment_id
-    SET a.status = ?
-    WHERE a.application_id = ? AND tr.owner_user_id = ? AND tr.deleted_at IS NULL
-  `;
-  db.query(sql, [status, applicationId, ownerUserId], (err, result) => {
-    if (err) {
-      console.error('지원 상태 변경 오류:', err);
-      return res.status(500).json({ message: '서버 오류' });
-    }
+  const connection = await portfolioDb.getConnection();
+  try {
+    await matchingSchemaReady;
+    await connection.beginTransaction();
+    const [result] = await connection.query(
+      `UPDATE applications a
+       JOIN team_recruitments tr ON tr.recruitment_id = a.recruitment_id
+       SET a.status = ?
+       WHERE a.application_id = ? AND tr.owner_user_id = ? AND tr.deleted_at IS NULL`,
+      [status, applicationId, ownerUserId],
+    );
     if (!result.affectedRows) {
+      await connection.rollback();
       return res.status(403).json({ message: '모집글 작성자만 지원 상태를 변경할 수 있습니다' });
     }
+    await recordApplicationEvent(connection, applicationId, status, ownerUserId);
+    await connection.commit();
     res.json({ success: true, status });
-  });
+  } catch (error) {
+    await connection.rollback();
+    logger.error('application_status_update_failed', { applicationId, ownerUserId, error: error.message });
+    res.status(500).json({ message: '지원 상태를 변경하지 못했습니다' });
+  } finally {
+    connection.release();
+  }
 });
 
 app.get('/api/my-applications', async (req, res) => {
@@ -1758,6 +1928,7 @@ app.get('/api/my-applications', async (req, res) => {
     SELECT
       ap.application_id,
       ap.recruitment_id,
+      ap.template_id,
       ap.memo,
       ap.status AS application_status,
       ap.created_at AS applied_at,
@@ -1769,7 +1940,9 @@ app.get('/api/my-applications', async (req, res) => {
       tr.required_members,
       tr.activity_period,
       offer.offer_id,
-      offer.status AS offer_status
+      offer.status AS offer_status,
+      offer.created_at AS offer_created_at,
+      offer.responded_at AS offer_responded_at
     FROM applications ap
     JOIN team_recruitments tr ON tr.recruitment_id = ap.recruitment_id
     LEFT JOIN activitys a ON a.activity_id = tr.activity_id
@@ -1788,7 +1961,54 @@ app.get('/api/my-applications', async (req, res) => {
   }
 });
 
-app.put('/api/applications/:id/cancel', (req, res) => {
+app.get('/api/my-applications/:applicationId', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const applicationId = Number(req.params.applicationId);
+  if (!Number.isInteger(applicationId) || applicationId <= 0) {
+    return res.status(400).json({ message: '올바른 지원 ID가 필요합니다' });
+  }
+
+  try {
+    await matchingSchemaReady;
+    const [rows] = await portfolioDb.query(
+      `SELECT
+        ap.application_id,
+        ap.recruitment_id,
+        ap.template_id,
+        ap.memo,
+        ap.status AS application_status,
+        ap.created_at AS applied_at,
+        tr.post_name,
+        COALESCE(a.title, tr.activity_name) AS activity_name,
+        tr.activity_type,
+        tr.meeting_type,
+        tr.status AS recruitment_status,
+        tr.required_members,
+        tr.activity_period,
+        tr.activity_start_date,
+        tr.activity_end_date,
+        offer.offer_id,
+        offer.status AS offer_status,
+        offer.created_at AS offer_created_at,
+        offer.responded_at AS offer_responded_at
+       FROM applications ap
+       JOIN team_recruitments tr ON tr.recruitment_id = ap.recruitment_id
+       LEFT JOIN activitys a ON a.activity_id = tr.activity_id
+       LEFT JOIN team_join_offers offer ON offer.application_id = ap.application_id
+       WHERE ap.application_id = ? AND ap.applicant_id = ? AND tr.deleted_at IS NULL`,
+      [applicationId, userId],
+    );
+    if (!rows.length) return res.status(404).json({ message: '지원 내역을 찾을 수 없습니다' });
+    const application = rows[0];
+    const events = await getApplicationTimeline(portfolioDb, applicationId);
+    res.json({ ...application, timeline: buildApplicationTimeline(application, events) });
+  } catch (error) {
+    logger.error('application_detail_failed', { applicationId, userId, error: error.message });
+    res.status(500).json({ message: '지원 현황을 불러오지 못했습니다' });
+  }
+});
+
+app.put('/api/applications/:id/cancel', async (req, res) => {
   const applicationId = Number(req.params.id);
   const applicantId = getRequestUserId(req);
 
@@ -1799,38 +2019,43 @@ app.put('/api/applications/:id/cancel', (req, res) => {
     return res.status(400).json({ message: '올바른 지원 ID가 필요합니다' });
   }
 
-  db.query(
-    `UPDATE applications ap
-     JOIN team_recruitments tr ON tr.recruitment_id = ap.recruitment_id
-     SET ap.status = 'CANCELED'
-     WHERE ap.application_id = ?
-       AND ap.applicant_id = ?
-       AND ap.status IN ('PENDING', 'APPROVED')
-       AND tr.deleted_at IS NULL`,
-    [applicationId, applicantId],
-    (err, result) => {
-      if (err) {
-        console.error('지원 취소 오류:', err);
-        return res.status(500).json({ message: '서버 오류' });
-      }
-      if (!result.affectedRows) {
-        return res.status(409).json({ message: '취소할 수 있는 지원 내역이 없습니다' });
-      }
-      db.query(
-        `UPDATE team_join_offers offer
-         JOIN applications ap ON ap.application_id = offer.application_id
-         SET offer.status = 'CANCELED', offer.responded_at = NOW()
-         WHERE ap.application_id = ?
-           AND ap.applicant_id = ?
-           AND offer.status = 'PENDING'`,
-        [applicationId, applicantId],
-        (offerErr) => {
-          if (offerErr) console.error('지원 취소 합류 제안 정리 오류:', offerErr);
-          res.json({ success: true, status: 'CANCELED' });
-        },
-      );
+  const connection = await portfolioDb.getConnection();
+  try {
+    await matchingSchemaReady;
+    await connection.beginTransaction();
+    const [result] = await connection.query(
+      `UPDATE applications ap
+       JOIN team_recruitments tr ON tr.recruitment_id = ap.recruitment_id
+       SET ap.status = 'CANCELED'
+       WHERE ap.application_id = ?
+         AND ap.applicant_id = ?
+         AND ap.status IN ('PENDING', 'APPROVED')
+         AND tr.deleted_at IS NULL`,
+      [applicationId, applicantId],
+    );
+    if (!result.affectedRows) {
+      await connection.rollback();
+      return res.status(409).json({ message: '취소할 수 있는 지원 내역이 없습니다' });
     }
-  );
+    await connection.query(
+      `UPDATE team_join_offers offer
+       JOIN applications ap ON ap.application_id = offer.application_id
+       SET offer.status = 'CANCELED', offer.responded_at = NOW()
+       WHERE ap.application_id = ?
+         AND ap.applicant_id = ?
+         AND offer.status = 'PENDING'`,
+      [applicationId, applicantId],
+    );
+    await recordApplicationEvent(connection, applicationId, 'CANCELED', applicantId);
+    await connection.commit();
+    res.json({ success: true, status: 'CANCELED' });
+  } catch (error) {
+    await connection.rollback();
+    logger.error('application_cancel_failed', { applicationId, applicantId, error: error.message });
+    res.status(500).json({ message: '지원을 취소하지 못했습니다' });
+  } finally {
+    connection.release();
+  }
 });
 
 app.put('/api/team-join-offers/:id/respond', async (req, res) => {
@@ -1846,11 +2071,12 @@ app.put('/api/team-join-offers/:id/respond', async (req, res) => {
     return res.status(400).json({ message: '수락 또는 거절을 선택해주세요' });
   }
 
+  const connection = await portfolioDb.getConnection();
   try {
     await matchingSchemaReady;
-    await portfolioDb.beginTransaction();
+    await connection.beginTransaction();
 
-    const [offers] = await portfolioDb.query(
+    const [offers] = await connection.query(
       `SELECT
         offer.offer_id,
         offer.application_id,
@@ -1871,24 +2097,24 @@ app.put('/api/team-join-offers/:id/respond', async (req, res) => {
     const offer = offers[0];
 
     if (!offer || offer.deleted_at) {
-      await portfolioDb.rollback();
+      await connection.rollback();
       return res.status(404).json({ message: '합류 제안을 찾을 수 없습니다' });
     }
     if (Number(offer.invitee_id) !== userId) {
-      await portfolioDb.rollback();
+      await connection.rollback();
       return res.status(403).json({ message: '본인에게 온 합류 제안만 처리할 수 있습니다' });
     }
     if (offer.offer_status !== 'PENDING' || offer.application_status !== 'PENDING') {
-      await portfolioDb.rollback();
+      await connection.rollback();
       return res.status(409).json({ message: '이미 처리된 합류 제안입니다' });
     }
     if (offer.recruitment_status !== 'OPEN') {
-      await portfolioDb.rollback();
+      await connection.rollback();
       return res.status(409).json({ message: '마감된 모집글에는 합류할 수 없습니다' });
     }
 
     if (decision === 'ACCEPTED') {
-      await portfolioDb.query(
+      await connection.query(
         `INSERT INTO team_members (team_id, user_id, role, part)
          VALUES (?, ?, 'MEMBER', NULL)
          ON DUPLICATE KEY UPDATE role = role`,
@@ -1896,27 +2122,30 @@ app.put('/api/team-join-offers/:id/respond', async (req, res) => {
       );
     }
 
-    await portfolioDb.query(
+    await connection.query(
       `UPDATE team_join_offers
        SET status = ?, responded_at = NOW()
        WHERE offer_id = ?`,
       [decision, offerId],
     );
-    await portfolioDb.query(
+    await connection.query(
       'UPDATE applications SET status = ? WHERE application_id = ?',
       [decision === 'ACCEPTED' ? 'APPROVED' : 'REJECTED', offer.application_id],
     );
-    await portfolioDb.query(
+    await connection.query(
       'UPDATE user_notifications SET is_read = 1 WHERE offer_id = ?',
       [offerId],
     );
 
-    await portfolioDb.commit();
+    await recordApplicationEvent(connection, offer.application_id, decision, userId);
+    await connection.commit();
     res.json({ success: true, status: decision, team_id: offer.team_id });
   } catch (error) {
-    await portfolioDb.rollback().catch(() => undefined);
+    await connection.rollback().catch(() => undefined);
     console.error('팀 합류 제안 처리 오류:', error);
     res.status(500).json({ message: '팀 합류 제안을 처리하지 못했습니다' });
+  } finally {
+    connection.release();
   }
 });
 

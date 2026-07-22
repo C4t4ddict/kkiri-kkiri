@@ -2,6 +2,45 @@ This is a new [**React Native**](https://reactnative.dev) project, bootstrapped 
 
 # Getting Started
 
+## 프로젝트 구성
+
+- React Native 앱: 루트의 `App.tsx`, `src/`
+- React 웹: `web/`
+- Express API 및 MySQL 연동: `server/`
+
+앱과 웹은 같은 Express API와 MySQL 데이터를 사용합니다. 화면 코드는 플랫폼별로 분리하지만, 인증 방식과 API 응답 규격, 상태값, 색상 체계는 동일하게 유지합니다. React Native 컴포넌트는 DOM에서 직접 재사용할 수 없으므로 웹은 별도 React 앱으로 구성했습니다.
+
+## React 웹 실행
+
+API 서버를 먼저 실행합니다.
+
+```sh
+npm --prefix server install
+npm --prefix server start
+```
+
+다른 터미널에서 웹을 실행합니다.
+
+```sh
+npm --prefix web install
+npm run web
+```
+
+기본 웹 주소는 `http://localhost:5173`, API 주소는 `http://localhost:3000`입니다. 배포 환경에서 API 주소가 다르면 웹 빌드 시 `VITE_API_BASE_URL`을 설정합니다.
+
+```sh
+VITE_API_BASE_URL=https://api.example.com npm run web:build
+```
+
+웹에는 홈, 정보, 매칭, 활동, 마이페이지와 함께 지원서 템플릿 관리 및 지원 상태 타임라인 화면이 포함됩니다. 모바일 폭에서는 하단 내비게이션, 넓은 화면에서는 좌측 사이드바로 전환됩니다.
+
+## 지원서 관리
+
+- 마이페이지의 `지원서 관리`에서 지원 내용을 템플릿으로 저장하고 기본 템플릿을 지정할 수 있습니다.
+- 모집글 지원 시 템플릿을 불러온 뒤 내용을 수정해 제출할 수 있습니다.
+- `나의 지원` 상세 화면에서 지원 완료, 검토, 합류 제안, 최종 결과 순서의 상태를 확인할 수 있습니다.
+- 템플릿 원본이 변경되거나 삭제되어도 이미 제출한 지원 내용은 지원 레코드에 스냅샷으로 남습니다.
+
 ## 운영 안정성 설정
 
 서버는 MySQL 커넥션 풀, 활동 목록 단기 캐시, 서명된 로그인 토큰을 사용합니다. `server/.env.example`을 기준으로 환경변수를 준비하고, 운영 환경에서는 반드시 `NODE_ENV=production`, 충분히 긴 `AUTH_TOKEN_SECRET`, `ALLOW_LEGACY_USER_HEADER=false`, `OPS_API_TOKEN`을 설정합니다.
