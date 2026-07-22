@@ -19,6 +19,8 @@ import MatchingDetailScreen from './src/screens/MatchingDetailScreen'
 import ActivitySettingScreen from './src/screens/ActivitySettingScreen';
 import MyActivityScreen from './src/screens/MyActivityScreen';
 import MiniPortfolioScreen from './src/screens/MiniPortfolioScreen';
+import MiniPortfolioEditScreen from './src/screens/MiniPortfolioEditScreen';
+import AdminScreen from './src/screens/AdminScreen';
 import PersonalInfoScreen from './src/screens/PersonalInfoScreen';
 import FavoriteActivitiesScreen from './src/screens/FavoriteActivitiesScreen';
 import MyRecruitmentsScreen from './src/screens/MyRecruitmentsScreen';
@@ -228,6 +230,16 @@ export default function App() {
               headerBackTitle: '',
               headerTitleAlign: 'center',
             }}
+          />
+          <Stack.Screen
+            name="MiniPortfolioEditScreen"
+            component={MiniPortfolioEditScreen}
+            options={{ title: '미니포트폴리오 편집', headerBackTitle: '', headerTitleAlign: 'center' }}
+          />
+          <Stack.Screen
+            name="AdminScreen"
+            component={AdminScreen}
+            options={{ title: '운영 관리', headerBackTitle: '', headerTitleAlign: 'center' }}
           />
         </Stack.Navigator>
       </NavigationContainer>

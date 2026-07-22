@@ -9,6 +9,7 @@ export interface User {
   birth?: string;
   profile_picture?: string;
   authToken?: string;
+  is_admin?: boolean;
 }
 
 export type RootStackParamList = {
@@ -45,6 +46,8 @@ export type RootStackParamList = {
   ActivitySettingScreen: { teamId?: number; isLeader?: boolean; teamName?: string };
   MyActivityScreen: undefined;
   MiniPortfolioScreen: { portfolioId: number };
+  MiniPortfolioEditScreen: { portfolioId: number };
+  AdminScreen: undefined;
   TodoScreen: undefined;
   TodoTeamScreen: { teamId: number };
 };

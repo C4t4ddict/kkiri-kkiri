@@ -12,8 +12,20 @@ This is a new [**React Native**](https://reactnative.dev) project, bootstrapped 
 - `DB_CONNECTION_LIMIT`: API 서버의 MySQL 동시 연결 상한
 - `ACTIVITY_CACHE_TTL_MS`: 활동 목록 캐시 유지 시간
 - `LOG_LEVEL`: 운영은 `info`, 상세 진단은 일시적으로 `debug` 권장
+- `ADMIN_EMAILS`: 쉼표로 구분한 운영자 이메일. 서버 시작 시 해당 계정에 운영 권한을 부여
 
 크롤러 운영 방법과 수집 이력 테이블은 `server/crawler/README.md`를 참고합니다.
+
+## 앱 운영 관리
+
+`ADMIN_EMAILS`에 등록된 계정은 마이페이지의 `운영 관리` 메뉴에서 활동 데이터 품질과 크롤러 상태를 관리할 수 있습니다.
+
+- 전체·이미지 누락·중복 의심·숨김 활동 조회 및 검색
+- 활동 제목, 카테고리, 포스터 URL 수정
+- 품질이 낮은 활동 숨김 또는 다시 공개
+- 최근 크롤링 실행·오류 확인 및 즉시 수집 실행
+
+운영 API는 로그인 토큰과 DB의 `users.is_admin` 권한을 모두 확인합니다. 운영 환경에서는 `ADMIN_EMAILS`와 `AUTH_TOKEN_SECRET`을 비밀 환경변수로 관리합니다.
 
 > **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
 

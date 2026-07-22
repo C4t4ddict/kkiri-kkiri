@@ -24,6 +24,7 @@ const {
   ensurePortfolioSchema,
   getMiniPortfolio,
   listPastActivities,
+  updateMiniPortfolio,
 } = require('./portfolio/service');
 const { createMiniPortfolioPdf } = require('./portfolio/pdf');
 const { startCrawlerScheduler } = require('./crawler/scheduler');
@@ -180,6 +181,7 @@ const toClientUser = (user) => ({
   birth_date: formatDateOnly(user.birth_date || user.birth),
   profile_picture: normalizeLocalUrl(user.profile_picture),
   self_intro: user.self_intro,
+  is_admin: Boolean(user.is_admin),
 });
 
 // Middleware 설정
@@ -220,6 +222,8 @@ const activityCache = createTtlCache({
 });
 let portfolioQueue = Promise.resolve();
 let matchingSchemaReady = Promise.resolve();
+let adminSchemaReady = Promise.resolve();
+let crawlerScheduler = null;
 
 const queuePortfolioJob = (job) => {
   const result = portfolioQueue.then(job, job);
@@ -388,6 +392,50 @@ const ensureMatchingInvitationSchema = async () => {
   }
 };
 
+const ensureAdminSchema = async () => {
+  const [userColumns] = await portfolioDb.query("SHOW COLUMNS FROM users LIKE 'is_admin'");
+  if (!userColumns.length) {
+    await portfolioDb.query('ALTER TABLE users ADD COLUMN is_admin TINYINT(1) NOT NULL DEFAULT 0 AFTER self_intro');
+  }
+
+  const [activityColumns] = await portfolioDb.query("SHOW COLUMNS FROM activitys LIKE 'is_hidden'");
+  if (!activityColumns.length) {
+    await portfolioDb.query('ALTER TABLE activitys ADD COLUMN is_hidden TINYINT(1) NOT NULL DEFAULT 0 AFTER last_crawled_at');
+  }
+  const [activityIndexes] = await portfolioDb.query(
+    "SHOW INDEX FROM activitys WHERE Key_name = 'idx_activitys_hidden_updated'"
+  );
+  if (!activityIndexes.length) {
+    await portfolioDb.query('ALTER TABLE activitys ADD INDEX idx_activitys_hidden_updated (is_hidden, updated_at)');
+  }
+
+  const adminEmails = String(process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+  if (adminEmails.length) {
+    await portfolioDb.query(
+      `UPDATE users SET is_admin = 1 WHERE LOWER(email) IN (${adminEmails.map(() => '?').join(', ')})`,
+      adminEmails,
+    );
+  }
+};
+
+const requireAdmin = async (req, res, next) => {
+  const userId = getRequestUserId(req);
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  try {
+    await adminSchemaReady;
+    const [rows] = await portfolioDb.query('SELECT is_admin FROM users WHERE id = ?', [userId]);
+    if (!rows.length || !rows[0].is_admin) {
+      return res.status(403).json({ message: '운영자 권한이 필요합니다' });
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
+
 const ensureRecruitmentTeam = async (connection, recruitment) => {
   let teamId = Number(recruitment.team_id || 0);
 
@@ -433,10 +481,12 @@ db.getConnection((err, connection) => {
     console.log('✅ MySQL 연결 성공!');
     ensureActivityTables();
     ensureTodoCompletionColumn();
-    startCrawlerScheduler();
+    crawlerScheduler = startCrawlerScheduler();
     matchingSchemaReady = ensureRecruitmentActivityColumns()
       .then(() => ensureMatchingInvitationSchema());
+    adminSchemaReady = ensureAdminSchema();
     matchingSchemaReady
+      .then(() => adminSchemaReady)
       .then(() => ensurePortfolioSchema(portfolioDb))
       .then(() => runArchiveMaintenance())
       .then((archived) => {
@@ -558,6 +608,7 @@ app.post('/api/login', (req, res) => {
         birth: '2000-01-01',
         profile_picture: null,
         self_intro: '',
+        is_admin: false,
       });
       
       return res.json({
@@ -585,7 +636,8 @@ app.post('/api/login', (req, res) => {
       student_number,
       birth AS birth_date,
       profile_picture,
-      self_intro
+      self_intro,
+      is_admin
     FROM users
     WHERE email = ?
   `;
@@ -652,6 +704,7 @@ app.post('/login', (req, res) => {
         birth: '2000-01-01',
         profile_picture: null,
         self_intro: '',
+        is_admin: false,
       });
       
       return res.json({
@@ -679,7 +732,8 @@ app.post('/login', (req, res) => {
       student_number,
       birth AS birth_date,
       profile_picture,
-      self_intro
+      self_intro,
+      is_admin
     FROM users
     WHERE email = ?
   `;
@@ -881,6 +935,7 @@ app.get('/api/activities', (req, res) => {
       WHERE status = 'OPEN' AND deleted_at IS NULL AND activity_id IS NOT NULL
       GROUP BY activity_id
     ) rc ON rc.activity_id = a.activity_id
+    WHERE COALESCE(a.is_hidden, 0) = 0
     ORDER BY a.created_at DESC
   `;
 
@@ -916,7 +971,8 @@ app.get('/api/activities/open', (req, res) => {
       WHERE status = 'OPEN' AND deleted_at IS NULL AND activity_id IS NOT NULL
       GROUP BY activity_id
     ) rc ON rc.activity_id = a.activity_id
-    WHERE (a.application_period_start IS NULL OR a.application_period_start <= NOW())
+    WHERE COALESCE(a.is_hidden, 0) = 0
+      AND (a.application_period_start IS NULL OR a.application_period_start <= NOW())
       AND (a.application_period_end IS NULL OR a.application_period_end >= CURDATE())
     ORDER BY a.application_period_end ASC, a.created_at DESC
   `;
@@ -963,7 +1019,7 @@ app.get('/api/activities/:id', (req, res) => {
         WHERE tr.activity_id = a.activity_id AND tr.status = 'OPEN' AND tr.deleted_at IS NULL
       ) AS open_recruitment_count
     FROM activitys a
-    WHERE a.activity_id = ?
+    WHERE a.activity_id = ? AND COALESCE(a.is_hidden, 0) = 0
   `;
   db.query(sql, [activityId], (err, results) => {
     if (err) {
@@ -1030,7 +1086,7 @@ app.get('/api/favorite-activities', (req, res) => {
     SELECT a.*, ufa.created_at AS favorited_at
     FROM user_favorite_activities ufa
     JOIN activitys a ON a.activity_id = ufa.activity_id
-    WHERE ufa.user_id = ?
+    WHERE ufa.user_id = ? AND COALESCE(a.is_hidden, 0) = 0
     ORDER BY ufa.created_at DESC, a.activity_id DESC
   `;
 
@@ -1977,7 +2033,9 @@ app.post('/teams/:teamId/complete', async (req, res) => {
 
 app.get('/users/:userId/past-activities', async (req, res) => {
   const userId = Number(req.params.userId);
+  const requestUserId = getRequestUserId(req);
   if (!userId) return res.status(400).json({ message: '사용자 정보가 올바르지 않습니다' });
+  if (requestUserId !== userId) return res.status(403).json({ message: '본인의 지난 활동만 볼 수 있습니다' });
 
   try {
     await runArchiveMaintenance();
@@ -1992,7 +2050,9 @@ app.get('/users/:userId/past-activities', async (req, res) => {
 app.get('/users/:userId/past-activities/:portfolioId', async (req, res) => {
   const userId = Number(req.params.userId);
   const portfolioId = Number(req.params.portfolioId);
+  const requestUserId = getRequestUserId(req);
   if (!userId || !portfolioId) return res.status(400).json({ message: '요청 정보가 올바르지 않습니다' });
+  if (requestUserId !== userId) return res.status(403).json({ message: '본인의 미니포트폴리오만 볼 수 있습니다' });
 
   try {
     const portfolio = await getMiniPortfolio(portfolioDb, userId, portfolioId);
@@ -2004,14 +2064,38 @@ app.get('/users/:userId/past-activities/:portfolioId', async (req, res) => {
   }
 });
 
+app.put('/users/:userId/past-activities/:portfolioId', async (req, res) => {
+  const userId = Number(req.params.userId);
+  const portfolioId = Number(req.params.portfolioId);
+  const requestUserId = getRequestUserId(req);
+  if (!userId || !portfolioId) return res.status(400).json({ message: '요청 정보가 올바르지 않습니다' });
+  if (requestUserId !== userId) return res.status(403).json({ message: '본인의 미니포트폴리오만 편집할 수 있습니다' });
+
+  try {
+    const portfolio = await updateMiniPortfolio(portfolioDb, userId, portfolioId, req.body);
+    if (!portfolio) return res.status(404).json({ message: '미니포트폴리오를 찾을 수 없습니다' });
+    res.json(portfolio);
+  } catch (error) {
+    console.error('미니포트폴리오 편집 오류:', error);
+    res.status(500).json({ message: '미니포트폴리오를 저장하지 못했습니다' });
+  }
+});
+
 app.get('/users/:userId/past-activities/:portfolioId/pdf', async (req, res) => {
   const userId = Number(req.params.userId);
   const portfolioId = Number(req.params.portfolioId);
+  const requestUserId = getRequestUserId(req);
   if (!userId || !portfolioId) return res.status(400).json({ message: '요청 정보가 올바르지 않습니다' });
+  if (requestUserId !== userId) return res.status(403).json({ message: '본인의 미니포트폴리오만 받을 수 있습니다' });
 
   try {
     const portfolio = await getMiniPortfolio(portfolioDb, userId, portfolioId);
     if (!portfolio) return res.status(404).json({ message: '미니포트폴리오를 찾을 수 없습니다' });
+    const coverImageUrl = portfolio.image_urls?.[0];
+    if (coverImageUrl) {
+      const uploadMatch = String(coverImageUrl).match(/\/uploads\/([^/?#]+)/);
+      if (uploadMatch) portfolio.cover_image_path = path.join(UPLOADS_DIR, decodeURIComponent(uploadMatch[1]));
+    }
 
     const fileName = `mini-portfolio-${portfolioId}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
@@ -2840,7 +2924,8 @@ app.get('/api/user/:id', (req, res) => {
       student_number: '202012345',
       birth: '2000-01-01',
       profile_picture: null,
-      self_intro: '안녕하세요!'
+      self_intro: '안녕하세요!',
+      is_admin: false,
     });
     
     return res.json({
@@ -2850,7 +2935,7 @@ app.get('/api/user/:id', (req, res) => {
   }
   
   // 실제 DB 쿼리
-  const userQuery = 'SELECT id AS user_id, email, name, department, student_number, birth AS birth_date, profile_picture, self_intro FROM users WHERE id = ?';
+  const userQuery = 'SELECT id AS user_id, email, name, department, student_number, birth AS birth_date, profile_picture, self_intro, is_admin FROM users WHERE id = ?';
   
   db.query(userQuery, [userId], (err, results) => {
     if (err) {
@@ -3470,6 +3555,128 @@ app.post('/api/upload/profile/:userId', upload.single('image'), (req, res) => {
     }
     res.status(201).json({ success: true, imageUrl });
   });
+});
+
+app.post('/users/:userId/past-activities/:portfolioId/images', upload.single('image'), async (req, res) => {
+  const userId = Number(req.params.userId);
+  const portfolioId = Number(req.params.portfolioId);
+  const requestUserId = getRequestUserId(req);
+  if (requestUserId !== userId) {
+    return res.status(403).json({ message: '본인의 미니포트폴리오에만 이미지를 추가할 수 있습니다' });
+  }
+  if (!req.file) return res.status(400).json({ message: '이미지 파일이 필요합니다' });
+
+  const [rows] = await portfolioDb.query(
+    'SELECT portfolio_id FROM miniportfolios WHERE portfolio_id = ? AND user_id = ?',
+    [portfolioId, userId],
+  );
+  if (!rows.length) return res.status(404).json({ message: '미니포트폴리오를 찾을 수 없습니다' });
+  res.status(201).json({ imageUrl: `/uploads/${req.file.filename}` });
+});
+
+app.get('/api/admin/overview', requireAdmin, async (req, res) => {
+  const [[countRows], [crawlerRuns], [crawlerErrors]] = await Promise.all([
+    portfolioDb.query(`SELECT
+      COUNT(*) AS total_activities,
+      SUM(CASE WHEN COALESCE(main_image_url, '') = '' THEN 1 ELSE 0 END) AS missing_image_count,
+      SUM(CASE WHEN is_hidden = 1 THEN 1 ELSE 0 END) AS hidden_count,
+      (SELECT COUNT(*) FROM (
+        SELECT LOWER(TRIM(title)) AS normalized_title
+        FROM activitys
+        WHERE COALESCE(title, '') <> ''
+        GROUP BY LOWER(TRIM(title))
+        HAVING COUNT(*) > 1
+      ) duplicates) AS duplicate_group_count
+    FROM activitys`),
+    portfolioDb.query(`SELECT run_id, source_name, status, discovered_count, saved_count, error_count,
+      started_at, finished_at FROM crawler_runs ORDER BY started_at DESC LIMIT 10`),
+    portfolioDb.query(`SELECT error_id, run_id, source_name, source_item_id, source_url, stage,
+      error_message, created_at FROM crawler_errors ORDER BY created_at DESC LIMIT 20`),
+  ]);
+  res.json({ counts: countRows[0] || {}, crawlerRuns, crawlerErrors, crawlerRunning: Boolean(crawlerScheduler?.isRunning()) });
+});
+
+app.get('/api/admin/activities', requireAdmin, async (req, res) => {
+  const quality = String(req.query.quality || 'all');
+  const search = String(req.query.search || '').trim();
+  const conditions = [];
+  const values = [];
+
+  if (quality === 'missing_image') conditions.push("COALESCE(a.main_image_url, '') = ''");
+  else if (quality === 'hidden') conditions.push('a.is_hidden = 1');
+  else if (quality === 'duplicates') {
+    conditions.push(`EXISTS (
+      SELECT 1 FROM activitys other
+      WHERE other.activity_id <> a.activity_id
+        AND LOWER(TRIM(other.title)) = LOWER(TRIM(a.title))
+    )`);
+  }
+  if (search) {
+    conditions.push('(a.title LIKE ? OR a.organizer LIKE ? OR a.source_name LIKE ?)');
+    values.push(`%${search}%`, `%${search}%`, `%${search}%`);
+  }
+
+  const [rows] = await portfolioDb.query(
+    `SELECT a.activity_id, a.title, a.organizer, a.category, a.topic_category, a.main_image_url,
+      a.source_name, a.source_url, a.is_hidden, a.last_crawled_at, a.updated_at
+     FROM activitys a
+     ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+     ORDER BY a.updated_at DESC, a.activity_id DESC
+     LIMIT 100`,
+    values,
+  );
+  res.json(rows);
+});
+
+app.put('/api/admin/activities/:activityId', requireAdmin, async (req, res) => {
+  const activityId = Number(req.params.activityId);
+  if (!Number.isInteger(activityId) || activityId <= 0) {
+    return res.status(400).json({ message: '올바른 활동 ID가 필요합니다' });
+  }
+  const fieldMap = {
+    title: { column: 'title', maxLength: 255 },
+    organizer: { column: 'organizer', maxLength: 255 },
+    category: { column: 'category', maxLength: 100 },
+    topic_category: { column: 'topic_category', maxLength: 100 },
+    main_image_url: { column: 'main_image_url', maxLength: 1000 },
+    details: { column: 'details', maxLength: 20_000 },
+    is_hidden: { column: 'is_hidden' },
+  };
+  const updates = [];
+  const values = [];
+  for (const [inputKey, config] of Object.entries(fieldMap)) {
+    if (req.body?.[inputKey] === undefined) continue;
+    if (inputKey === 'is_hidden') {
+      updates.push(`\`${config.column}\` = ?`);
+      values.push(req.body[inputKey] ? 1 : 0);
+      continue;
+    }
+    const value = String(req.body[inputKey] ?? '').trim();
+    if (inputKey === 'title' && !value) {
+      return res.status(400).json({ message: '활동명은 비워둘 수 없습니다' });
+    }
+    if (inputKey === 'main_image_url' && value && !/^https?:\/\//i.test(value)) {
+      return res.status(400).json({ message: '포스터 URL은 http 또는 https 주소여야 합니다' });
+    }
+    updates.push(`\`${config.column}\` = ?`);
+    values.push(value.slice(0, config.maxLength));
+  }
+  if (!updates.length) return res.status(400).json({ message: '수정할 항목이 없습니다' });
+  values.push(activityId);
+  const [result] = await portfolioDb.query(
+    `UPDATE activitys SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE activity_id = ?`,
+    values,
+  );
+  if (!result.affectedRows) return res.status(404).json({ message: '활동을 찾을 수 없습니다' });
+  activityCache.clear();
+  res.json({ success: true, activity_id: activityId });
+});
+
+app.post('/api/admin/crawler/run', requireAdmin, async (req, res) => {
+  if (!crawlerScheduler) return res.status(503).json({ message: '크롤러가 준비되지 않았습니다' });
+  if (crawlerScheduler.isRunning()) return res.status(409).json({ message: '이미 수집이 진행 중입니다' });
+  crawlerScheduler.runNow().catch((error) => logger.error('manual_crawler_failed', { error: error.message }));
+  res.status(202).json({ success: true, message: '공모전 수집을 시작했습니다' });
 });
 
 app.use((error, req, res, next) => {
