@@ -43,6 +43,7 @@ const normalizeUser = (raw: any): User => ({
   studentId: raw.studentId ?? raw.student_number ?? '',
   birth: raw.birth ?? raw.birth_date ?? '',
   profile_picture: raw.profile_picture ?? undefined,
+  is_admin: Boolean(raw.is_admin),
 });
 
 export default function MyPageScreen() {
@@ -61,13 +62,13 @@ export default function MyPageScreen() {
       if (!response.ok || !data.success || !data.user) {
         throw new Error(data.message || '사용자 정보를 불러오지 못했습니다.');
       }
-      const nextUser = normalizeUser(data.user);
+      const nextUser = { ...normalizeUser(data.user), authToken: user.authToken };
       setUser(nextUser);
       setProfileImage(getCorrectImageUrl(nextUser.profile_picture));
     } catch (error) {
       console.error('사용자 정보 조회 오류:', error);
     }
-  }, [setUser, user?.id]);
+  }, [setUser, user?.authToken, user?.id]);
 
   useEffect(() => {
     fetchUserData();
@@ -203,6 +204,11 @@ export default function MyPageScreen() {
       icon: 'paper-plane-outline',
       onPress: () => navigation.navigate('MyApplications'),
     },
+    ...(user.is_admin ? [{
+      label: '운영 관리',
+      icon: 'shield-checkmark-outline',
+      onPress: () => navigation.navigate('AdminScreen'),
+    }] : []),
   ];
 
   return (

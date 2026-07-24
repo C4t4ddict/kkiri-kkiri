@@ -2,13 +2,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, FlatList, Image,
-  TouchableOpacity, Platform, ActivityIndicator, Alert, SafeAreaView
+  TouchableOpacity, Platform, Alert, SafeAreaView
 } from 'react-native';
 import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import AppHeader from '../components/AppHeader';
 import NotificationBell from '../components/NotificationBell';
 import AppRefreshControl from '../components/AppRefreshControl';
+import ScreenState from '../components/ScreenState';
 import { HOME_ACTIVITY_CATEGORIES } from '../constants/activityCategories';
 
 // const H_PADDING = 22; // ← 화면 좌우 공통 여백
@@ -34,13 +35,16 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activities, setActivities] = useState<Activity[]>([]);
+  const [error, setError] = useState(false);
 
   const fetchActivities = useCallback(async (showError = true) => {
     try {
       const res = await axios.get<Activity[]>(`${BASE_URL}/api/activities`);
       setActivities(Array.isArray(res.data) ? res.data : []);
-    } catch (error) {
-      console.error(error);
+      setError(false);
+    } catch (requestError) {
+      console.error(requestError);
+      setError(true);
       if (showError) Alert.alert('오류', '활동 목록을 불러오지 못했습니다.');
     }
   }, []);
@@ -125,9 +129,19 @@ export default function HomeScreen() {
 
   if (loading) {
     return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator />
-      </View>
+      <SafeAreaView style={styles.container}>
+        <AppHeader actions={<NotificationBell />} />
+        <ScreenState kind="loading" />
+      </SafeAreaView>
+    );
+  }
+
+  if (error && activities.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <AppHeader actions={<NotificationBell />} />
+        <ScreenState kind="error" onRetry={() => fetchActivities()} />
+      </SafeAreaView>
     );
   }
 

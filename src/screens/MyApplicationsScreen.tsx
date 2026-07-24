@@ -85,6 +85,21 @@ export default function MyApplicationsScreen() {
         contentContainerStyle={applications.length ? styles.content : styles.emptyContent}
         refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
+        <TouchableOpacity
+          style={styles.templateMenu}
+          activeOpacity={0.75}
+          onPress={() => navigation.navigate('ApplicationTemplates')}
+        >
+          <View style={styles.templateMenuIcon}>
+            <Icon name="documents-outline" size={23} color={colors.primary} />
+          </View>
+          <View style={styles.templateMenuCopy}>
+            <Text style={styles.templateMenuTitle}>지원서 관리</Text>
+            <Text style={styles.templateMenuDescription}>자주 쓰는 지원 내용을 템플릿으로 관리해요.</Text>
+          </View>
+          <Icon name="chevron-forward" size={20} color={colors.primary} />
+        </TouchableOpacity>
+
         {applications.length === 0 ? (
           <View style={styles.emptyState}>
             <View style={styles.emptyIcon}>
@@ -99,7 +114,7 @@ export default function MyApplicationsScreen() {
               key={application.application_id}
               style={styles.card}
               activeOpacity={0.75}
-              onPress={() => navigation.navigate('MatchingDetail', { id: application.recruitment_id })}
+              onPress={() => navigation.navigate('ApplicationDetail', { applicationId: application.application_id })}
             >
               <View style={styles.cardHeader}>
                 <View style={[styles.statusBadge, styles[`status${application.application_status}`]]}>
@@ -135,6 +150,27 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#FFFFFF' },
   content: { padding: 18, paddingBottom: 40 },
   emptyContent: { flexGrow: 1, justifyContent: 'center', padding: 24 },
+  templateMenu: {
+    minHeight: 82,
+    marginBottom: 18,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 19,
+    backgroundColor: colors.primarySurface,
+  },
+  templateMenuIcon: {
+    width: 46,
+    height: 46,
+    marginRight: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 15,
+    backgroundColor: '#FFFFFF',
+  },
+  templateMenuCopy: { flex: 1 },
+  templateMenuTitle: { color: colors.textMain, fontSize: 15, fontWeight: '800' },
+  templateMenuDescription: { marginTop: 4, color: colors.textSub, fontSize: 11 },
   emptyState: { alignItems: 'center' },
   emptyIcon: {
     width: 68,

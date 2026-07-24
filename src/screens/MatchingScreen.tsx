@@ -20,6 +20,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import AppHeader from '../components/AppHeader';
 import NotificationBell from '../components/NotificationBell';
 import AppRefreshControl from '../components/AppRefreshControl';
+import ScreenState from '../components/ScreenState';
 import { MATCHING_ACTIVITY_CATEGORIES } from '../constants/activityCategories';
 
 const BASE_URL =
@@ -61,6 +62,8 @@ const MatchingScreen = () => {
   const [recruitments, setRecruitments] = useState<Recruitment[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const { user } = useAuth();
 
@@ -72,8 +75,12 @@ const MatchingScreen = () => {
       ]);
       setRecruitments(rRes.data || []);
       setApplications(aRes.data || []);
+      setLoadError(false);
     } catch (e) {
       console.error('매칭 데이터 불러오기 오류:', e);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -209,6 +216,13 @@ const MatchingScreen = () => {
       <ScrollView
         refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
+        {loading ? <ScreenState kind="loading" /> : null}
+        {!loading && loadError && recruitments.length === 0 ? (
+          <ScreenState kind="error" onRetry={fetchAll} />
+        ) : null}
+        {!loading && !loadError && filtered.length === 0 ? (
+          <ScreenState kind="empty" title="현재 모집 중인 글이 없어요" description="조건을 바꾸거나 새로운 팀을 만들어보세요." />
+        ) : null}
         {filtered.map((r) => {
           const current = headcountsByRecruitment.get(r.recruitment_id) || 0;
           return (
