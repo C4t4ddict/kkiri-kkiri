@@ -25,6 +25,7 @@ type Navigation = StackNavigationProp<RootStackParamList>;
 
 const API_BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 const imageUrl = (value: string) => value.startsWith('/uploads/') ? `${API_BASE_URL}${value}` : value;
+const ALLOWED_IMAGE_EXTENSIONS = /\.(?:jpe?g|png|webp)$/i;
 
 export default function MiniPortfolioEditScreen() {
   const route = useRoute<EditRoute>();
@@ -48,7 +49,9 @@ export default function MiniPortfolioEditScreen() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(`${API_BASE_URL}/users/${user.id}/past-activities/${portfolioId}`);
+      const response = await fetch(`${API_BASE_URL}/users/${user.id}/past-activities/${portfolioId}`, {
+        headers: { 'x-user-id': String(user.id) },
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || '미니포트폴리오를 불러오지 못했습니다');
       setTitle(data.activity_name || '');
@@ -78,16 +81,21 @@ export default function MiniPortfolioEditScreen() {
       async (result) => {
         const selected = result.assets?.[0];
         if (!selected?.uri || !user?.id) return;
+        const selectedName = selected.fileName || `activity-${portfolioId}-${Date.now()}.jpg`;
+        if (!ALLOWED_IMAGE_EXTENSIONS.test(selectedName) || selectedName.split('.').length !== 2) {
+          Alert.alert('파일 형식 확인', 'JPG, PNG, WEBP 단일 확장자 이미지만 추가할 수 있습니다.');
+          return;
+        }
         try {
           const formData = new FormData();
           formData.append('image', {
             uri: selected.uri,
             type: selected.type || 'image/jpeg',
-            name: selected.fileName || `portfolio-${portfolioId}-${Date.now()}.jpg`,
+            name: selectedName,
           } as any);
           const response = await fetch(
             `${API_BASE_URL}/users/${user.id}/past-activities/${portfolioId}/images`,
-            { method: 'POST', body: formData },
+            { method: 'POST', headers: { 'x-user-id': String(user.id) }, body: formData },
           );
           const data = await response.json();
           if (!response.ok) throw new Error(data.message || '이미지를 업로드하지 못했습니다');
@@ -113,7 +121,7 @@ export default function MiniPortfolioEditScreen() {
       }).filter((link) => /^https?:\/\//i.test(link.url));
       const response = await fetch(`${API_BASE_URL}/users/${user.id}/past-activities/${portfolioId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-user-id': String(user.id) },
         body: JSON.stringify({
           title,
           activity_type: activityType,
@@ -155,8 +163,8 @@ export default function MiniPortfolioEditScreen() {
 
         <View style={styles.sectionHeader}>
           <View>
-            <Text style={styles.label}>포트폴리오 이미지</Text>
-            <Text style={styles.helper}>첫 번째 이미지가 PDF 표지에 사용됩니다.</Text>
+            <Text style={styles.label}>활동 사진</Text>
+            <Text style={styles.helper}>활동 과정과 결과를 보여주는 사진을 최대 6장 추가할 수 있어요.</Text>
           </View>
           <Pressable style={styles.addButton} onPress={addImage}>
             <Icon name="add" size={17} color={colors.primary} />
@@ -170,7 +178,6 @@ export default function MiniPortfolioEditScreen() {
               <Pressable style={styles.removeImage} onPress={() => setImages((current) => current.filter((_, imageIndex) => imageIndex !== index))}>
                 <Icon name="close" size={15} color="#FFFFFF" />
               </Pressable>
-              {index === 0 ? <Text style={styles.coverLabel}>표지</Text> : null}
             </View>
           ))}
           {!images.length ? <Text style={styles.emptyImages}>추가된 이미지가 없습니다.</Text> : null}
@@ -226,7 +233,6 @@ const styles = StyleSheet.create({
   imageCard: { width: 112, height: 92, overflow: 'hidden', borderRadius: 14, backgroundColor: '#EAECF0' },
   image: { width: '100%', height: '100%' },
   removeImage: { position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(16,24,40,0.72)' },
-  coverLabel: { position: 'absolute', left: 7, bottom: 7, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, overflow: 'hidden', backgroundColor: colors.primary, color: '#FFFFFF', fontSize: 9, fontWeight: '800' },
   emptyImages: { paddingVertical: 34, color: '#98A2B3', fontSize: 12 },
   footer: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E4E7EC', backgroundColor: '#FFFFFF' },
   saveButton: { height: 52, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: colors.primary },

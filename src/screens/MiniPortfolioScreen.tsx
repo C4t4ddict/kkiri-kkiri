@@ -110,7 +110,9 @@ export default function MiniPortfolioScreen() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(`${API_BASE_URL}/users/${user.id}/past-activities/${portfolioId}`);
+      const response = await fetch(`${API_BASE_URL}/users/${user.id}/past-activities/${portfolioId}`, {
+        headers: { 'x-user-id': String(user.id) },
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || '미니포트폴리오를 불러오지 못했습니다');
       setPortfolio(data);
@@ -192,8 +194,6 @@ export default function MiniPortfolioScreen() {
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.coverCard}>
-          {portfolio.image_urls?.[0] ? <Image source={{ uri: getImageUrl(portfolio.image_urls[0]) }} style={styles.coverImage} /> : null}
-          {portfolio.image_urls?.[0] ? <View style={styles.coverImageOverlay} /> : null}
           <View style={styles.coverCircleLarge} />
           <View style={styles.coverCircleSmall} />
           <Text style={styles.coverEyebrow}>KKIRI KKIRI · MINI PORTFOLIO</Text>
@@ -205,6 +205,18 @@ export default function MiniPortfolioScreen() {
             <Text style={styles.coverRole}>{portfolio.role || '역할 미정'}</Text>
           </View>
         </View>
+
+        {portfolio.image_urls?.length ? (
+          <View style={styles.storyCard}>
+            <Text style={styles.storyEyebrow}>ACTIVITY PHOTOS</Text>
+            <Text style={styles.storyTitle}>활동 사진</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.activityPhotoList}>
+              {portfolio.image_urls.map((photo, index) => (
+                <Image key={`${photo}-${index}`} source={{ uri: getImageUrl(photo) }} style={styles.activityPhoto} />
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
 
         {portfolio.achievements?.length ? (
           <View style={styles.storyCard}>
@@ -344,8 +356,6 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     backgroundColor: colors.primaryDark,
   },
-  coverImage: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, width: '100%', height: '100%' },
-  coverImageOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(40,24,82,0.70)' },
   coverCircleLarge: { position: 'absolute', top: -66, right: -40, width: 190, height: 190, borderRadius: 95, backgroundColor: 'rgba(255,255,255,0.10)' },
   coverCircleSmall: { position: 'absolute', bottom: -65, left: -45, width: 150, height: 150, borderRadius: 75, backgroundColor: 'rgba(255,255,255,0.08)' },
   coverEyebrow: { color: '#D9D1FF', fontSize: 10, fontWeight: '900', letterSpacing: 0.6 },
@@ -363,6 +373,8 @@ const styles = StyleSheet.create({
   summaryTitle: { marginTop: 7, color: colors.textMain, fontSize: 20, fontWeight: '900' },
   summaryText: { marginTop: 12, color: colors.textSub, fontSize: 13, lineHeight: 21 },
   storyCard: { marginTop: 14, padding: 20, borderWidth: 1, borderColor: colors.border, borderRadius: 22, backgroundColor: '#FFFFFF' },
+  activityPhotoList: { gap: 10, paddingTop: 4 },
+  activityPhoto: { width: 220, height: 150, borderRadius: 16, resizeMode: 'cover', backgroundColor: colors.inputBackground },
   storyEyebrow: { color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
   storyTitle: { marginTop: 7, marginBottom: 11, color: colors.textMain, fontSize: 18, fontWeight: '900' },
   storyText: { flex: 1, color: colors.textSub, fontSize: 13, lineHeight: 20 },

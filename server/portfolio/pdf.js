@@ -80,16 +80,6 @@ const drawHeader = (doc, portfolio) => {
 const addCoverPage = (doc, portfolio) => {
   drawHeader(doc, portfolio);
 
-  if (portfolio.cover_image_path && fs.existsSync(portfolio.cover_image_path)) {
-    try {
-      doc.roundedRect(397, 188, 150, 104, 14).save().clip();
-      doc.image(portfolio.cover_image_path, 397, 188, { fit: [150, 104], align: 'center', valign: 'center' });
-      doc.restore();
-    } catch {
-      doc.restore();
-    }
-  }
-
   doc.font('Bold').fontSize(17).fillColor(INK).text('활동 한눈에 보기', 48, 326);
   const metricWidth = 153;
   drawMetric(doc, 48, 360, metricWidth, '활동 기간', portfolio.period || '-');
@@ -112,6 +102,30 @@ const addCoverPage = (doc, portfolio) => {
     790,
     { width: 499, align: 'center' },
   );
+};
+
+const addActivityPhotoPages = (doc, portfolio) => {
+  const images = (portfolio.activity_image_paths || []).filter((imagePath) => fs.existsSync(imagePath));
+  for (let offset = 0; offset < images.length; offset += 4) {
+    const pageImages = images.slice(offset, offset + 4);
+    doc.addPage();
+    doc.rect(0, 0, 595.28, 108).fill(PURPLE_DARK);
+    doc.font('Bold').fontSize(10).fillColor('#DAD1FF').text('02 · ACTIVITY PHOTOS', 48, 34);
+    doc.font('Bold').fontSize(23).fillColor('#FFFFFF').text('활동 사진', 48, 58);
+    pageImages.forEach((imagePath, index) => {
+      const column = index % 2;
+      const row = Math.floor(index / 2);
+      const x = 48 + (column * 255);
+      const y = 142 + (row * 285);
+      try {
+        doc.roundedRect(x, y, 244, 244, 16).save().clip();
+        doc.image(imagePath, x, y, { fit: [244, 244], align: 'center', valign: 'center' });
+        doc.restore();
+      } catch {
+        doc.restore();
+      }
+    });
+  }
 };
 
 const splitTextByHeight = (doc, text, width, maxHeight) => {
@@ -153,9 +167,9 @@ const getNarrativeBlocks = (doc, portfolio) => {
   });
 };
 
-const drawNarrativeHeader = (doc, pageIndex) => {
+const drawNarrativeHeader = (doc, pageIndex, sectionNumber) => {
   doc.rect(0, 0, 595.28, 108).fill(PURPLE_DARK);
-  doc.font('Bold').fontSize(10).fillColor('#DAD1FF').text('02 · STORY & OUTCOME', 48, 34);
+  doc.font('Bold').fontSize(10).fillColor('#DAD1FF').text(`${sectionNumber} · STORY & OUTCOME`, 48, 34);
   doc.font('Bold').fontSize(23).fillColor('#FFFFFF').text('성과와 활동 회고', 48, 58);
   doc.font('Bold').fontSize(9).fillColor('#DAD1FF').text(String(pageIndex + 1).padStart(2, '0'), 500, 68, {
     width: 47,
@@ -166,13 +180,14 @@ const drawNarrativeHeader = (doc, pageIndex) => {
 const addNarrativePages = (doc, portfolio) => {
   const blocks = getNarrativeBlocks(doc, portfolio);
   if (!blocks.length) return;
+  const sectionNumber = portfolio.activity_image_paths?.length ? '03' : '02';
   let pageIndex = -1;
   let y = 0;
 
   const startPage = () => {
     doc.addPage();
     pageIndex += 1;
-    drawNarrativeHeader(doc, pageIndex);
+    drawNarrativeHeader(doc, pageIndex, sectionNumber);
     y = 136;
   };
 
@@ -283,7 +298,7 @@ const addTaskPage = (doc, portfolio) => {
   const groups = portfolio.completed_tasks || {};
   const pages = buildTaskPages(groups);
   const hasNarrative = getNarrativeBlocks(doc, portfolio).length > 0;
-  const sectionNumber = hasNarrative ? '03' : '02';
+  const sectionNumber = String(2 + Number(Boolean(portfolio.activity_image_paths?.length)) + Number(hasNarrative)).padStart(2, '0');
 
   if (!pages.length) {
     doc.addPage();
@@ -317,6 +332,7 @@ const createMiniPortfolioPdf = (portfolio) => {
   doc.registerFont('Regular', REGULAR_FONT);
   doc.registerFont('Bold', BOLD_FONT);
   addCoverPage(doc, portfolio);
+  addActivityPhotoPages(doc, portfolio);
   addNarrativePages(doc, portfolio);
   addTaskPage(doc, portfolio);
   doc.end();

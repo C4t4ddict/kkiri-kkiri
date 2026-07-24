@@ -4,7 +4,6 @@ const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
@@ -17,6 +16,7 @@ try {
 
 const { attachAuth, getAuthenticatedUserId, issueAuthToken } = require('./lib/auth');
 const { getRequestMetrics, logger, requestLogger } = require('./lib/logger');
+const { createSecureImageUpload } = require('./lib/secureImageUpload');
 const { createTtlCache } = require('./lib/ttlCache');
 const {
   buildApplicationTimeline,
@@ -169,6 +169,28 @@ const formatDateOnly = (value) => {
   return String(value).slice(0, 10);
 };
 
+const parseStrictDateOnly = (value) => {
+  const text = String(value || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+  const [year, month, day] = text.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day
+    ? date
+    : null;
+};
+
+const listDateRange = (startDate, endDate, maximumDays = 366) => {
+  const dates = [];
+  const current = new Date(startDate);
+  while (current <= endDate && dates.length < maximumDays) {
+    dates.push(current.toISOString().slice(0, 10));
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+  return dates;
+};
+
 const normalizeTodo = (todo, fallbackScope, fallbackStart, fallbackEnd) => ({
   ...todo,
   scope_type: fallbackScope || todo.scope_type,
@@ -204,8 +226,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// uploads 폴더를 정적으로 서빙
-app.use('/uploads', express.static(UPLOADS_DIR));
+// 검증된 이미지 업로드만 브라우저에서 표시하고 MIME 스니핑을 차단합니다.
+app.use('/uploads', express.static(UPLOADS_DIR, {
+  setHeaders: (res) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  },
+}));
 
 // MySQL 연결 설정
 const db = mysql.createPool({
@@ -2320,11 +2346,14 @@ app.get('/users/:userId/past-activities/:portfolioId/pdf', async (req, res) => {
   try {
     const portfolio = await getMiniPortfolio(portfolioDb, userId, portfolioId);
     if (!portfolio) return res.status(404).json({ message: '미니포트폴리오를 찾을 수 없습니다' });
-    const coverImageUrl = portfolio.image_urls?.[0];
-    if (coverImageUrl) {
-      const uploadMatch = String(coverImageUrl).match(/\/uploads\/([^/?#]+)/);
-      if (uploadMatch) portfolio.cover_image_path = path.join(UPLOADS_DIR, decodeURIComponent(uploadMatch[1]));
-    }
+    portfolio.activity_image_paths = (portfolio.image_urls || []).flatMap((imageUrl) => {
+      const uploadMatch = String(imageUrl).match(/\/uploads\/([^/?#]+)/);
+      if (!uploadMatch) return [];
+      const fileName = decodeURIComponent(uploadMatch[1]);
+      if (path.basename(fileName) !== fileName || !/\.(?:jpe?g|png|webp)$/i.test(fileName)) return [];
+      const filePath = path.join(UPLOADS_DIR, fileName);
+      return fs.existsSync(filePath) ? [filePath] : [];
+    });
 
     const fileName = `mini-portfolio-${portfolioId}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
@@ -2938,6 +2967,75 @@ app.get('/todos/:teamId', (req, res) => {
       ));
     });
   });
+});
+
+app.post('/todos/period', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const teamId = Number(req.body?.team_id);
+  const title = String(req.body?.title || '').trim();
+  const startDate = parseStrictDateOnly(req.body?.start_date);
+  const endDate = parseStrictDateOnly(req.body?.end_date);
+
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!Number.isInteger(teamId) || teamId <= 0 || !title || !startDate || !endDate) {
+    return res.status(400).json({ message: '팀, 목표, 시작일, 종료일을 확인해주세요' });
+  }
+  if (title.length > 255) return res.status(400).json({ message: '목표는 255자 이하로 입력해주세요' });
+  if (endDate < startDate) return res.status(400).json({ message: '종료일은 시작일 이후여야 합니다' });
+
+  const dayCount = Math.floor((endDate - startDate) / 86_400_000) + 1;
+  if (dayCount > 366) return res.status(400).json({ message: '기간 목표는 최대 366일까지 설정할 수 있습니다' });
+
+  const dates = listDateRange(startDate, endDate);
+  const connection = await portfolioDb.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [members] = await connection.query(
+      'SELECT team_id FROM team_members WHERE team_id = ? AND user_id = ? FOR UPDATE',
+      [teamId, userId],
+    );
+    if (!members.length) {
+      await connection.rollback();
+      return res.status(403).json({ message: '참여 중인 활동에만 목표를 추가할 수 있습니다' });
+    }
+
+    const [existing] = await connection.query(
+      `SELECT DATE_FORMAT(scope_start_date, '%Y-%m-%d') AS goal_date
+       FROM todos
+       WHERE team_id = ? AND assigned_user_id = ? AND scope_type = '일일'
+         AND title = ? AND scope_start_date BETWEEN ? AND ?`,
+      [teamId, userId, title, dates[0], dates[dates.length - 1]],
+    );
+    const existingDates = new Set(existing.map((row) => row.goal_date));
+    const datesToCreate = dates.filter((date) => !existingDates.has(date));
+
+    if (datesToCreate.length) {
+      const placeholders = datesToCreate.map(() => "(?, ?, ?, '미진행', '일일', ?, ?)").join(', ');
+      const values = datesToCreate.flatMap((date) => [teamId, userId, title, date, date]);
+      await connection.query(
+        `INSERT INTO todos
+          (team_id, assigned_user_id, title, status, scope_type, scope_start_date, scope_end_date)
+         VALUES ${placeholders}`,
+        values,
+      );
+    }
+
+    await connection.commit();
+    res.status(201).json({
+      success: true,
+      scope_type: '일일',
+      created_count: datesToCreate.length,
+      skipped_count: dates.length - datesToCreate.length,
+      start_date: dates[0],
+      end_date: dates[dates.length - 1],
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error('기간 목표 생성 오류:', error);
+    res.status(500).json({ message: '기간 목표를 생성하지 못했습니다' });
+  } finally {
+    connection.release();
+  }
 });
 
 app.post('/todos', (req, res) => {
@@ -3729,24 +3827,20 @@ app.delete('/api/delete-user/:id', async (req, res) => {
 
 // ===== 파일 업로드 API =====
 
-// 이미지 업로드 설정
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-    cb(null, UPLOADS_DIR);
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + '-' + file.originalname);
-  },
-});
+const secureImageUpload = createSecureImageUpload(UPLOADS_DIR);
+const requireUploadUser = (req, res, next) => {
+  if (!getRequestUserId(req)) return res.status(401).json({ success: false, message: '로그인이 필요합니다' });
+  next();
+};
+const requireSelfUpload = (parameterName) => (req, res, next) => {
+  const requestUserId = getRequestUserId(req);
+  if (!requestUserId || Number(requestUserId) !== Number(req.params[parameterName])) {
+    return res.status(403).json({ success: false, message: '본인의 이미지만 업로드할 수 있습니다' });
+  }
+  next();
+};
 
-const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => cb(null, file.mimetype.startsWith('image/')),
-});
-
-app.post('/api/upload', upload.single('image'), (req, res) => {
+app.post('/api/upload', requireUploadUser, secureImageUpload, (req, res) => {
   if (!req.file) {
     return res.status(400).json({ 
       success: false,
@@ -3761,7 +3855,7 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
   });
 });
 
-app.post('/api/upload/profile/:userId', upload.single('image'), (req, res) => {
+app.post('/api/upload/profile/:userId', requireSelfUpload('userId'), secureImageUpload, (req, res) => {
   const requestUserId = getRequestUserId(req);
   const { userId } = req.params;
 
@@ -3786,7 +3880,7 @@ app.post('/api/upload/profile/:userId', upload.single('image'), (req, res) => {
   });
 });
 
-app.post('/users/:userId/past-activities/:portfolioId/images', upload.single('image'), async (req, res) => {
+app.post('/users/:userId/past-activities/:portfolioId/images', requireSelfUpload('userId'), secureImageUpload, async (req, res) => {
   const userId = Number(req.params.userId);
   const portfolioId = Number(req.params.portfolioId);
   const requestUserId = getRequestUserId(req);
