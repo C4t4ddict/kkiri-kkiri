@@ -16,6 +16,21 @@ export const HOME_ACTIVITY_CATEGORIES = [
   '기타',
 ] as const;
 
+export type ActivityCategorySource = {
+  category?: string | null;
+  topic_category?: string | null;
+};
+
+export const getActivityCategory = (activity: ActivityCategorySource) =>
+  String(activity.topic_category || activity.category || '').trim();
+
+export const getVisibleActivityCategories = (activities: ActivityCategorySource[]) => {
+  const available = Array.from(new Set(activities.map(getActivityCategory).filter(Boolean)));
+  const ordered = HOME_ACTIVITY_CATEGORIES.filter((category) => available.includes(category));
+  const orderedSet = new Set<string>(ordered);
+  return [...ordered, ...available.filter((category) => !orderedSet.has(category))];
+};
+
 export const ACTIVITY_TYPE_CATEGORIES = [
   '공모전',
   '대외활동',
@@ -43,10 +58,7 @@ export const ACTIVITY_TOPIC_CATEGORIES = [
   '기타',
 ] as const;
 
-export const ACTIVITY_FILTER_CATEGORIES = Array.from(new Set([
-  ...ACTIVITY_TYPE_CATEGORIES,
-  ...ACTIVITY_TOPIC_CATEGORIES,
-]));
+export const ACTIVITY_FILTER_CATEGORIES = HOME_ACTIVITY_CATEGORIES;
 
 export const MATCHING_ACTIVITY_CATEGORIES = [
   '공모전',

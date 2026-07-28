@@ -1,3 +1,5 @@
+const { extractPrizeDetails } = require('../lib/activityPrize');
+
 const CONTACT_PATTERN = /(?:[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|(?:0\d{1,2}[-. )]\d{3,4}[-. ]\d{4}))/g;
 
 const CATEGORY_RULES = [
@@ -95,6 +97,7 @@ const truncateUtf8 = (value, maxBytes = 50000) => {
 const normalizeActivity = (record) => {
   const sourceCategories = splitCategories(record.sourceCategories);
   const applicationPeriod = record.applicationPeriod || parseDateRange(record.applicationPeriodText);
+  const details = truncateUtf8(record.details);
   const activity = {
     sourceName: truncateText(record.sourceName, 50),
     sourceItemId: truncateText(record.sourceItemId, 100),
@@ -109,8 +112,9 @@ const normalizeActivity = (record) => {
     applicationPeriodStart: applicationPeriod.start,
     applicationPeriodEnd: applicationPeriod.end,
     points: Number.isFinite(record.points) ? record.points : 0,
+    prizeDetails: truncateUtf8(record.prizeDetails || extractPrizeDetails(details), 2000),
     contact: truncateText(record.contact || extractContact(record.details), 255),
-    details: truncateUtf8(record.details),
+    details,
     category: truncateText(record.category || '공모전', 100),
     topicCategory: truncateText(record.topicCategory || mapTopicCategory(sourceCategories, record.title), 100),
     sourceCategories,

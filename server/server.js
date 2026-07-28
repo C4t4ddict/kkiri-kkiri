@@ -18,6 +18,7 @@ const { attachAuth, getAuthenticatedUserId, issueAuthToken } = require('./lib/au
 const { getRequestMetrics, logger, requestLogger } = require('./lib/logger');
 const { createSecureImageUpload } = require('./lib/secureImageUpload');
 const { createTtlCache } = require('./lib/ttlCache');
+const { extractPrizeDetails } = require('./lib/activityPrize');
 const {
   buildApplicationTimeline,
   ensureApplicationSchema,
@@ -104,7 +105,8 @@ const normalizeActivity = (activity) => {
   return {
     ...activity,
     source_categories: Array.isArray(sourceCategories) ? sourceCategories : [],
-    main_image_url: getActivityImageUrl(activity.main_image_url, activity.activity_id)
+    main_image_url: getActivityImageUrl(activity.main_image_url, activity.activity_id),
+    prize_details: activity.prize_details || extractPrizeDetails(activity.details),
   };
 };
 
@@ -335,6 +337,30 @@ const ensureTodoCompletionColumn = () => {
   });
 };
 
+const ensureActivityPrizeSchema = async () => {
+  const [columns] = await portfolioDb.query("SHOW COLUMNS FROM activitys LIKE 'prize_details'");
+  if (!columns.length) {
+    await portfolioDb.query('ALTER TABLE activitys ADD COLUMN prize_details TEXT NULL AFTER points');
+  }
+
+  const [activities] = await portfolioDb.query(
+    `SELECT activity_id, details
+     FROM activitys
+     WHERE (prize_details IS NULL OR TRIM(prize_details) = '')
+       AND details IS NOT NULL`
+  );
+  for (const activity of activities) {
+    const prizeDetails = extractPrizeDetails(activity.details);
+    if (prizeDetails) {
+      await portfolioDb.query(
+        'UPDATE activitys SET prize_details = ? WHERE activity_id = ?',
+        [prizeDetails, activity.activity_id]
+      );
+    }
+  }
+  activityCache.clear();
+};
+
 const ensureRecruitmentActivityColumns = async () => {
   const requiredColumns = [
     ['activity_id', 'INT NULL AFTER team_id'],
@@ -515,7 +541,10 @@ db.getConnection((err, connection) => {
     ensureActivityTables();
     ensureTodoCompletionColumn();
     crawlerScheduler = startCrawlerScheduler();
-    matchingSchemaReady = ensureRecruitmentActivityColumns()
+    matchingSchemaReady = Promise.all([
+      ensureRecruitmentActivityColumns(),
+      ensureActivityPrizeSchema(),
+    ])
       .then(() => ensureMatchingInvitationSchema())
       .then(() => ensureApplicationSchema(portfolioDb));
     adminSchemaReady = ensureAdminSchema();
@@ -1365,6 +1394,8 @@ app.get('/api/team-recruitments', (req, res) => {
       tr.post_name,
       COALESCE(a.title, tr.activity_name) AS activity_name,
       tr.activity_type,
+      a.category AS activity_category,
+      a.topic_category AS activity_topic_category,
       qualification_department,
       qualification_student_number,
       qualification_age,

@@ -21,7 +21,7 @@ import AppHeader from '../components/AppHeader';
 import NotificationBell from '../components/NotificationBell';
 import AppRefreshControl from '../components/AppRefreshControl';
 import ScreenState from '../components/ScreenState';
-import { MATCHING_ACTIVITY_CATEGORIES } from '../constants/activityCategories';
+import { getActivityCategory, getVisibleActivityCategories } from '../constants/activityCategories';
 
 const BASE_URL =
   Platform.OS === 'android'
@@ -33,6 +33,8 @@ type Recruitment = {
   team_id?: number;
   post_name: string;            // 제목
   activity_type: string;           // 공모전/비교과/...
+  activity_category?: string | null;
+  activity_topic_category?: string | null;
   qualification_department?: string;
   qualification_student_number?: string;
   qualification_age?: number;
@@ -92,11 +94,10 @@ const MatchingScreen = () => {
   );
 
   const categories = useMemo(() => {
-    const values = new Set<string>(MATCHING_ACTIVITY_CATEGORIES);
-    recruitments.forEach((recruitment) => {
-      if (recruitment.activity_type) values.add(recruitment.activity_type);
-    });
-    return Array.from(values);
+    return getVisibleActivityCategories(recruitments.map((recruitment) => ({
+      category: recruitment.activity_category || recruitment.activity_type,
+      topic_category: recruitment.activity_topic_category,
+    })));
   }, [recruitments]);
 
   // ---- 현재 인원 집계 (status가 cancel/rejected가 아닌 것만 카운트) ----
@@ -115,7 +116,10 @@ const MatchingScreen = () => {
     let list = [...recruitments];
 
     if (selectedCategories.length > 0) {
-      list = list.filter((r) => selectedCategories.includes(r.activity_type));
+      list = list.filter((recruitment) => selectedCategories.includes(getActivityCategory({
+        category: recruitment.activity_category || recruitment.activity_type,
+        topic_category: recruitment.activity_topic_category,
+      })));
     }
 
     if (selectedMeetingType !== '전체') {
@@ -238,7 +242,10 @@ const MatchingScreen = () => {
               </Text>
 
               <Text style={styles.itemSub} numberOfLines={1}>
-                {r.activity_type || '-'} | {r.meeting_type || '-'} | {r.activity_period || '-'}
+                {getActivityCategory({
+                  category: r.activity_category || r.activity_type,
+                  topic_category: r.activity_topic_category,
+                }) || '-'} | {r.meeting_type || '-'} | {r.activity_period || '-'}
               </Text>
 
               <Text style={styles.itemMeta}>

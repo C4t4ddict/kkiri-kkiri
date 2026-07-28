@@ -10,7 +10,7 @@ import AppHeader from '../components/AppHeader';
 import NotificationBell from '../components/NotificationBell';
 import AppRefreshControl from '../components/AppRefreshControl';
 import ScreenState from '../components/ScreenState';
-import { HOME_ACTIVITY_CATEGORIES } from '../constants/activityCategories';
+import { getActivityCategory, getVisibleActivityCategories } from '../constants/activityCategories';
 
 // const H_PADDING = 22; // ← 화면 좌우 공통 여백
 const LIST_H_PADDING = 28;  // ← '모집중' 이하 좌우 여백(더 넓게)
@@ -87,24 +87,14 @@ export default function HomeScreen() {
   const openActivities = useMemo(() => activities.filter(isOpen), [activities]);
   const listSource = openActivities.length > 0 ? openActivities : activities;
 
-  const categories = useMemo(() => {
-    const dbCategories = Array.from(new Set(
-      listSource
-        .map(activity => activity.topic_category || activity.category)
-        .filter((category): category is string => !!category)
-    ));
-    const ordered = HOME_ACTIVITY_CATEGORIES.filter(category => dbCategories.includes(category));
-    const orderedSet = new Set<string>(ordered);
-    const custom = dbCategories.filter(category => !orderedSet.has(category));
-    return [...ordered, ...custom];
-  }, [listSource]);
+  const categories = useMemo(() => getVisibleActivityCategories(listSource), [listSource]);
 
   // 카테고리별 모집중 리스트(최대 5개씩)
   const groupedOpen = useMemo(() => {
     const byCat: Record<string, Activity[]> = {};
     categories.forEach(cat => {
       byCat[cat] = listSource
-        .filter(a => (a.topic_category || a.category) === cat)
+        .filter(a => getActivityCategory(a) === cat)
         .sort((a, b) =>
           openActivities.length > 0
             ? (a.application_period_end ?? '').localeCompare(b.application_period_end ?? '')
@@ -180,7 +170,7 @@ export default function HomeScreen() {
                 resizeMode="cover"
               />
               <Text style={styles.posterCategory} numberOfLines={1}>
-                {item.topic_category || item.category}
+                {getActivityCategory(item)}
               </Text>
               <View style={styles.posterTitleRow}>
                 <Text style={styles.posterTitle} numberOfLines={2}>{item.title}</Text>

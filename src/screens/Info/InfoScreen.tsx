@@ -18,7 +18,7 @@ import NotificationBell from '../../components/NotificationBell';
 import AppRefreshControl from '../../components/AppRefreshControl';
 import ApplicationStatusBadge from '../../components/ApplicationStatusBadge';
 import ScreenState from '../../components/ScreenState';
-import { ACTIVITY_FILTER_CATEGORIES } from '../../constants/activityCategories';
+import { getActivityCategory, getVisibleActivityCategories } from '../../constants/activityCategories';
 import { useAuth } from '../../context/AuthContext';
 import colors from '../../config/colors';
 
@@ -112,14 +112,7 @@ const InfoScreen = () => {
 
     if (selectedCategories.length > 0) {
       filtered = filtered.filter((item) => {
-        const sourceCategories = Array.isArray(item.source_categories)
-          ? item.source_categories
-          : [];
-        return selectedCategories.some((category) =>
-          item.category === category ||
-          item.topic_category === category ||
-          sourceCategories.includes(category)
-        );
+        return selectedCategories.includes(getActivityCategory(item));
       });
     }
 
@@ -136,14 +129,15 @@ const InfoScreen = () => {
   }, [activities, searchText, selectedCategories]);
 
   const filterCategories = useMemo(() => {
-    const selected = ACTIVITY_FILTER_CATEGORIES.filter((category) =>
+    const visibleCategories = getVisibleActivityCategories(activities);
+    const selected = visibleCategories.filter((category) =>
       selectedCategories.includes(category)
     );
-    const rest = ACTIVITY_FILTER_CATEGORIES.filter((category) =>
+    const rest = visibleCategories.filter((category) =>
       !selectedCategories.includes(category)
     );
     return [...selected, ...rest];
-  }, [selectedCategories]);
+  }, [activities, selectedCategories]);
 
   const toggleCategory = (cat: string) => {
     setSelectedCategories((prev) =>

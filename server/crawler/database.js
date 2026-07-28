@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const mysql = require('mysql2/promise');
 
 const ACTIVITY_COLUMNS = {
+  prize_details: 'TEXT NULL AFTER points',
   topic_category: 'VARCHAR(100) NULL AFTER category',
   source_name: 'VARCHAR(50) NULL AFTER main_image_url',
   source_item_id: 'VARCHAR(100) NULL AFTER source_name',
@@ -154,9 +155,9 @@ const saveActivity = async (pool, runId, activity, rawHtml) => {
         title, target_audience, organizer, location,
         operation_period_start, operation_period_end,
         application_period_start, application_period_end,
-        points, contact, details, category, topic_category, main_image_url,
+        points, prize_details, contact, details, category, topic_category, main_image_url,
         source_name, source_item_id, source_url, official_url, source_categories, last_crawled_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON DUPLICATE KEY UPDATE
         activity_id = LAST_INSERT_ID(activity_id),
         title = VALUES(title),
@@ -167,6 +168,7 @@ const saveActivity = async (pool, runId, activity, rawHtml) => {
         operation_period_end = COALESCE(VALUES(operation_period_end), operation_period_end),
         application_period_start = COALESCE(VALUES(application_period_start), application_period_start),
         application_period_end = COALESCE(VALUES(application_period_end), application_period_end),
+        prize_details = COALESCE(VALUES(prize_details), prize_details),
         contact = VALUES(contact),
         details = COALESCE(VALUES(details), details),
         category = VALUES(category),
@@ -187,6 +189,7 @@ const saveActivity = async (pool, runId, activity, rawHtml) => {
         activity.applicationPeriodStart,
         activity.applicationPeriodEnd,
         activity.points,
+        activity.prizeDetails,
         activity.contact,
         activity.details,
         activity.category,

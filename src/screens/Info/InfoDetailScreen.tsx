@@ -184,8 +184,8 @@ const ActivityDetailScreen = () => {
         />
         <InfoRow label="문의" value={activity.contact} />
         <InfoRow
-          label="다드림포인트"
-          value={activity.points != null ? `${activity.points.toLocaleString()}P` : null}
+          label="상금"
+          value={activity.prize_details}
         />
 
       </View>
