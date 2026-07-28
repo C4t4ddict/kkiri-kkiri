@@ -80,6 +80,13 @@ const ActivityDetailScreen = () => {
   }, [id]);
 
   useEffect(() => {
+    if (!activity) return;
+    navigation.setOptions({
+      title: activity.category || activity.topic_category || '활동 정보',
+    });
+  }, [activity, navigation]);
+
+  useEffect(() => {
     if (!user?.id) return;
 
     axios
@@ -185,10 +192,27 @@ const ActivityDetailScreen = () => {
         <InfoRow label="문의" value={activity.contact} />
         <InfoRow
           label="상금"
-          value={activity.prize_details}
+          value={activity.prize_summary || activity.prize_details}
         />
 
       </View>
+
+      {activity.prize_details ? (
+        <View style={styles.prizeCard}>
+          <View style={styles.prizeHeadingRow}>
+            <View style={styles.prizeIconBox}>
+              <Icon name="trophy-outline" size={20} color={colors.primary} />
+            </View>
+            <View style={styles.prizeHeadingCopy}>
+              <Text style={styles.sectionTitle}>상금 상세</Text>
+              {activity.prize_summary ? (
+                <Text style={styles.prizeSummary}>{activity.prize_summary}</Text>
+              ) : null}
+            </View>
+          </View>
+          <Text style={styles.prizeDetailsText} selectable>{activity.prize_details}</Text>
+        </View>
+      ) : null}
 
       <View style={styles.detailsCard}>
         <Text style={styles.sectionTitle}>세부 내용</Text>
@@ -404,10 +428,35 @@ const styles = StyleSheet.create({
     color: colors.textSub,
   },
   detailsCard: {
+    marginTop: 14,
     padding: 17,
     borderRadius: 18,
     backgroundColor: colors.primarySurface,
   },
+  prizeCard: {
+    padding: 17,
+    borderWidth: 1,
+    borderColor: colors.primaryLight,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+  },
+  prizeHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 13,
+  },
+  prizeIconBox: {
+    width: 42,
+    height: 42,
+    marginRight: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    backgroundColor: colors.primarySurface,
+  },
+  prizeHeadingCopy: { flex: 1 },
+  prizeSummary: { color: colors.primaryDark, fontSize: 14, fontWeight: '800' },
+  prizeDetailsText: { color: colors.textMain, fontSize: 14, lineHeight: 22 },
   recruitmentSection: {
     marginTop: 16,
     padding: 17,

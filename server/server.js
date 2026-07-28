@@ -18,7 +18,12 @@ const { attachAuth, getAuthenticatedUserId, issueAuthToken } = require('./lib/au
 const { getRequestMetrics, logger, requestLogger } = require('./lib/logger');
 const { createSecureImageUpload } = require('./lib/secureImageUpload');
 const { createTtlCache } = require('./lib/ttlCache');
-const { extractPrizeDetails } = require('./lib/activityPrize');
+const { extractPrizeDetails, extractPrizeSummary } = require('./lib/activityPrize');
+const {
+  ensureAwardsSchema,
+  listAwards,
+  upsertAward,
+} = require('./awards/service');
 const {
   buildApplicationTimeline,
   ensureApplicationSchema,
@@ -107,6 +112,7 @@ const normalizeActivity = (activity) => {
     source_categories: Array.isArray(sourceCategories) ? sourceCategories : [],
     main_image_url: getActivityImageUrl(activity.main_image_url, activity.activity_id),
     prize_details: activity.prize_details || extractPrizeDetails(activity.details),
+    prize_summary: extractPrizeSummary(activity.prize_details || activity.details),
   };
 };
 
@@ -258,6 +264,7 @@ const activityCache = createTtlCache({
 let portfolioQueue = Promise.resolve();
 let matchingSchemaReady = Promise.resolve();
 let adminSchemaReady = Promise.resolve();
+let awardSchemaReady = Promise.resolve();
 let crawlerScheduler = null;
 
 const queuePortfolioJob = (job) => {
@@ -548,9 +555,11 @@ db.getConnection((err, connection) => {
       .then(() => ensureMatchingInvitationSchema())
       .then(() => ensureApplicationSchema(portfolioDb));
     adminSchemaReady = ensureAdminSchema();
-    matchingSchemaReady
+    awardSchemaReady = matchingSchemaReady
       .then(() => adminSchemaReady)
       .then(() => ensurePortfolioSchema(portfolioDb))
+      .then(() => ensureAwardsSchema(portfolioDb));
+    awardSchemaReady
       .then(() => runArchiveMaintenance())
       .then((archived) => {
         if (archived.length) {
@@ -2330,6 +2339,40 @@ app.get('/users/:userId/past-activities', async (req, res) => {
   } catch (error) {
     console.error('지난 활동 목록 조회 오류:', error);
     res.status(500).json({ message: '지난 활동을 불러오지 못했습니다' });
+  }
+});
+
+app.get('/users/:userId/awards', async (req, res) => {
+  const userId = Number(req.params.userId);
+  const requestUserId = getRequestUserId(req);
+  if (!userId) return res.status(400).json({ message: '사용자 정보가 올바르지 않습니다' });
+  if (requestUserId !== userId) return res.status(403).json({ message: '본인의 수상내역만 볼 수 있습니다' });
+
+  try {
+    await awardSchemaReady;
+    await runArchiveMaintenance();
+    res.json(await listAwards(portfolioDb, userId));
+  } catch (error) {
+    console.error('수상내역 조회 오류:', error);
+    res.status(500).json({ message: '수상내역을 불러오지 못했습니다' });
+  }
+});
+
+app.put('/users/:userId/awards/:portfolioId', async (req, res) => {
+  const userId = Number(req.params.userId);
+  const portfolioId = Number(req.params.portfolioId);
+  const requestUserId = getRequestUserId(req);
+  if (!userId || !portfolioId) return res.status(400).json({ message: '요청 정보가 올바르지 않습니다' });
+  if (requestUserId !== userId) return res.status(403).json({ message: '본인의 수상내역만 수정할 수 있습니다' });
+
+  try {
+    await awardSchemaReady;
+    const result = await upsertAward(portfolioDb, userId, portfolioId, req.body);
+    if (!result) return res.status(404).json({ message: '참여 활동을 찾을 수 없습니다' });
+    res.json(result);
+  } catch (error) {
+    console.error('수상내역 저장 오류:', error);
+    res.status(500).json({ message: '수상내역을 저장하지 못했습니다' });
   }
 });
 

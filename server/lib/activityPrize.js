@@ -32,4 +32,37 @@ const extractPrizeDetails = (details) => {
   return section.join('\n').slice(0, 2000) || null;
 };
 
-module.exports = { extractPrizeDetails };
+const parsePrizeWon = (amount, unit = '') => {
+  const value = Number(String(amount).replace(/,/g, ''));
+  if (!Number.isFinite(value)) return 0;
+  const multipliers = {
+    억: 100000000,
+    천만: 10000000,
+    백만: 1000000,
+    십만: 100000,
+    만: 10000,
+    천: 1000,
+  };
+  return Math.round(value * (multipliers[unit] || 1));
+};
+
+const extractPrizeSummary = (details) => {
+  const prizeDetails = extractPrizeDetails(details) || String(details || '').trim();
+  if (!prizeDetails) return null;
+
+  const lines = normalizeLines(prizeDetails);
+  const totalLines = lines.filter((line) => /총\s*상금|상금\s*규모/i.test(line));
+  const candidates = totalLines.length ? totalLines : lines;
+  const amounts = candidates.flatMap((line) =>
+    [...line.matchAll(/(\d[\d,.]*)\s*(억|천만|백만|십만|만|천)?\s*원/g)]
+      .map((match) => parsePrizeWon(match[1], match[2]))
+      .filter((amount) => amount > 0)
+  );
+  if (!amounts.length) return null;
+
+  const amount = Math.max(...amounts);
+  if (amount >= 10000) return `${Math.round(amount / 10000).toLocaleString('ko-KR')}만원`;
+  return `${amount.toLocaleString('ko-KR')}원`;
+};
+
+module.exports = { extractPrizeDetails, extractPrizeSummary, parsePrizeWon };
