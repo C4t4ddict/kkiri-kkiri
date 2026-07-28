@@ -277,10 +277,16 @@ const queuePortfolioJob = (job) => {
 };
 
 const runArchiveMaintenance = () =>
-  queuePortfolioJob(() => archiveExpiredTeams(portfolioDb));
+  queuePortfolioJob(() => archiveExpiredTeams(portfolioDb)).then((result) => {
+    activityCache.clear();
+    return result;
+  });
 
 const runTeamArchive = (teamId, reason) =>
-  queuePortfolioJob(() => archiveTeam(portfolioDb, teamId, reason));
+  queuePortfolioJob(() => archiveTeam(portfolioDb, teamId, reason)).then((result) => {
+    activityCache.clear();
+    return result;
+  });
 
 const ensureActivityTables = () => {
   const statements = [
@@ -1545,6 +1551,7 @@ app.post('/api/team-recruitments', async (req, res) => {
       ]
     );
 
+    activityCache.clear();
     res.status(201).json({
       success: true,
       recruitment_id: result.insertId,
@@ -1717,6 +1724,7 @@ app.put('/api/team-recruitments/:id', async (req, res) => {
     if (!result.affectedRows) {
       return res.status(404).json({ message: '모집글을 찾을 수 없습니다' });
     }
+    activityCache.clear();
     res.json({ success: true, recruitment_id: recruitmentId });
   } catch (error) {
     console.error('팀 모집글 수정 오류:', error);
@@ -1748,6 +1756,7 @@ app.delete('/api/team-recruitments/:id', (req, res) => {
       if (!result.affectedRows) {
         return res.status(404).json({ message: '삭제할 모집글을 찾을 수 없습니다' });
       }
+      activityCache.clear();
       res.json({ success: true, recruitment_id: recruitmentId });
     }
   );

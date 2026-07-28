@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
   Alert,
 } from 'react-native';
-import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import axios from 'axios';
 import colors from '../../config/colors';
@@ -62,22 +62,24 @@ const ActivityDetailScreen = () => {
   const [savingFavorite, setSavingFavorite] = useState(false);
   const [recruitments, setRecruitments] = useState<any[]>([]);
 
-  useEffect(() => {
-    const fetchActivityDetail = async () => {
-      try {
-        const [activityResponse, recruitmentResponse] = await Promise.all([
-          axios.get(`${BASE_URL}/api/activities/${id}`),
-          axios.get(`${BASE_URL}/api/activities/${id}/recruitments`),
-        ]);
-        setActivity(activityResponse.data);
-        setRecruitments(Array.isArray(recruitmentResponse.data) ? recruitmentResponse.data : []);
-      } catch (error) {
-        console.error('활동 상세 조회 오류:', error);
-      }
-    };
-
-    fetchActivityDetail();
+  const fetchActivityDetail = useCallback(async () => {
+    try {
+      const [activityResponse, recruitmentResponse] = await Promise.all([
+        axios.get(`${BASE_URL}/api/activities/${id}`),
+        axios.get(`${BASE_URL}/api/activities/${id}/recruitments`),
+      ]);
+      setActivity(activityResponse.data);
+      setRecruitments(Array.isArray(recruitmentResponse.data) ? recruitmentResponse.data : []);
+    } catch (error) {
+      console.warn('활동 상세 조회 오류:', error);
+    }
   }, [id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchActivityDetail();
+    }, [fetchActivityDetail])
+  );
 
   useEffect(() => {
     if (!activity) return;

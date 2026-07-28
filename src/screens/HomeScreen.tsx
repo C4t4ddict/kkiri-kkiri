@@ -1,11 +1,11 @@
 // HomeScreen.tsx
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, FlatList, Image,
   TouchableOpacity, Platform, Alert, SafeAreaView
 } from 'react-native';
 import axios from 'axios';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import AppHeader from '../components/AppHeader';
 import NotificationBell from '../components/NotificationBell';
 import AppRefreshControl from '../components/AppRefreshControl';
@@ -49,9 +49,11 @@ export default function HomeScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchActivities().finally(() => setLoading(false));
-  }, [fetchActivities]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchActivities().finally(() => setLoading(false));
+    }, [fetchActivities])
+  );
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);

@@ -88,14 +88,11 @@ const InfoScreen = () => {
     }
   }, [user?.id]);
 
-  useEffect(() => {
-    fetchActivities();
-  }, [fetchActivities]);
-
   useFocusEffect(
     useCallback(() => {
+      fetchActivities();
       fetchFavoriteIds();
-    }, [fetchFavoriteIds])
+    }, [fetchActivities, fetchFavoriteIds])
   );
 
   const handleRefresh = useCallback(async () => {
