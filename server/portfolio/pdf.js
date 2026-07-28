@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 const PDFDocument = require('pdfkit');
 
 const REGULAR_FONT = path.join(
@@ -103,6 +104,109 @@ const addCoverPage = (doc, portfolio) => {
   );
 };
 
+const addActivityPhotoPages = (doc, portfolio) => {
+  const images = (portfolio.activity_image_paths || []).filter((imagePath) => fs.existsSync(imagePath));
+  for (let offset = 0; offset < images.length; offset += 4) {
+    const pageImages = images.slice(offset, offset + 4);
+    doc.addPage();
+    doc.rect(0, 0, 595.28, 108).fill(PURPLE_DARK);
+    doc.font('Bold').fontSize(10).fillColor('#DAD1FF').text('02 · ACTIVITY PHOTOS', 48, 34);
+    doc.font('Bold').fontSize(23).fillColor('#FFFFFF').text('활동 사진', 48, 58);
+    pageImages.forEach((imagePath, index) => {
+      const column = index % 2;
+      const row = Math.floor(index / 2);
+      const x = 48 + (column * 255);
+      const y = 142 + (row * 285);
+      try {
+        doc.roundedRect(x, y, 244, 244, 16).save().clip();
+        doc.image(imagePath, x, y, { fit: [244, 244], align: 'center', valign: 'center' });
+        doc.restore();
+      } catch {
+        doc.restore();
+      }
+    });
+  }
+};
+
+const splitTextByHeight = (doc, text, width, maxHeight) => {
+  const tokens = String(text || '').split(/(\s+)/).filter(Boolean);
+  const chunks = [];
+  let current = '';
+
+  tokens.forEach((token) => {
+    const whitespace = /^\s+$/.test(token);
+    const normalized = whitespace
+      ? (token.includes('\n') ? '\n'.repeat(Math.min(2, (token.match(/\n/g) || []).length)) : ' ')
+      : token;
+    const candidate = `${current}${normalized}`;
+    if (current.trim() && doc.heightOfString(candidate, { width, lineGap: 5 }) > maxHeight) {
+      chunks.push(current.trim());
+      current = whitespace ? '' : token;
+    } else {
+      current = candidate;
+    }
+  });
+  if (current.trim()) chunks.push(current.trim());
+  return chunks;
+};
+
+const getNarrativeBlocks = (doc, portfolio) => {
+  const blocks = [];
+  const achievementText = (portfolio.achievements || []).map((item) => `• ${item}`).join('\n');
+  if (achievementText) blocks.push({ title: '핵심 성과', body: achievementText });
+  if (portfolio.reflection) blocks.push({ title: '활동 회고', body: portfolio.reflection });
+  const linkText = (portfolio.links || []).map((link) => `${link.title || '관련 링크'}\n${link.url}`).join('\n\n');
+  if (linkText) blocks.push({ title: '관련 링크', body: linkText });
+
+  return blocks.flatMap((block) => {
+    const chunks = splitTextByHeight(doc, block.body, 455, 470);
+    return chunks.map((body, index) => ({
+      title: index ? `${block.title} · 계속` : block.title,
+      body,
+    }));
+  });
+};
+
+const drawNarrativeHeader = (doc, pageIndex, sectionNumber) => {
+  doc.rect(0, 0, 595.28, 108).fill(PURPLE_DARK);
+  doc.font('Bold').fontSize(10).fillColor('#DAD1FF').text(`${sectionNumber} · STORY & OUTCOME`, 48, 34);
+  doc.font('Bold').fontSize(23).fillColor('#FFFFFF').text('성과와 활동 회고', 48, 58);
+  doc.font('Bold').fontSize(9).fillColor('#DAD1FF').text(String(pageIndex + 1).padStart(2, '0'), 500, 68, {
+    width: 47,
+    align: 'right',
+  });
+};
+
+const addNarrativePages = (doc, portfolio) => {
+  const blocks = getNarrativeBlocks(doc, portfolio);
+  if (!blocks.length) return;
+  const sectionNumber = portfolio.activity_image_paths?.length ? '03' : '02';
+  let pageIndex = -1;
+  let y = 0;
+
+  const startPage = () => {
+    doc.addPage();
+    pageIndex += 1;
+    drawNarrativeHeader(doc, pageIndex, sectionNumber);
+    y = 136;
+  };
+
+  blocks.forEach((block) => {
+    doc.font('Regular').fontSize(11);
+    const bodyHeight = doc.heightOfString(block.body, { width: 455, lineGap: 5 });
+    const cardHeight = Math.max(104, bodyHeight + 72);
+    if (pageIndex < 0 || y + cardHeight > 780) startPage();
+    drawRoundedCard(doc, 48, y, 499, cardHeight, '#FFFFFF', BORDER);
+    doc.font('Bold').fontSize(11).fillColor(PURPLE).text(block.title, 70, y + 22, { width: 455 });
+    doc.font('Regular').fontSize(11).fillColor(INK).text(block.body, 70, y + 50, {
+      width: 455,
+      lineGap: 5,
+      link: /^https?:\/\//.test(block.body) ? block.body : undefined,
+    });
+    y += cardHeight + 14;
+  });
+};
+
 const buildTaskPages = (groups = {}) => {
   const pages = [];
   let currentPage = [];
@@ -146,10 +250,12 @@ const buildTaskPages = (groups = {}) => {
   return pages;
 };
 
-const drawTaskPageHeader = (doc, pageIndex) => {
+const drawTaskPageHeader = (doc, pageIndex, sectionNumber) => {
   doc.rect(0, 0, 595.28, 108).fill(PURPLE_DARK);
   doc.font('Bold').fontSize(10).fillColor('#DAD1FF').text(
-    pageIndex === 0 ? '02 · COMPLETED WORK' : '02 · COMPLETED WORK · CONTINUED',
+    pageIndex === 0
+      ? `${sectionNumber} · COMPLETED WORK`
+      : `${sectionNumber} · COMPLETED WORK · CONTINUED`,
     48,
     34,
   );
@@ -191,10 +297,12 @@ const drawTaskSection = (doc, section, y) => {
 const addTaskPage = (doc, portfolio) => {
   const groups = portfolio.completed_tasks || {};
   const pages = buildTaskPages(groups);
+  const hasNarrative = getNarrativeBlocks(doc, portfolio).length > 0;
+  const sectionNumber = String(2 + Number(Boolean(portfolio.activity_image_paths?.length)) + Number(hasNarrative)).padStart(2, '0');
 
   if (!pages.length) {
     doc.addPage();
-    drawTaskPageHeader(doc, 0);
+    drawTaskPageHeader(doc, 0, sectionNumber);
     drawRoundedCard(doc, 48, TASK_CONTENT_TOP, 499, 88, '#FAFAFC', BORDER);
     doc.font('Regular').fontSize(12).fillColor(MUTED).text(
       '기록된 완료 작업이 없습니다.',
@@ -206,7 +314,7 @@ const addTaskPage = (doc, portfolio) => {
 
   pages.forEach((sections, pageIndex) => {
     doc.addPage();
-    drawTaskPageHeader(doc, pageIndex);
+    drawTaskPageHeader(doc, pageIndex, sectionNumber);
     let y = TASK_CONTENT_TOP;
     sections.forEach((section) => {
       drawTaskSection(doc, section, y);
@@ -224,6 +332,8 @@ const createMiniPortfolioPdf = (portfolio) => {
   doc.registerFont('Regular', REGULAR_FONT);
   doc.registerFont('Bold', BOLD_FONT);
   addCoverPage(doc, portfolio);
+  addActivityPhotoPages(doc, portfolio);
+  addNarrativePages(doc, portfolio);
   addTaskPage(doc, portfolio);
   doc.end();
   return doc;

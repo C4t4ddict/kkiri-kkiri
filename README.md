@@ -2,6 +2,72 @@ This is a new [**React Native**](https://reactnative.dev) project, bootstrapped 
 
 # Getting Started
 
+## 프로젝트 구성
+
+- React Native 앱: 루트의 `App.tsx`, `src/`
+- React 웹: `web/`
+- Express API 및 MySQL 연동: `server/`
+
+앱과 웹은 같은 Express API와 MySQL 데이터를 사용합니다. 화면 코드는 플랫폼별로 분리하지만, 인증 방식과 API 응답 규격, 상태값, 색상 체계는 동일하게 유지합니다. React Native 컴포넌트는 DOM에서 직접 재사용할 수 없으므로 웹은 별도 React 앱으로 구성했습니다.
+
+## React 웹 실행
+
+API 서버를 먼저 실행합니다.
+
+```sh
+npm --prefix server install
+npm --prefix server start
+```
+
+다른 터미널에서 웹을 실행합니다.
+
+```sh
+npm --prefix web install
+npm run web
+```
+
+기본 웹 주소는 `http://localhost:5173`, API 주소는 `http://localhost:3000`입니다. 배포 환경에서 API 주소가 다르면 웹 빌드 시 `VITE_API_BASE_URL`을 설정합니다.
+
+```sh
+VITE_API_BASE_URL=https://api.example.com npm run web:build
+```
+
+웹에는 홈, 정보, 매칭, 활동, 마이페이지와 함께 지원서 템플릿 관리 및 지원 상태 타임라인 화면이 포함됩니다. 모바일 폭에서는 하단 내비게이션, 넓은 화면에서는 좌측 사이드바로 전환됩니다.
+
+웹의 기능 중심 디렉터리 구조와 의존 규칙은 `web/README.md`를 참고합니다.
+
+## 지원서 관리
+
+- 마이페이지의 `지원서 관리`에서 지원 내용을 템플릿으로 저장하고 기본 템플릿을 지정할 수 있습니다.
+- 모집글 지원 시 템플릿을 불러온 뒤 내용을 수정해 제출할 수 있습니다.
+- `나의 지원` 상세 화면에서 지원 완료, 검토, 합류 제안, 최종 결과 순서의 상태를 확인할 수 있습니다.
+- 템플릿 원본이 변경되거나 삭제되어도 이미 제출한 지원 내용은 지원 레코드에 스냅샷으로 남습니다.
+
+## 운영 안정성 설정
+
+서버는 MySQL 커넥션 풀, 활동 목록 단기 캐시, 서명된 로그인 토큰을 사용합니다. `server/.env.example`을 기준으로 환경변수를 준비하고, 운영 환경에서는 반드시 `NODE_ENV=production`, 충분히 긴 `AUTH_TOKEN_SECRET`, `ALLOW_LEGACY_USER_HEADER=false`, `OPS_API_TOKEN`을 설정합니다.
+
+- `GET /api/health`: 공개 생존 상태와 DB 연결 상태 확인
+- `GET /api/db-health`: 실제 DB 쿼리 상태 확인
+- `GET /api/ops/status`: `x-ops-token` 헤더가 필요한 요청·메모리·캐시·최근 크롤링 상태 확인
+- `DB_CONNECTION_LIMIT`: API 서버의 MySQL 동시 연결 상한
+- `ACTIVITY_CACHE_TTL_MS`: 활동 목록 캐시 유지 시간
+- `LOG_LEVEL`: 운영은 `info`, 상세 진단은 일시적으로 `debug` 권장
+- `ADMIN_EMAILS`: 쉼표로 구분한 운영자 이메일. 서버 시작 시 해당 계정에 운영 권한을 부여
+
+크롤러 운영 방법과 수집 이력 테이블은 `server/crawler/README.md`를 참고합니다.
+
+## 앱 운영 관리
+
+`ADMIN_EMAILS`에 등록된 계정은 마이페이지의 `운영 관리` 메뉴에서 활동 데이터 품질과 크롤러 상태를 관리할 수 있습니다.
+
+- 전체·이미지 누락·중복 의심·숨김 활동 조회 및 검색
+- 활동 제목, 카테고리, 포스터 URL 수정
+- 품질이 낮은 활동 숨김 또는 다시 공개
+- 최근 크롤링 실행·오류 확인 및 즉시 수집 실행
+
+운영 API는 로그인 토큰과 DB의 `users.is_admin` 권한을 모두 확인합니다. 운영 환경에서는 `ADMIN_EMAILS`와 `AUTH_TOKEN_SECRET`을 비밀 환경변수로 관리합니다.
+
 > **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
 
 ## Step 1: Start Metro

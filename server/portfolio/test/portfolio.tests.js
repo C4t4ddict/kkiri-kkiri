@@ -1,7 +1,12 @@
 const assert = require('node:assert/strict');
 const { PassThrough } = require('node:stream');
 const test = require('node:test');
-const { getRelativePeriodEnd, groupCompletedTasks, normalizePortfolio } = require('../service');
+const {
+  getRelativePeriodEnd,
+  groupCompletedTasks,
+  normalizePortfolio,
+  sanitizePortfolioEdit,
+} = require('../service');
 const { buildTaskPages, createMiniPortfolioPdf } = require('../pdf');
 
 test('완료 작업을 월간·주간·일일 범위로 분류한다', () => {
@@ -34,6 +39,27 @@ test('주 단위 활동 기간으로 자동 종료일을 계산한다', () => {
   assert.equal(getRelativePeriodEnd('2026-07-01', '기간 미정'), null);
 });
 
+test('미니포트폴리오 편집값을 제한하고 안전한 링크만 보존한다', () => {
+  const edit = sanitizePortfolioEdit({
+    title: '  프로젝트 제목  ',
+    activity_type: ' 공모전 ',
+    role: ' 기획 ',
+    summary: ' 활동 요약 ',
+    achievements: [' 첫 성과 ', '', '두 번째 성과'],
+    reflection: ' 회고 내용 ',
+    image_urls: ['https://example.com/cover.jpg', '/uploads/local.jpg', 'javascript:alert(1)'],
+    links: [
+      { title: '결과물', url: 'https://example.com/result' },
+      { title: '위험', url: 'javascript:alert(1)' },
+    ],
+  });
+
+  assert.equal(edit.title, '프로젝트 제목');
+  assert.deepEqual(edit.achievements, ['첫 성과', '두 번째 성과']);
+  assert.deepEqual(edit.imageUrls, ['https://example.com/cover.jpg', '/uploads/local.jpg']);
+  assert.deepEqual(edit.links, [{ title: '결과물', url: 'https://example.com/result' }]);
+});
+
 test('한글 미니포트폴리오 PDF를 생성한다', async () => {
   const pdf = createMiniPortfolioPdf({
     activity_name: '선형대수학 학습공동체',
@@ -44,6 +70,9 @@ test('한글 미니포트폴리오 PDF를 생성한다', async () => {
     completed_task_count: 3,
     member_count: 4,
     summary: '벡터와 행렬 개념을 학습하고 팀 프로젝트를 완수했습니다.',
+    achievements: ['학습 계획 달성', '최종 발표 완료'],
+    reflection: '팀원과 학습 내용을 나누며 설명 역량을 높였습니다.',
+    links: [{ title: '최종 발표 자료', url: 'https://example.com/presentation' }],
     completed_tasks: {
       monthly: [{ todo_id: 1, title: '월간 학습 계획 완료' }],
       weekly: [{ todo_id: 2, title: '5주차 스터디 진행' }],

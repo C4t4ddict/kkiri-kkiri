@@ -1,12 +1,15 @@
 // src/types.ts
 export interface User {
   id: number;
+  user_id?: number;
   email: string;
   name: string;
   department?: string;
   studentId?: string;
   birth?: string;
   profile_picture?: string;
+  authToken?: string;
+  is_admin?: boolean;
 }
 
 export type RootStackParamList = {
@@ -25,6 +28,8 @@ export type RootStackParamList = {
   MatchingDetail: { id: number };
   MyRecruitments: undefined;
   MyApplications: undefined;
+  ApplicationDetail: { applicationId: number };
+  ApplicationTemplates: undefined;
   MyPage2: { user: User };
   MyPage3: {
     user: User;
@@ -43,6 +48,8 @@ export type RootStackParamList = {
   ActivitySettingScreen: { teamId?: number; isLeader?: boolean; teamName?: string };
   MyActivityScreen: undefined;
   MiniPortfolioScreen: { portfolioId: number };
+  MiniPortfolioEditScreen: { portfolioId: number };
+  AdminScreen: undefined;
   TodoScreen: undefined;
   TodoTeamScreen: { teamId: number };
 };

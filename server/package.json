@@ -7,7 +7,7 @@
     "crawl:competitions": "node crawler/index.js",
     "crawl:competitions:dry": "node crawler/index.js --dry-run --limit 5",
     "seed:demo-activity": "node seeds/seedCurrentActivity.js",
-    "test": "node --test crawler/test/*.tests.js portfolio/test/*.tests.js"
+    "test": "node --test applications/test/*.tests.js crawler/test/*.tests.js portfolio/test/*.tests.js lib/test/*.tests.js"
   },
   "keywords": [],
   "author": "",

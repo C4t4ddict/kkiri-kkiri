@@ -1,7 +1,16 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-const { createPool, ensureCrawlerSchema, finishRun, saveActivity, saveCrawlError, startRun } = require('./database');
+const {
+  acquireCrawlerLock,
+  createPool,
+  ensureCrawlerSchema,
+  finishRun,
+  releaseCrawlerLock,
+  saveActivity,
+  saveCrawlError,
+  startRun,
+} = require('./database');
 const { HttpClient } = require('./httpClient');
 const { createThinkcontestSource } = require('./sources/thinkcontest');
 const { createWevitySource } = require('./sources/wevity');
@@ -75,6 +84,7 @@ const run = async () => {
   });
 
   let pool = null;
+  let lockConnection = null;
   let runId = null;
   const summary = { discovered: 0, saved: 0, errors: 0, errorMessages: [] };
 
@@ -82,6 +92,11 @@ const run = async () => {
     if (!options.dryRun) {
       pool = createPool();
       await ensureCrawlerSchema(pool);
+      lockConnection = await acquireCrawlerLock(pool);
+      if (!lockConnection) {
+        console.log('다른 인스턴스에서 수집이 진행 중이어서 이번 실행을 건너뜁니다.');
+        return;
+      }
       runId = await startRun(pool, sources.map((source) => source.name).join(','));
     }
 
@@ -139,6 +154,7 @@ const run = async () => {
     }
     throw error;
   } finally {
+    await releaseCrawlerLock(lockConnection);
     if (pool) await pool.end();
   }
 };

@@ -19,6 +19,7 @@ import axios from 'axios';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
+import MiniCalendarModal from '../components/MiniCalendarModal';
 
 const API_BASE_URL =
   Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
@@ -157,11 +158,16 @@ export default function TodoScreen() {
   const [draftText, setDraftText] = useState('');
   const inputRef = useRef<TextInput>(null);
 
-  // part 수정 모달
+  // 활동명/역할 수정 모달
   const [partModalVisible, setPartModalVisible] = useState(false);
   const [partInput, setPartInput] = useState('');
-  const [nameModalVisible, setNameModalVisible] = useState(false);
   const [nameInput, setNameInput] = useState('');
+  const [periodGoalVisible, setPeriodGoalVisible] = useState(false);
+  const [periodGoalTitle, setPeriodGoalTitle] = useState('');
+  const [periodGoalStart, setPeriodGoalStart] = useState(ymd(new Date()));
+  const [periodGoalEnd, setPeriodGoalEnd] = useState(ymd(new Date()));
+  const [periodCalendarTarget, setPeriodCalendarTarget] = useState<'start' | 'end' | null>(null);
+  const [periodGoalSaving, setPeriodGoalSaving] = useState(false);
 
   // 팀 목록 로딩
   useEffect(() => {
@@ -207,9 +213,12 @@ export default function TodoScreen() {
   }, [user, selected]);
 
   // 각 섹션 기준일 바뀔 때 해당 섹션만 로딩
-  useEffect(() => { fetchRange('월간'); /* eslint-disable-line */ }, [viewDate['월간']]);
-  useEffect(() => { fetchRange('주간'); /* eslint-disable-line */ }, [viewDate['주간']]);
-  useEffect(() => { fetchRange('일일'); /* eslint-disable-line */ }, [viewDate['일일']]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchRange('월간'); }, [viewDate['월간']]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchRange('주간'); }, [viewDate['주간']]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchRange('일일'); }, [viewDate['일일']]);
 
   // 상태 순환
   const nextStatus = (s: Todo['status']): Todo['status'] =>
@@ -342,17 +351,12 @@ export default function TodoScreen() {
     });
   };
 
-  // 역할 수정 모달 열기
+  // 활동명/역할 수정 모달 열기
   const openPartModal = () => {
     if (!selected) return;
+    setNameInput(selected.team_name ?? '');
     setPartInput(selected.part ?? '');
     setPartModalVisible(true);
-  };
-
-  const openNameModal = () => {
-    if (!selected || Number(selected.leader_user_id) !== Number(user?.id)) return;
-    setNameInput(selected.team_name);
-    setNameModalVisible(true);
   };
 
   const notifyError = (title: string, msg: string) => {
@@ -363,27 +367,42 @@ export default function TodoScreen() {
     }
   };
 
-  const savePart = async () => {
+  const saveActivityInfo = async () => {
     if (!selected || !user) return;
     const newPart = partInput.trim();
-    if (newPart.length === 0) {
-      setPartModalVisible(false);
+    const teamName = nameInput.trim();
+    const canEditName = Number(selected.leader_user_id) === Number(user.id);
+    if (!newPart) {
+      notifyError('입력 확인', '역할명을 입력해주세요.');
+      return;
+    }
+    if (canEditName && !teamName) {
+      notifyError('입력 확인', '활동명을 입력해주세요.');
       return;
     }
 
     try {
+      let savedName = selected.team_name;
+      if (canEditName && teamName !== selected.team_name) {
+        const { data } = await axios.put(
+          `${API_BASE_URL}/teams/${selected.team_id}/name`,
+          { team_name: teamName },
+          { headers: authHeader }
+        );
+        savedName = data.team_name ?? teamName;
+      }
       const res = await axios.put(
         `${API_BASE_URL}/team-members/${selected.team_id}/part`,
         { part: newPart },
         { headers: authHeader }
       );
       setSelected((prev) =>
-        prev ? { ...prev, part: res.data.part ?? newPart } : prev
+        prev ? { ...prev, team_name: savedName, part: res.data.part ?? newPart } : prev
       );
       setTeams((prev) =>
         prev.map((t) =>
           t.team_id === selected.team_id
-            ? { ...t, part: res.data.part ?? newPart }
+            ? { ...t, team_name: savedName, part: res.data.part ?? newPart }
             : t
         )
       );
@@ -394,36 +413,43 @@ export default function TodoScreen() {
         e?.message ||
         'Unknown';
       console.error('파트 저장 실패:', e?.response?.data || e);
-      notifyError('파트 저장 실패', String(msg));
+      notifyError('활동 정보 저장 실패', String(msg));
     } finally {
       setPartModalVisible(false);
     }
   };
 
-  const saveTeamName = async () => {
-    if (!selected || !user) return;
-    const teamName = nameInput.trim();
+  const openPeriodGoal = () => {
+    const selectedDate = ymd(viewDate['일일']);
+    setPeriodGoalTitle('');
+    setPeriodGoalStart(selectedDate);
+    setPeriodGoalEnd(selectedDate);
+    setPeriodGoalVisible(true);
+  };
 
-    if (!teamName) {
-      notifyError('입력 확인', '활동 프로젝트명을 입력해주세요.');
-      return;
-    }
-
+  const savePeriodGoal = async () => {
+    if (!selected || !user || periodGoalSaving) return;
+    if (!periodGoalTitle.trim()) return notifyError('입력 확인', '기간 목표를 입력해주세요.');
+    if (periodGoalStart > periodGoalEnd) return notifyError('기간 확인', '종료일은 시작일 이후여야 합니다.');
+    setPeriodGoalSaving(true);
     try {
-      const { data } = await axios.put(
-        `${API_BASE_URL}/teams/${selected.team_id}/name`,
-        { team_name: teamName },
+      const { data } = await axios.post(
+        `${API_BASE_URL}/todos/period`,
+        {
+          team_id: selected.team_id,
+          title: periodGoalTitle.trim(),
+          start_date: periodGoalStart,
+          end_date: periodGoalEnd,
+        },
         { headers: authHeader }
       );
-      const savedName = data.team_name ?? teamName;
-      setSelected((prev) => prev ? { ...prev, team_name: savedName } : prev);
-      setTeams((prev) => prev.map((team) =>
-        team.team_id === selected.team_id ? { ...team, team_name: savedName } : team
-      ));
-      setNameModalVisible(false);
-    } catch (e: any) {
-      const message = e?.response?.data?.message || '활동 프로젝트명을 저장하지 못했습니다.';
-      notifyError('저장 실패', String(message));
+      setPeriodGoalVisible(false);
+      await fetchRange('일일');
+      Alert.alert('기간 목표 추가 완료', `${data.created_count || 0}일의 일일 목표가 추가되었습니다.`);
+    } catch (error: any) {
+      notifyError('기간 목표 추가 실패', error?.response?.data?.message || '기간 목표를 저장하지 못했습니다.');
+    } finally {
+      setPeriodGoalSaving(false);
     }
   };
 
@@ -439,7 +465,7 @@ export default function TodoScreen() {
           {renderCheckbox(todo.status)}
         </Pressable>
 
-        <View style={{ width: 8 }} />
+        <View style={styles.rowGap} />
 
         {isEditing ? (
           <TextInput
@@ -458,7 +484,7 @@ export default function TodoScreen() {
             <Text
               style={[
                 styles.todoText,
-                isDone && { textDecorationLine: 'line-through', color: '#9AA0A6' },
+                isDone && styles.todoTextDone,
               ]}
               numberOfLines={2}
             >
@@ -476,7 +502,7 @@ export default function TodoScreen() {
     return (
       <View style={styles.row}>
         {renderCheckbox('미진행')}
-        <View style={{ width: 8 }} />
+        <View style={styles.rowGap} />
         <TextInput
           ref={inputRef}
           value={draftText}
@@ -502,7 +528,7 @@ export default function TodoScreen() {
     // 제목 오른쪽에 기간 네비(← label →), 월간 섹션에는 추가로 '팀원 목표' 버튼
     return (
       <View style={styles.section}>
-        <View style={[styles.sectionHeader, { marginBottom: 8 }]}>
+        <View style={[styles.sectionHeader, styles.sectionHeaderSpacing]}>
           {/* 왼쪽: 제목 + 기간 네비를 한 줄로 */}
           <View style={styles.titleRow}>
             <Text style={styles.sectionTitle}>{scope} 목표</Text>
@@ -543,16 +569,24 @@ export default function TodoScreen() {
           list.map(renderRow)
         )}
 
-        <Pressable style={styles.addButton} onPress={() => onPressAdd(scope)}>
-          <Icon name="add" size={19} color="#FFFFFF" />
-          <Text style={styles.addButtonText}>목표 추가</Text>
-        </Pressable>
+        <View style={styles.addButtonRow}>
+          <Pressable style={styles.addButton} onPress={() => onPressAdd(scope)}>
+            <Icon name="add" size={19} color="#FFFFFF" />
+            <Text style={styles.addButtonText}>목표 추가</Text>
+          </Pressable>
+          {scope === '일일' ? (
+            <Pressable style={styles.periodGoalButton} onPress={openPeriodGoal}>
+              <Icon name="calendar-outline" size={17} color={PURPLE} />
+              <Text style={styles.periodGoalButtonText}>기간 목표</Text>
+            </Pressable>
+          ) : null}
+        </View>
       </View>
     );
   };
 
   return (
-    <View style={{ flex: 1, padding: 16, backgroundColor: '#FFFFFF' }}>
+    <View style={styles.screen}>
       {/* 상단 드롭다운 + 역할 + 연필아이콘 */}
       <View style={styles.selectRow}>
         <View style={styles.dropdown}>
@@ -574,7 +608,7 @@ export default function TodoScreen() {
                       setSelected(item);
                       setOpen(false);
                     }}
-                    style={({ pressed }) => [styles.dropdownItem, pressed && { opacity: 0.6 }]}
+                    style={({ pressed }) => [styles.dropdownItem, pressed && styles.pressed]}
                   >
                     <Text style={styles.dropdownItemText} numberOfLines={1} ellipsizeMode="tail">
                       {item.team_name}
@@ -585,22 +619,6 @@ export default function TodoScreen() {
             </View>
           )}
         </View>
-
-        {selected && Number(selected.leader_user_id) === Number(user?.id) && (
-          <Pressable
-            onPress={openNameModal}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="활동 프로젝트명 수정"
-            style={styles.nameEditButton}
-          >
-            <Image
-              source={require('../assets/pencil-01.png')}
-              style={styles.smallPencil}
-              resizeMode="contain"
-            />
-          </Pressable>
-        )}
 
         <View style={styles.partWrap}>
           <Text style={styles.partText} numberOfLines={1} ellipsizeMode="tail">
@@ -620,68 +638,111 @@ export default function TodoScreen() {
         data={['월간', '주간', '일일'] as Scope[]}
         keyExtractor={(item) => item}
         renderItem={({ item }) => renderSection(item)}
-        contentContainerStyle={{ paddingBottom: 24 }}
+        contentContainerStyle={styles.listContent}
       />
 
-      {/* 역할 수정 모달 */}
+      {/* 활동명/역할 수정 모달 */}
       <Modal visible={partModalVisible} transparent animationType="fade" onRequestClose={() => setPartModalVisible(false)}>
         <View style={styles.modalBg}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>역할 수정</Text>
-            <TextInput
-              value={partInput}
-              onChangeText={setPartInput}
-              placeholder="역할 입력"
-              placeholderTextColor="#A0A0A0"
-              style={styles.modalInput}
-              autoFocus
-              returnKeyType="done"
-              onSubmitEditing={savePart}
-            />
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
-              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: '#E5E7EB' }]} onPress={() => setPartModalVisible(false)}>
-                <Text style={[styles.modalBtnText, { color: '#374151' }]}>취소</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: PURPLE }]} onPress={savePart}>
-                <Text style={[styles.modalBtnText, { color: '#fff' }]}>저장</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={nameModalVisible} transparent animationType="fade" onRequestClose={() => setNameModalVisible(false)}>
-        <View style={styles.modalBg}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>활동 프로젝트명 수정</Text>
-            <Text style={styles.modalDescription}>팀 전체 활동 화면에 같은 이름으로 표시됩니다.</Text>
+            <Text style={styles.modalTitle}>활동 정보 수정</Text>
+            <Text style={styles.modalFieldLabel}>활동명</Text>
             <TextInput
               value={nameInput}
               onChangeText={setNameInput}
-              placeholder="활동 프로젝트명"
+              placeholder="활동명 입력"
+              placeholderTextColor="#A0A0A0"
+              style={[styles.modalInput, Number(selected?.leader_user_id) !== Number(user?.id) && styles.modalInputDisabled]}
+              editable={Number(selected?.leader_user_id) === Number(user?.id)}
+              maxLength={255}
+            />
+            {Number(selected?.leader_user_id) !== Number(user?.id) ? (
+              <Text style={styles.modalHelper}>활동명은 팀장만 수정할 수 있습니다.</Text>
+            ) : null}
+            <Text style={styles.modalFieldLabel}>역할명</Text>
+            <TextInput
+              value={partInput}
+              onChangeText={setPartInput}
+              placeholder="역할명 입력"
               placeholderTextColor="#A0A0A0"
               style={styles.modalInput}
               autoFocus
-              maxLength={255}
               returnKeyType="done"
-              onSubmitEditing={saveTeamName}
+              onSubmitEditing={saveActivityInfo}
             />
             <View style={styles.modalActions}>
-              <TouchableOpacity style={[styles.modalBtn, styles.modalCancelButton]} onPress={() => setNameModalVisible(false)}>
+              <TouchableOpacity style={[styles.modalBtn, styles.modalCancelButton]} onPress={() => setPartModalVisible(false)}>
                 <Text style={[styles.modalBtnText, styles.modalCancelText]}>취소</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalBtn, styles.modalSaveButton]} onPress={saveTeamName}>
+              <TouchableOpacity style={[styles.modalBtn, styles.modalSaveButton]} onPress={saveActivityInfo}>
                 <Text style={[styles.modalBtnText, styles.modalSaveText]}>저장</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
+
+      <Modal visible={periodGoalVisible} transparent animationType="fade" onRequestClose={() => setPeriodGoalVisible(false)}>
+        <View style={styles.modalBg}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>기간 목표 추가</Text>
+            <Text style={styles.modalDescription}>설정한 기간의 매일 동일한 일일 목표가 생성됩니다.</Text>
+            <Text style={styles.modalFieldLabel}>목표</Text>
+            <TextInput
+              value={periodGoalTitle}
+              onChangeText={setPeriodGoalTitle}
+              placeholder="매일 반복할 목표"
+              placeholderTextColor="#A0A0A0"
+              style={styles.modalInput}
+              autoFocus
+              maxLength={255}
+            />
+            <View style={styles.periodDateRow}>
+              <Pressable style={styles.periodDateField} onPress={() => setPeriodCalendarTarget('start')}>
+                <Text style={styles.modalFieldLabel}>시작일</Text>
+                <Text style={styles.periodDateText}>{periodGoalStart}</Text>
+              </Pressable>
+              <Pressable style={styles.periodDateField} onPress={() => setPeriodCalendarTarget('end')}>
+                <Text style={styles.modalFieldLabel}>종료일</Text>
+                <Text style={styles.periodDateText}>{periodGoalEnd}</Text>
+              </Pressable>
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={[styles.modalBtn, styles.modalCancelButton]} onPress={() => setPeriodGoalVisible(false)}>
+                <Text style={[styles.modalBtnText, styles.modalCancelText]}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity disabled={periodGoalSaving} style={[styles.modalBtn, styles.modalSaveButton]} onPress={savePeriodGoal}>
+                <Text style={[styles.modalBtnText, styles.modalSaveText]}>{periodGoalSaving ? '추가 중' : '추가'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <MiniCalendarModal
+        visible={periodCalendarTarget !== null}
+        title={periodCalendarTarget === 'start' ? '기간 목표 시작일' : '기간 목표 종료일'}
+        value={periodCalendarTarget === 'start' ? periodGoalStart : periodGoalEnd}
+        minDate={periodCalendarTarget === 'end' ? periodGoalStart : undefined}
+        onClose={() => setPeriodCalendarTarget(null)}
+        onSelect={(date) => {
+          if (periodCalendarTarget === 'start') {
+            setPeriodGoalStart(date);
+            if (date > periodGoalEnd) setPeriodGoalEnd(date);
+          } else {
+            setPeriodGoalEnd(date);
+          }
+          setPeriodCalendarTarget(null);
+        }}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1, padding: 16, backgroundColor: '#FFFFFF' },
+  listContent: { paddingBottom: 24 },
+  pressed: { opacity: 0.6 },
   selectRow: { minHeight: 50, flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   dropdown: { flex: 1, marginRight: 12, position: 'relative' },
   dropdownBtn: {
@@ -711,16 +772,6 @@ const styles = StyleSheet.create({
   dropdownItem: { paddingHorizontal: 16, paddingVertical: 12 },
   dropdownItemText: { flex: 1, fontSize: 15, color: TEXT_MAIN },
 
-  nameEditButton: {
-    width: 34,
-    height: 40,
-    marginRight: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-    backgroundColor: LILAC,
-  },
-  smallPencil: { width: 17, height: 17 },
   partWrap: { maxWidth: '38%', flexDirection: 'row', alignItems: 'center' },
   partText: { flexShrink: 1, fontSize: 16, fontWeight: '700', color: '#1F2A37' },
   partPencil: { width: 18, height: 18, marginLeft: 6 },
@@ -739,6 +790,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  sectionHeaderSpacing: { marginBottom: 8 },
   // 제목과 날짜 네비를 한 줄에 붙이기
   titleRow: {
     flexDirection: 'row',
@@ -751,6 +803,7 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 14, color: '#999', paddingVertical: 6 },
 
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
+  rowGap: { width: 8 },
   checkboxBase: {
     width: 20,
     height: 20,
@@ -766,6 +819,7 @@ const styles = StyleSheet.create({
 
   pill: { backgroundColor: LILAC, paddingVertical: 4, paddingHorizontal: 8, borderRadius: 10 },
   todoText: { fontSize: 16, color: TEXT_MAIN },
+  todoTextDone: { color: '#9AA0A6', textDecorationLine: 'line-through' },
 
   input: { flex: 1, paddingVertical: 4 },
 
@@ -784,6 +838,18 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   addButtonText: { marginLeft: 4, color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
+  addButtonRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  periodGoalButton: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: LILAC,
+  },
+  periodGoalButtonText: { marginLeft: 4, color: PURPLE, fontSize: 13, fontWeight: '800' },
 
 
   // 기존 periodNav 대신 사용
@@ -800,6 +866,8 @@ const styles = StyleSheet.create({
   modalCard: { width: '86%', backgroundColor: 'white', borderRadius: 14, padding: 16 },
   modalTitle: { fontSize: 16, fontWeight: '700', color: TEXT_MAIN, marginBottom: 10 },
   modalDescription: { marginTop: -4, marginBottom: 12, color: TEXT_HINT, fontSize: 13, lineHeight: 19 },
+  modalFieldLabel: { marginBottom: 6, color: '#344054', fontSize: 12, fontWeight: '800' },
+  modalHelper: { marginTop: -7, marginBottom: 12, color: TEXT_HINT, fontSize: 11 },
   modalInput: {
     backgroundColor: INPUT_BG,
     borderRadius: 10,
@@ -808,6 +876,10 @@ const styles = StyleSheet.create({
     color: TEXT_MAIN,
     marginBottom: 12,
   },
+  modalInputDisabled: { color: TEXT_HINT, backgroundColor: '#EAECF0' },
+  periodDateRow: { flexDirection: 'row', gap: 9, marginBottom: 16 },
+  periodDateField: { flex: 1, padding: 12, borderRadius: 12, backgroundColor: INPUT_BG },
+  periodDateText: { color: PURPLE, fontSize: 13, fontWeight: '800' },
   modalBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10 },
   modalBtnText: { fontSize: 15, fontWeight: '700' },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },

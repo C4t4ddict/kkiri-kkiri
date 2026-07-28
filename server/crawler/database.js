@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const mysql = require('mysql2/promise');
 
 const ACTIVITY_COLUMNS = {
+  prize_details: 'TEXT NULL AFTER points',
   topic_category: 'VARCHAR(100) NULL AFTER category',
   source_name: 'VARCHAR(50) NULL AFTER main_image_url',
   source_item_id: 'VARCHAR(100) NULL AFTER source_name',
@@ -100,6 +101,25 @@ const startRun = async (pool, sourceName) => {
   return result.insertId;
 };
 
+const acquireCrawlerLock = async (pool) => {
+  const connection = await pool.getConnection();
+  const [rows] = await connection.execute("SELECT GET_LOCK('kkiri_competition_crawler', 0) AS acquired");
+  if (Number(rows[0]?.acquired) !== 1) {
+    connection.release();
+    return null;
+  }
+  return connection;
+};
+
+const releaseCrawlerLock = async (connection) => {
+  if (!connection) return;
+  try {
+    await connection.execute("SELECT RELEASE_LOCK('kkiri_competition_crawler')");
+  } finally {
+    connection.release();
+  }
+};
+
 const finishRun = async (pool, runId, summary) => {
   await pool.execute(
     `UPDATE crawler_runs
@@ -135,9 +155,9 @@ const saveActivity = async (pool, runId, activity, rawHtml) => {
         title, target_audience, organizer, location,
         operation_period_start, operation_period_end,
         application_period_start, application_period_end,
-        points, contact, details, category, topic_category, main_image_url,
+        points, prize_details, contact, details, category, topic_category, main_image_url,
         source_name, source_item_id, source_url, official_url, source_categories, last_crawled_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON DUPLICATE KEY UPDATE
         activity_id = LAST_INSERT_ID(activity_id),
         title = VALUES(title),
@@ -148,6 +168,7 @@ const saveActivity = async (pool, runId, activity, rawHtml) => {
         operation_period_end = COALESCE(VALUES(operation_period_end), operation_period_end),
         application_period_start = COALESCE(VALUES(application_period_start), application_period_start),
         application_period_end = COALESCE(VALUES(application_period_end), application_period_end),
+        prize_details = COALESCE(VALUES(prize_details), prize_details),
         contact = VALUES(contact),
         details = COALESCE(VALUES(details), details),
         category = VALUES(category),
@@ -168,6 +189,7 @@ const saveActivity = async (pool, runId, activity, rawHtml) => {
         activity.applicationPeriodStart,
         activity.applicationPeriodEnd,
         activity.points,
+        activity.prizeDetails,
         activity.contact,
         activity.details,
         activity.category,
@@ -219,9 +241,11 @@ const saveActivity = async (pool, runId, activity, rawHtml) => {
 };
 
 module.exports = {
+  acquireCrawlerLock,
   createPool,
   ensureCrawlerSchema,
   finishRun,
+  releaseCrawlerLock,
   saveActivity,
   saveCrawlError,
   startRun,

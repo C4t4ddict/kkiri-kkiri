@@ -31,9 +31,7 @@ interface LoginScreenProps {
 
 const LoginScreen = ({ 
   onLoginSuccess, 
-  onNavigateToSignUp, 
   onNavigateToForgotPassword,
-  onShowSignUp
 }: LoginScreenProps = {}) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -75,8 +73,6 @@ const LoginScreen = ({
   };
   
   const handleLogin = async () => {
-    console.log('로그인 시도:', { email, password });
-
     // 입력값 검증
     if (!email.trim()) {
       Alert.alert('알림', '이메일을 입력해주세요.');
@@ -102,8 +98,7 @@ const LoginScreen = ({
       const result = await loginAPI(email, password);
 
       if (result.success) {
-        console.log('로그인 성공:', result.user);
-        setUser(result.user);
+        setUser({ ...result.user, authToken: result.token });
         
         Alert.alert(
           '로그인 성공', 

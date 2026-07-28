@@ -1,7 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -9,8 +11,9 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
+import type { StackNavigationProp } from '@react-navigation/stack';
 import Icon from 'react-native-vector-icons/Ionicons';
 import ReactNativeBlobUtil from 'react-native-blob-util';
 import { useAuth } from '../context/AuthContext';
@@ -18,6 +21,7 @@ import type { RootStackParamList } from '../types';
 import colors from '../config/colors';
 
 type MiniPortfolioRoute = RouteProp<RootStackParamList, 'MiniPortfolioScreen'>;
+type Navigation = StackNavigationProp<RootStackParamList>;
 
 type CompletedTask = {
   todo_id: number;
@@ -38,6 +42,10 @@ type MiniPortfolio = {
   summary: string;
   member_count: number;
   completed_task_count: number;
+  achievements?: string[];
+  reflection?: string;
+  image_urls?: string[];
+  links?: Array<{ title?: string; url: string }>;
   completed_tasks: {
     monthly?: CompletedTask[];
     weekly?: CompletedTask[];
@@ -56,6 +64,7 @@ type TaskSectionProps = {
 const API_BASE_URL = Platform.OS === 'android'
   ? 'http://10.0.2.2:3000'
   : 'http://localhost:3000';
+const getImageUrl = (value: string) => value.startsWith('/uploads/') ? `${API_BASE_URL}${value}` : value;
 
 function TaskSection({ title, subtitle, icon, tasks }: TaskSectionProps) {
   if (!tasks.length) return null;
@@ -88,6 +97,7 @@ function TaskSection({ title, subtitle, icon, tasks }: TaskSectionProps) {
 
 export default function MiniPortfolioScreen() {
   const route = useRoute<MiniPortfolioRoute>();
+  const navigation = useNavigation<Navigation>();
   const { user } = useAuth();
   const { portfolioId } = route.params;
   const [portfolio, setPortfolio] = useState<MiniPortfolio | null>(null);
@@ -100,7 +110,9 @@ export default function MiniPortfolioScreen() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(`${API_BASE_URL}/users/${user.id}/past-activities/${portfolioId}`);
+      const response = await fetch(`${API_BASE_URL}/users/${user.id}/past-activities/${portfolioId}`, {
+        headers: { 'x-user-id': String(user.id) },
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || '미니포트폴리오를 불러오지 못했습니다');
       setPortfolio(data);
@@ -111,9 +123,7 @@ export default function MiniPortfolioScreen() {
     }
   }, [portfolioId, user?.id]);
 
-  useEffect(() => {
-    fetchPortfolio();
-  }, [fetchPortfolio]);
+  useFocusEffect(useCallback(() => { fetchPortfolio(); }, [fetchPortfolio]));
 
   const taskSections = useMemo(() => {
     if (!portfolio) return [];
@@ -143,13 +153,13 @@ export default function MiniPortfolioScreen() {
             mime: 'application/pdf',
             mediaScannable: true,
           },
-        }).fetch('GET', url);
+        }).fetch('GET', url, user.authToken ? { Authorization: `Bearer ${user.authToken}` } : {});
         Alert.alert('다운로드 완료', `다운로드 폴더에 ${fileName} 파일을 저장했습니다.`);
       } else {
         const response = await ReactNativeBlobUtil.config({
           fileCache: true,
           appendExt: 'pdf',
-        }).fetch('GET', url);
+        }).fetch('GET', url, user.authToken ? { Authorization: `Bearer ${user.authToken}` } : {});
         await ReactNativeBlobUtil.ios.openDocument(response.path());
       }
     } catch (downloadError) {
@@ -195,6 +205,60 @@ export default function MiniPortfolioScreen() {
             <Text style={styles.coverRole}>{portfolio.role || '역할 미정'}</Text>
           </View>
         </View>
+
+        {portfolio.image_urls?.length ? (
+          <View style={styles.storyCard}>
+            <Text style={styles.storyEyebrow}>ACTIVITY PHOTOS</Text>
+            <Text style={styles.storyTitle}>활동 사진</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.activityPhotoList}>
+              {portfolio.image_urls.map((photo, index) => (
+                <Image key={`${photo}-${index}`} source={{ uri: getImageUrl(photo) }} style={styles.activityPhoto} />
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {portfolio.achievements?.length ? (
+          <View style={styles.storyCard}>
+            <Text style={styles.storyEyebrow}>KEY OUTCOMES</Text>
+            <Text style={styles.storyTitle}>핵심 성과</Text>
+            {portfolio.achievements.map((achievement, index) => (
+              <View key={`${achievement}-${index}`} style={styles.achievementRow}>
+                <Icon name="sparkles" size={17} color={colors.primary} />
+                <Text style={styles.storyText}>{achievement}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {portfolio.reflection ? (
+          <View style={styles.storyCard}>
+            <Text style={styles.storyEyebrow}>REFLECTION</Text>
+            <Text style={styles.storyTitle}>활동 회고</Text>
+            <Text style={styles.reflectionText}>{portfolio.reflection}</Text>
+          </View>
+        ) : null}
+
+        {portfolio.links?.length ? (
+          <View style={styles.storyCard}>
+            <Text style={styles.storyEyebrow}>LINKS</Text>
+            <Text style={styles.storyTitle}>관련 링크</Text>
+            {portfolio.links.map((link, index) => (
+              <Pressable
+                key={`${link.url}-${index}`}
+                accessibilityRole="link"
+                onPress={() => Linking.openURL(link.url).catch(() => Alert.alert('링크 오류', '링크를 열 수 없습니다.'))}
+                style={styles.linkRow}
+              >
+                <Icon name="link-outline" size={17} color={colors.primary} />
+                <View style={styles.linkCopy}>
+                  <Text style={styles.linkTitle}>{link.title || '관련 링크'}</Text>
+                  <Text style={styles.linkUrl} numberOfLines={1}>{link.url}</Text>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
 
         <View style={styles.metricsRow}>
           <View style={styles.metricCard}>
@@ -256,6 +320,14 @@ export default function MiniPortfolioScreen() {
       <View style={styles.footer}>
         <Pressable
           accessibilityRole="button"
+          onPress={() => navigation.navigate('MiniPortfolioEditScreen', { portfolioId })}
+          style={({ pressed }) => [styles.editButton, pressed && styles.editButtonPressed]}
+        >
+          <Icon name="create-outline" size={20} color={colors.primary} />
+          <Text style={styles.editButtonText}>편집</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
           disabled={downloading}
           onPress={downloadPdf}
           style={({ pressed }) => [styles.pdfButton, pressed && styles.pdfButtonPressed]}
@@ -300,6 +372,18 @@ const styles = StyleSheet.create({
   summaryEyebrow: { color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
   summaryTitle: { marginTop: 7, color: colors.textMain, fontSize: 20, fontWeight: '900' },
   summaryText: { marginTop: 12, color: colors.textSub, fontSize: 13, lineHeight: 21 },
+  storyCard: { marginTop: 14, padding: 20, borderWidth: 1, borderColor: colors.border, borderRadius: 22, backgroundColor: '#FFFFFF' },
+  activityPhotoList: { gap: 10, paddingTop: 4 },
+  activityPhoto: { width: 220, height: 150, borderRadius: 16, resizeMode: 'cover', backgroundColor: colors.inputBackground },
+  storyEyebrow: { color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
+  storyTitle: { marginTop: 7, marginBottom: 11, color: colors.textMain, fontSize: 18, fontWeight: '900' },
+  storyText: { flex: 1, color: colors.textSub, fontSize: 13, lineHeight: 20 },
+  achievementRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, paddingVertical: 7 },
+  reflectionText: { color: colors.textSub, fontSize: 13, lineHeight: 22 },
+  linkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
+  linkCopy: { flex: 1 },
+  linkTitle: { color: colors.textMain, fontSize: 12, fontWeight: '800' },
+  linkUrl: { marginTop: 3, color: colors.primary, fontSize: 11 },
   ownerRow: { flexDirection: 'row', alignItems: 'center', marginTop: 18, paddingTop: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#D4CAFF' },
   ownerAvatar: { width: 38, height: 38, marginRight: 10, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: '#FFFFFF' },
   ownerInitial: { color: colors.primary, fontSize: 15, fontWeight: '900' },
@@ -323,8 +407,11 @@ const styles = StyleSheet.create({
   taskTitle: { flex: 1, marginLeft: 9, color: colors.textMain, fontSize: 13, lineHeight: 19 },
   noTasksCard: { padding: 24, alignItems: 'center', borderRadius: 18, backgroundColor: '#FFFFFF' },
   noTasksText: { color: colors.textSub, fontSize: 13 },
-  footer: { position: 'absolute', right: 0, bottom: 0, left: 0, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 22, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, backgroundColor: '#FFFFFF' },
-  pdfButton: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 16, backgroundColor: colors.primary },
+  footer: { position: 'absolute', right: 0, bottom: 0, left: 0, flexDirection: 'row', gap: 10, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 22, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, backgroundColor: '#FFFFFF' },
+  editButton: { width: 102, minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: colors.primary, borderRadius: 16, backgroundColor: '#FFFFFF' },
+  editButtonPressed: { backgroundColor: colors.primarySurface },
+  editButtonText: { color: colors.primary, fontSize: 14, fontWeight: '900' },
+  pdfButton: { flex: 1, minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 16, backgroundColor: colors.primary },
   pdfButtonPressed: { backgroundColor: colors.primaryDark },
   pdfButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
 });

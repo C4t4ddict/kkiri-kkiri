@@ -55,6 +55,13 @@ CRAWLER_AUTO_INITIAL_DELAY_SECONDS=30
 
 자동 수집을 끄려면 `CRAWLER_AUTO_ENABLED=false`로 설정합니다. 서버 인스턴스를 여러 개 운영할 때는 중복 수집을 피하도록 한 인스턴스에서만 활성화하거나, 모든 인스턴스에서 자동 수집을 끄고 외부 스케줄러가 `npm run crawl:competitions`를 호출하도록 구성합니다.
 
+현재 크롤러는 MySQL의 `GET_LOCK`을 사용하므로 여러 서버 인스턴스에서 스케줄이 동시에 실행되어도 실제 수집 프로세스는 하나만 DB를 갱신합니다. 운영에서는 앱 API와 크롤러의 CPU·네트워크 부하를 분리하기 위해 `CRAWLER_AUTO_ENABLED=false`로 설정하고 별도 스케줄러에서 아래 명령을 실행하는 방식을 권장합니다.
+
+```bash
+cd server
+npm run crawl:competitions -- --source all --pages 3 --limit 50
+```
+
 활동 탭 기능 확인용 예시 팀은 현재 접수 중인 공모전을 기준으로 아래 명령으로 생성하거나 갱신할 수 있습니다.
 
 ```bash

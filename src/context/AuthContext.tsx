@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useState, ReactNode } from 'react';
 import { User } from '../types';
+import { configureAuthTransport } from '../api/authTransport';
 
 type AuthContextValue = {
   user: User | null;
@@ -10,7 +11,11 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  return <AuthContext.Provider value={{ user, setUser }}>{children}</AuthContext.Provider>;
+  const updateUser = useCallback((nextUser: User | null) => {
+    configureAuthTransport(nextUser?.authToken);
+    setUser(nextUser);
+  }, []);
+  return <AuthContext.Provider value={{ user, setUser: updateUser }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

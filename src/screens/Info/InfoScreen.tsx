@@ -17,7 +17,8 @@ import AppHeader from '../../components/AppHeader';
 import NotificationBell from '../../components/NotificationBell';
 import AppRefreshControl from '../../components/AppRefreshControl';
 import ApplicationStatusBadge from '../../components/ApplicationStatusBadge';
-import { ACTIVITY_FILTER_CATEGORIES } from '../../constants/activityCategories';
+import ScreenState from '../../components/ScreenState';
+import { getActivityCategory, getVisibleActivityCategories } from '../../constants/activityCategories';
 import { useAuth } from '../../context/AuthContext';
 import colors from '../../config/colors';
 
@@ -48,6 +49,8 @@ const InfoScreen = () => {
   const [activities, setActivities] = useState<any[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<number>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     const initialCategory = route.params?.initialCategory;
@@ -60,8 +63,12 @@ const InfoScreen = () => {
     try {
       const res = await axios.get(`${BASE_URL}/api/activities`);
       setActivities(Array.isArray(res.data) ? res.data : []);
+      setLoadError(false);
     } catch (error) {
       console.error('활동 불러오기 오류:', error);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -105,14 +112,7 @@ const InfoScreen = () => {
 
     if (selectedCategories.length > 0) {
       filtered = filtered.filter((item) => {
-        const sourceCategories = Array.isArray(item.source_categories)
-          ? item.source_categories
-          : [];
-        return selectedCategories.some((category) =>
-          item.category === category ||
-          item.topic_category === category ||
-          sourceCategories.includes(category)
-        );
+        return selectedCategories.includes(getActivityCategory(item));
       });
     }
 
@@ -129,14 +129,15 @@ const InfoScreen = () => {
   }, [activities, searchText, selectedCategories]);
 
   const filterCategories = useMemo(() => {
-    const selected = ACTIVITY_FILTER_CATEGORIES.filter((category) =>
+    const visibleCategories = getVisibleActivityCategories(activities);
+    const selected = visibleCategories.filter((category) =>
       selectedCategories.includes(category)
     );
-    const rest = ACTIVITY_FILTER_CATEGORIES.filter((category) =>
+    const rest = visibleCategories.filter((category) =>
       !selectedCategories.includes(category)
     );
     return [...selected, ...rest];
-  }, [selectedCategories]);
+  }, [activities, selectedCategories]);
 
   const toggleCategory = (cat: string) => {
     setSelectedCategories((prev) =>
@@ -196,13 +197,13 @@ const InfoScreen = () => {
         style={styles.activityList}
         refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
-        {filteredActivities.length === 0 && (
-          <View style={styles.emptyState}>
-            <Icon name="search-outline" size={30} color="#98A2B3" />
-            <Text style={styles.emptyTitle}>조건에 맞는 활동이 없어요</Text>
-            <Text style={styles.emptyDescription}>다른 카테고리나 검색어를 선택해보세요.</Text>
-          </View>
-        )}
+        {loading ? <ScreenState kind="loading" /> : null}
+        {!loading && loadError && activities.length === 0 ? (
+          <ScreenState kind="error" onRetry={fetchActivities} />
+        ) : null}
+        {!loading && !loadError && filteredActivities.length === 0 ? (
+          <ScreenState kind="empty" title="조건에 맞는 활동이 없어요" description="다른 카테고리나 검색어를 선택해보세요." />
+        ) : null}
         {filteredActivities.map((item) => {
           const applicationPeriod = formatDateRange(
             item.application_period_start,

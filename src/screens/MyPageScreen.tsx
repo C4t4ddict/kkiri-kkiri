@@ -43,6 +43,7 @@ const normalizeUser = (raw: any): User => ({
   studentId: raw.studentId ?? raw.student_number ?? '',
   birth: raw.birth ?? raw.birth_date ?? '',
   profile_picture: raw.profile_picture ?? undefined,
+  is_admin: Boolean(raw.is_admin),
 });
 
 export default function MyPageScreen() {
@@ -61,13 +62,13 @@ export default function MyPageScreen() {
       if (!response.ok || !data.success || !data.user) {
         throw new Error(data.message || '사용자 정보를 불러오지 못했습니다.');
       }
-      const nextUser = normalizeUser(data.user);
+      const nextUser = { ...normalizeUser(data.user), authToken: user.authToken };
       setUser(nextUser);
       setProfileImage(getCorrectImageUrl(nextUser.profile_picture));
     } catch (error) {
       console.error('사용자 정보 조회 오류:', error);
     }
-  }, [setUser, user?.id]);
+  }, [setUser, user?.authToken, user?.id]);
 
   useEffect(() => {
     fetchUserData();
@@ -175,17 +176,17 @@ export default function MyPageScreen() {
   const menuItems = [
     {
       label: '나의 평가',
-      image: require('../assets/eval.png'),
+      icon: 'stats-chart-outline',
       onPress: () => navigation.navigate('MyPage4', { user }),
     },
     {
       label: '팀원평가',
-      image: require('../assets/team.png'),
+      icon: 'people-outline',
       onPress: () => navigation.navigate('MyPage2', { user }),
     },
     {
       label: '설정',
-      image: require('../assets/settings.png'),
+      icon: 'settings-outline',
       onPress: () => navigation.navigate('Settings', { user }),
     },
     {
@@ -203,6 +204,11 @@ export default function MyPageScreen() {
       icon: 'paper-plane-outline',
       onPress: () => navigation.navigate('MyApplications'),
     },
+    ...(user.is_admin ? [{
+      label: '운영 관리',
+      icon: 'shield-checkmark-outline',
+      onPress: () => navigation.navigate('AdminScreen'),
+    }] : []),
   ];
 
   return (
@@ -233,11 +239,7 @@ export default function MyPageScreen() {
           {menuItems.map((item) => (
             <TouchableOpacity key={item.label} style={styles.menuCard} onPress={item.onPress} activeOpacity={0.72}>
               <View style={styles.menuIconContainer}>
-                {item.image ? (
-                  <Image source={item.image} style={styles.menuIcon} />
-                ) : (
-                  <Icon name={item.icon || 'ellipse-outline'} size={27} color={colors.primary} />
-                )}
+                <Icon name={item.icon || 'ellipse-outline'} size={28} color={colors.primary} />
               </View>
               <Text style={styles.menuText}>{item.label}</Text>
             </TouchableOpacity>
@@ -259,7 +261,7 @@ const styles = StyleSheet.create({
   scrollContent: { paddingBottom: 36 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { fontSize: 16, color: colors.textSub },
-  profileSection: { alignItems: 'center', paddingTop: 28, paddingBottom: 25 },
+  profileSection: { alignItems: 'center', paddingTop: 44, paddingBottom: 42 },
   profileImageContainer: {
     width: 124,
     height: 124,
@@ -275,28 +277,33 @@ const styles = StyleSheet.create({
   userEmail: { marginTop: 5, color: colors.textSub, fontSize: 13 },
   imageEditButton: { padding: 6 },
   pencilIcon: { width: 17, height: 17, resizeMode: 'contain' },
-  menuGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 18, gap: 10 },
+  menuGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 20,
+    columnGap: 10,
+    rowGap: 22,
+  },
   menuCard: {
     width: '31%',
-    minHeight: 105,
-    paddingVertical: 15,
-    borderWidth: 1,
-    borderColor: colors.border,
+    minHeight: 86,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  menuIconContainer: {
+    width: 56,
+    height: 56,
+    marginBottom: 9,
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FAFAFF',
-  },
-  menuIconContainer: {
-    width: 46,
-    height: 46,
-    marginBottom: 8,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: colors.primarySurface,
+    shadowColor: colors.primaryDark,
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 8,
+    elevation: 2,
   },
-  menuIcon: { width: 25, height: 25, resizeMode: 'contain' },
   menuText: { color: '#344054', fontSize: 13, fontWeight: '700' },
   logoutButtonWrapper: { alignItems: 'flex-end', paddingHorizontal: 24, paddingTop: 14 },
   logoutButton: { paddingVertical: 10, paddingHorizontal: 4 },

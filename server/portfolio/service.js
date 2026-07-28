@@ -119,6 +119,22 @@ const ensurePortfolioSchema = async (db) => {
     INDEX idx_miniportfolios_team (team_id)
   )`);
 
+  await db.query(`CREATE TABLE IF NOT EXISTS portfolio_edits (
+    portfolio_id INT NOT NULL PRIMARY KEY,
+    user_id INT NOT NULL,
+    custom_title VARCHAR(255) NULL,
+    custom_activity_type VARCHAR(100) NULL,
+    custom_role VARCHAR(100) NULL,
+    custom_summary TEXT NULL,
+    achievements JSON NULL,
+    reflection TEXT NULL,
+    image_urls JSON NULL,
+    links JSON NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_portfolio_edits_user (user_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
   for (const [column, definition] of Object.entries(PORTFOLIO_COLUMNS)) {
     await ensureColumn(db, 'miniportfolios', column, definition);
   }
@@ -313,6 +329,10 @@ const normalizePortfolio = (row) => {
     overall: fallbackTasks,
   });
 
+  const achievements = safeJson(row.achievements, []);
+  const imageUrls = safeJson(row.image_urls, []);
+  const links = safeJson(row.links, []);
+
   return {
     ...row,
     period_start: formatDateOnly(row.period_start),
@@ -320,7 +340,25 @@ const normalizePortfolio = (row) => {
     archived_at: row.archived_at || row.created_at,
     completed_tasks: completedTasks,
     completed_task_count: countCompletedTasks(completedTasks),
+    achievements: Array.isArray(achievements) ? achievements : [],
+    image_urls: Array.isArray(imageUrls) ? imageUrls : [],
+    links: Array.isArray(links) ? links : [],
+    is_edited: Boolean(row.edit_updated_at),
   };
+};
+
+const mergePortfolioEdit = (portfolio) => {
+  portfolio.activity_name = portfolio.custom_title || portfolio.resolved_activity_name || portfolio.activity_name;
+  portfolio.activity_type = portfolio.custom_activity_type || portfolio.resolved_activity_type || portfolio.activity_type;
+  portfolio.role = portfolio.custom_role || portfolio.role;
+  portfolio.summary = portfolio.custom_summary || portfolio.summary;
+  delete portfolio.resolved_activity_name;
+  delete portfolio.resolved_activity_type;
+  delete portfolio.custom_title;
+  delete portfolio.custom_activity_type;
+  delete portfolio.custom_role;
+  delete portfolio.custom_summary;
+  return portfolio;
 };
 
 const listPastActivities = async (db, userId) => {
@@ -329,9 +367,9 @@ const listPastActivities = async (db, userId) => {
       mp.portfolio_id,
       mp.user_id,
       mp.team_id,
-      COALESCE(mp.activity_name, t.team_name, tr.activity_name, tr.post_name, CONCAT('활동 ', mp.team_id)) AS activity_name,
-      COALESCE(mp.activity_type, tr.activity_type, '팀 활동') AS activity_type,
-      mp.role,
+      COALESCE(pe.custom_title, mp.activity_name, t.team_name, tr.activity_name, tr.post_name, CONCAT('활동 ', mp.team_id)) AS activity_name,
+      COALESCE(pe.custom_activity_type, mp.activity_type, tr.activity_type, '팀 활동') AS activity_type,
+      COALESCE(pe.custom_role, mp.role) AS role,
       mp.period,
       mp.period_start,
       mp.period_end,
@@ -340,6 +378,7 @@ const listPastActivities = async (db, userId) => {
       mp.archived_at,
       mp.created_at
     FROM miniportfolios mp
+    LEFT JOIN portfolio_edits pe ON pe.portfolio_id = mp.portfolio_id AND pe.user_id = mp.user_id
     LEFT JOIN teams t ON t.team_id = mp.team_id
     LEFT JOIN team_recruitments tr ON tr.recruitment_id = mp.recruitment_id
     WHERE mp.user_id = ?
@@ -353,6 +392,15 @@ const getMiniPortfolio = async (db, userId, portfolioId) => {
   const [rows] = await db.query(
     `SELECT
       mp.*,
+      pe.custom_title,
+      pe.custom_activity_type,
+      pe.custom_role,
+      pe.custom_summary,
+      pe.achievements,
+      pe.reflection,
+      pe.image_urls,
+      pe.links,
+      pe.updated_at AS edit_updated_at,
       u.name AS user_name,
       u.department,
       t.team_name,
@@ -361,6 +409,7 @@ const getMiniPortfolio = async (db, userId, portfolioId) => {
       (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = mp.team_id) AS member_count
     FROM miniportfolios mp
     JOIN users u ON u.id = mp.user_id
+    LEFT JOIN portfolio_edits pe ON pe.portfolio_id = mp.portfolio_id AND pe.user_id = mp.user_id
     LEFT JOIN teams t ON t.team_id = mp.team_id
     LEFT JOIN team_recruitments tr ON tr.recruitment_id = mp.recruitment_id
     WHERE mp.portfolio_id = ? AND mp.user_id = ?`,
@@ -368,12 +417,72 @@ const getMiniPortfolio = async (db, userId, portfolioId) => {
   );
 
   if (!rows.length) return null;
-  const portfolio = normalizePortfolio(rows[0]);
-  portfolio.activity_name = portfolio.resolved_activity_name || portfolio.activity_name;
-  portfolio.activity_type = portfolio.resolved_activity_type || portfolio.activity_type;
-  delete portfolio.resolved_activity_name;
-  delete portfolio.resolved_activity_type;
-  return portfolio;
+  return mergePortfolioEdit(normalizePortfolio(rows[0]));
+};
+
+const normalizeTextList = (value, maxItems = 20, maxLength = 300) =>
+  (Array.isArray(value) ? value : [])
+    .map((item) => String(item || '').trim().slice(0, maxLength))
+    .filter(Boolean)
+    .slice(0, maxItems);
+
+const normalizeLinks = (value) =>
+  (Array.isArray(value) ? value : [])
+    .map((link) => ({
+      title: String(link?.title || '').trim().slice(0, 100),
+      url: String(link?.url || '').trim().slice(0, 1000),
+    }))
+    .filter((link) => link.url && /^https?:\/\//i.test(link.url))
+    .slice(0, 10);
+
+const sanitizePortfolioEdit = (input = {}) => ({
+  title: String(input.title || '').trim().slice(0, 255) || null,
+  activityType: String(input.activity_type || '').trim().slice(0, 100) || null,
+  role: String(input.role || '').trim().slice(0, 100) || null,
+  summary: String(input.summary || '').trim().slice(0, 4000) || null,
+  achievements: normalizeTextList(input.achievements),
+  reflection: String(input.reflection || '').trim().slice(0, 5000) || null,
+  imageUrls: normalizeTextList(input.image_urls, 6, 1000).filter((url) => /^https?:\/\//i.test(url) || /^\/uploads\//.test(url)),
+  links: normalizeLinks(input.links),
+});
+
+const updateMiniPortfolio = async (db, userId, portfolioId, input) => {
+  const [rows] = await db.query(
+    'SELECT portfolio_id FROM miniportfolios WHERE portfolio_id = ? AND user_id = ?',
+    [portfolioId, userId],
+  );
+  if (!rows.length) return null;
+
+  const edit = sanitizePortfolioEdit(input);
+  await db.query(
+    `INSERT INTO portfolio_edits (
+      portfolio_id, user_id, custom_title, custom_activity_type, custom_role,
+      custom_summary, achievements, reflection, image_urls, links
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      custom_title = VALUES(custom_title),
+      custom_activity_type = VALUES(custom_activity_type),
+      custom_role = VALUES(custom_role),
+      custom_summary = VALUES(custom_summary),
+      achievements = VALUES(achievements),
+      reflection = VALUES(reflection),
+      image_urls = VALUES(image_urls),
+      links = VALUES(links),
+      updated_at = CURRENT_TIMESTAMP`,
+    [
+      portfolioId,
+      userId,
+      edit.title,
+      edit.activityType,
+      edit.role,
+      edit.summary,
+      JSON.stringify(edit.achievements),
+      edit.reflection,
+      JSON.stringify(edit.imageUrls),
+      JSON.stringify(edit.links),
+    ],
+  );
+  return getMiniPortfolio(db, userId, portfolioId);
 };
 
 module.exports = {
@@ -387,4 +496,6 @@ module.exports = {
   groupCompletedTasks,
   listPastActivities,
   normalizePortfolio,
+  sanitizePortfolioEdit,
+  updateMiniPortfolio,
 };

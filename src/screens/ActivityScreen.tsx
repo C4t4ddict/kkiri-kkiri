@@ -569,10 +569,13 @@ const styles = StyleSheet.create({
   selectRow: {
     minHeight: 50,
     marginTop: 18,
+    marginBottom: 12,
     marginHorizontal: 20,
+    paddingBottom: 6,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    zIndex: 20,
   },
   dropdown: {
     flex: 1,
@@ -600,7 +603,7 @@ const styles = StyleSheet.create({
   },
   dropdownList: {
     position: 'absolute',
-    top: '100%',
+    top: 56,
     left: 0,
     right: 0,
     backgroundColor: '#fff',
