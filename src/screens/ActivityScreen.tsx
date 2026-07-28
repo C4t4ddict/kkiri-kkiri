@@ -94,6 +94,7 @@ export default function ActivityScreen() {
   const [dailyTodos, setDailyTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [widgetRefreshKey, setWidgetRefreshKey] = useState(0);
   const [selectedGoalScope, setSelectedGoalScope] = useState<GoalScope>('일일');
 
   const API_BASE = useMemo(() => API_BASE_URL, []);
@@ -172,6 +173,7 @@ export default function ActivityScreen() {
         setDailyTodos([]);
       } finally {
         setLoading(false);
+        setWidgetRefreshKey((value) => value + 1);
       }
     },
     [API_BASE, currentUserId]
@@ -510,7 +512,8 @@ export default function ActivityScreen() {
                   return (
                     <C
                         key={w.id}
-                        teamId={selected?.teamId ?? null}   // ← 팀 ID 내려줌
+                        teamId={selected?.teamId ?? null}
+                        refreshKey={widgetRefreshKey}
                     />
                   );
                 })}

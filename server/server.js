@@ -6,6 +6,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 
 try {
@@ -19,6 +20,7 @@ const { getRequestMetrics, logger, requestLogger } = require('./lib/logger');
 const { createSecureImageUpload } = require('./lib/secureImageUpload');
 const { createTtlCache } = require('./lib/ttlCache');
 const { extractPrizeDetails, extractPrizeSummary } = require('./lib/activityPrize');
+const { buildMonthTodoCalendar } = require('./lib/todoCalendar');
 const {
   ensureAwardsSchema,
   listAwards,
@@ -265,6 +267,7 @@ let portfolioQueue = Promise.resolve();
 let matchingSchemaReady = Promise.resolve();
 let adminSchemaReady = Promise.resolve();
 let awardSchemaReady = Promise.resolve();
+let todoCalendarSchemaReady = Promise.resolve();
 let crawlerScheduler = null;
 
 const queuePortfolioJob = (job) => {
@@ -342,6 +345,29 @@ const ensureTodoCompletionColumn = () => {
       if (alterErr) console.error('투두 완료 시각 컬럼 준비 오류:', alterErr);
     });
   });
+};
+
+const ensureTodoCalendarSchema = async () => {
+  const [columns] = await portfolioDb.query('SHOW COLUMNS FROM todos');
+  const existingColumns = new Set(columns.map((column) => column.Field));
+  const requiredColumns = [
+    ['range_group_id', 'VARCHAR(36) NULL AFTER scope_end_date'],
+    ['range_start_date', 'DATE NULL AFTER range_group_id'],
+    ['range_end_date', 'DATE NULL AFTER range_start_date'],
+  ];
+  for (const [columnName, definition] of requiredColumns) {
+    if (!existingColumns.has(columnName)) {
+      await portfolioDb.query(`ALTER TABLE todos ADD COLUMN \`${columnName}\` ${definition}`);
+    }
+  }
+  const [indexes] = await portfolioDb.query(
+    "SHOW INDEX FROM todos WHERE Key_name = 'idx_todos_calendar_range'"
+  );
+  if (!indexes.length) {
+    await portfolioDb.query(
+      'ALTER TABLE todos ADD INDEX idx_todos_calendar_range (team_id, assigned_user_id, scope_start_date, scope_end_date)'
+    );
+  }
 };
 
 const ensureActivityPrizeSchema = async () => {
@@ -547,10 +573,12 @@ db.getConnection((err, connection) => {
     console.log('✅ MySQL 연결 성공!');
     ensureActivityTables();
     ensureTodoCompletionColumn();
+    todoCalendarSchemaReady = ensureTodoCalendarSchema();
     crawlerScheduler = startCrawlerScheduler();
     matchingSchemaReady = Promise.all([
       ensureRecruitmentActivityColumns(),
       ensureActivityPrizeSchema(),
+      todoCalendarSchemaReady,
     ])
       .then(() => ensureMatchingInvitationSchema())
       .then(() => ensureApplicationSchema(portfolioDb));
@@ -2806,6 +2834,54 @@ app.get('/teams/:teamId/daily-todos', (req, res) => {
   });
 });
 
+app.get('/teams/:teamId/calendar', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const teamId = Number(req.params.teamId);
+  const requestedYear = Number(req.query.year);
+  const requestedMonth = Number(req.query.month);
+  const today = new Date();
+  const year = Number.isInteger(requestedYear) && requestedYear >= 2000 && requestedYear <= 2100
+    ? requestedYear
+    : today.getFullYear();
+  const month = Number.isInteger(requestedMonth) && requestedMonth >= 1 && requestedMonth <= 12
+    ? requestedMonth
+    : today.getMonth() + 1;
+
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!teamId) return res.status(400).json({ message: '활동 정보가 올바르지 않습니다' });
+
+  try {
+    await todoCalendarSchemaReady;
+    const monthStart = formatDateOnly(new Date(year, month - 1, 1));
+    const monthEnd = formatDateOnly(new Date(year, month, 0));
+    const [rows] = await portfolioDb.query(
+      `SELECT
+        td.todo_id,
+        td.title,
+        td.status,
+        td.scope_type,
+        td.scope_start_date,
+        td.scope_end_date,
+        td.range_group_id,
+        td.range_start_date,
+        td.range_end_date
+      FROM todos td
+      JOIN team_members requester ON requester.team_id = td.team_id
+      WHERE td.team_id = ?
+        AND requester.user_id = ?
+        AND td.assigned_user_id = ?
+        AND td.scope_start_date <= ?
+        AND td.scope_end_date >= ?
+      ORDER BY td.scope_start_date, td.todo_id`,
+      [teamId, userId, userId, monthEnd, monthStart],
+    );
+    res.json(buildMonthTodoCalendar(year, month, rows));
+  } catch (error) {
+    console.error('일정 캘린더 조회 오류:', error);
+    res.status(500).json({ message: '일정 캘린더를 불러오지 못했습니다' });
+  }
+});
+
 app.get('/teams/:teamId/heatmap', (req, res) => {
   const { teamId } = req.params;
   const requestedYear = Number(req.query.year);
@@ -3061,6 +3137,7 @@ app.post('/todos/period', async (req, res) => {
   if (dayCount > 366) return res.status(400).json({ message: '기간 목표는 최대 366일까지 설정할 수 있습니다' });
 
   const dates = listDateRange(startDate, endDate);
+  const rangeGroupId = crypto.randomUUID();
   const connection = await portfolioDb.getConnection();
   try {
     await connection.beginTransaction();
@@ -3084,11 +3161,23 @@ app.post('/todos/period', async (req, res) => {
     const datesToCreate = dates.filter((date) => !existingDates.has(date));
 
     if (datesToCreate.length) {
-      const placeholders = datesToCreate.map(() => "(?, ?, ?, '미진행', '일일', ?, ?)").join(', ');
-      const values = datesToCreate.flatMap((date) => [teamId, userId, title, date, date]);
+      const placeholders = datesToCreate
+        .map(() => "(?, ?, ?, '미진행', '일일', ?, ?, ?, ?, ?)")
+        .join(', ');
+      const values = datesToCreate.flatMap((date) => [
+        teamId,
+        userId,
+        title,
+        date,
+        date,
+        rangeGroupId,
+        dates[0],
+        dates[dates.length - 1],
+      ]);
       await connection.query(
         `INSERT INTO todos
-          (team_id, assigned_user_id, title, status, scope_type, scope_start_date, scope_end_date)
+          (team_id, assigned_user_id, title, status, scope_type, scope_start_date, scope_end_date,
+           range_group_id, range_start_date, range_end_date)
          VALUES ${placeholders}`,
         values,
       );
@@ -3102,6 +3191,7 @@ app.post('/todos/period', async (req, res) => {
       skipped_count: dates.length - datesToCreate.length,
       start_date: dates[0],
       end_date: dates[dates.length - 1],
+      range_group_id: rangeGroupId,
     });
   } catch (error) {
     await connection.rollback();
