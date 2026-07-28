@@ -11,6 +11,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { useAuth } from '../context/AuthContext';
 import Icon from 'react-native-vector-icons/Ionicons';
 import colors from '../config/colors';
 
@@ -96,6 +97,7 @@ const statusColor = (status: CalendarTodo['status']) => {
 };
 
 export default function ActivityCalendar({ teamId, refreshKey = 0 }: Props) {
+  const { user } = useAuth();
   const { width: windowWidth } = useWindowDimensions();
   const today = useMemo(() => new Date(), []);
   const [viewDate, setViewDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
@@ -121,7 +123,9 @@ export default function ActivityCalendar({ teamId, refreshKey = 0 }: Props) {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(`${API_BASE_URL}/teams/${teamId}/calendar?year=${year}&month=${month}`);
+      const response = await fetch(`${API_BASE_URL}/teams/${teamId}/calendar?year=${year}&month=${month}`, {
+        headers: { 'x-user-id': String(user?.id || '') },
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || '일정을 불러오지 못했습니다');
       setCalendar({
@@ -136,7 +140,7 @@ export default function ActivityCalendar({ teamId, refreshKey = 0 }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [month, teamId, year]);
+  }, [month, teamId, user?.id, year]);
 
   useEffect(() => {
     fetchCalendar();
