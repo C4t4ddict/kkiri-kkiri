@@ -70,21 +70,32 @@ const MatchingScreen = () => {
   const { user } = useAuth();
 
   const fetchAll = useCallback(async () => {
+    setLoading(true);
     try {
-      const [rRes, aRes] = await Promise.all([
+      const applicationRequest = user?.id
+        ? axios.get(`${BASE_URL}/api/applications`, {
+          headers: { 'x-user-id': String(user.id) },
+        })
+        : Promise.resolve({ data: [] });
+      const [recruitmentResult, applicationResult] = await Promise.allSettled([
         axios.get(`${BASE_URL}/api/team-recruitments`),          // 또는 with-count
-        axios.get(`${BASE_URL}/api/applications`),
+        applicationRequest,
       ]);
-      setRecruitments(rRes.data || []);
-      setApplications(aRes.data || []);
+      if (recruitmentResult.status === 'rejected') throw recruitmentResult.reason;
+      setRecruitments(Array.isArray(recruitmentResult.value.data) ? recruitmentResult.value.data : []);
+      setApplications(
+        applicationResult.status === 'fulfilled' && Array.isArray(applicationResult.value.data)
+          ? applicationResult.value.data
+          : []
+      );
       setLoadError(false);
     } catch (e) {
-      console.error('매칭 데이터 불러오기 오류:', e);
+      console.warn('매칭 데이터 불러오기 오류:', e);
       setLoadError(true);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   // 화면에 다시 포커스될 때마다 새로고침
   useFocusEffect(

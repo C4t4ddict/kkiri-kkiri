@@ -65,7 +65,7 @@ const InfoScreen = () => {
       setActivities(Array.isArray(res.data) ? res.data : []);
       setLoadError(false);
     } catch (error) {
-      console.error('활동 불러오기 오류:', error);
+      console.warn('활동 불러오기 오류:', error);
       setLoadError(true);
     } finally {
       setLoading(false);
@@ -84,7 +84,7 @@ const InfoScreen = () => {
       });
       setFavoriteIds(new Set((res.data || []).map(Number)));
     } catch (error) {
-      console.error('관심 활동 불러오기 오류:', error);
+      console.warn('관심 활동 불러오기 오류:', error);
     }
   }, [user?.id]);
 

@@ -43,7 +43,7 @@ export default function HomeScreen() {
       setActivities(Array.isArray(res.data) ? res.data : []);
       setError(false);
     } catch (requestError) {
-      console.error(requestError);
+      console.warn('홈 활동 불러오기 오류:', requestError);
       setError(true);
       if (showError) Alert.alert('오류', '활동 목록을 불러오지 못했습니다.');
     }

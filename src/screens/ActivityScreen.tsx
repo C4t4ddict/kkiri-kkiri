@@ -121,7 +121,9 @@ export default function ActivityScreen() {
   const fetchTeams = useCallback(async () => {
     if (!currentUserId) return [];
     try {
-      const res = await fetch(`${API_BASE}/users/${currentUserId}/teams`);
+      const res = await fetch(`${API_BASE}/users/${currentUserId}/teams`, {
+        headers: { 'x-user-id': String(currentUserId) },
+      });
       if (!res.ok) throw new Error(`활동 목록 조회 실패 (${res.status})`);
       const data = await res.json();
       if (!Array.isArray(data)) throw new Error('활동 목록 응답 형식 오류');
