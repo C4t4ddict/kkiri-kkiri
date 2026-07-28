@@ -101,4 +101,21 @@
 - P1: 없음
 - P2: 없음
 
+## 이슈 #36 검증
+
+- 기준 이미지: `/var/folders/hb/lmqmwjpx2w1cbvqy8xxm3jzm0000gn/T/TemporaryItems/NSIRD_screencaptureui_NGt6W2/스크린샷 2026-07-28 오후 7.59.23.png`
+- 구현 캡처: `/tmp/kkiri-calendar-header36b.png`, `/tmp/kkiri-calendar-settings36-late.png`
+- 모집글 검증: `/tmp/kkiri-home-issue36.png`, `/tmp/kkiri-detail36.png`, `/tmp/kkiri-detail-contact36.png`
+- 날짜 숫자와 기간 목표 선을 별도 세로 영역으로 분리해 기준 이미지의 겹침을 제거함
+- 기간 목표 선을 둥근 5px 세그먼트와 보라색 계열 팔레트로 정리하고 겹치는 목표는 최대 3개 레인으로 분리함
+- 캘린더 설정에서 일일·주간·월간 및 미진행·진행중·완료 표시를 각각 제어하고 설정 저장·복원을 확인함
+- 일일 목표 표시를 끄면 남은 목표 숫자와 일일 기간 목표가 함께 숨겨지고 기본값 복원 후 다시 표시되는 것을 확인함
+- 홈과 상세의 모집글 `+1`, 상세 하단 모집글 1개, 이메일 복사 완료 알림을 실제 Android Emulator에서 확인함
+
+## 이슈 #36 등급
+
+- P0: 없음
+- P1: 없음
+- P2: 없음
+
 final result: passed

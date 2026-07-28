@@ -58,7 +58,7 @@ const buildMonthTodoCalendar = (year, month, rows = []) => {
       const day = dayMap.get(currentDate);
       if (day) {
         day.todos.push(todo);
-        day.count += 1;
+        if (todo.scope_type === '일일' && todo.status !== '완료') day.count += 1;
       }
       currentDate = addDay(currentDate);
     }
@@ -69,14 +69,23 @@ const buildMonthTodoCalendar = (year, month, rows = []) => {
         rangeMap.set(todo.range_group_id, {
           range_group_id: todo.range_group_id,
           title: todo.title,
+          scope_type: todo.scope_type,
           start_date: todo.range_start_date,
           end_date: todo.range_end_date,
           total_count: 1,
           completed_count: todo.status === '완료' ? 1 : 0,
+          status_counts: {
+            미진행: todo.status === '미진행' ? 1 : 0,
+            진행중: todo.status === '진행중' ? 1 : 0,
+            완료: todo.status === '완료' ? 1 : 0,
+          },
         });
       } else {
         existing.total_count += 1;
         if (todo.status === '완료') existing.completed_count += 1;
+        if (Object.prototype.hasOwnProperty.call(existing.status_counts, todo.status)) {
+          existing.status_counts[todo.status] += 1;
+        }
       }
     }
   });
