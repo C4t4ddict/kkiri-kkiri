@@ -248,16 +248,32 @@ export default function ActivityCalendar({ teamId, refreshKey = 0 }: Props) {
     }) || [],
     [filters, selectedDay],
   );
-  const visibleRangeLanes = useMemo(() => {
-    const maximum = cells.reduce((highest, cell) => {
-      if (!cell.date) return highest;
-      const count = visibleRanges.filter(
-        (range) => cell.date! >= range.start_date && cell.date! <= range.end_date,
-      ).length;
-      return Math.max(highest, count);
-    }, 0);
-    return Math.min(MAX_RANGE_LANES, maximum);
-  }, [cells, visibleRanges]);
+  const rangeLayout = useMemo(() => {
+    const laneEnds = Array<string>(MAX_RANGE_LANES).fill('');
+    const laneByRangeId = new Map<string, number>();
+    const sortedRanges = [...visibleRanges].sort((first, second) => {
+      const firstCompleted = first.completed_count >= first.total_count ? 1 : 0;
+      const secondCompleted = second.completed_count >= second.total_count ? 1 : 0;
+      return firstCompleted - secondCompleted
+        || first.start_date.localeCompare(second.start_date)
+        || first.end_date.localeCompare(second.end_date)
+        || first.range_group_id.localeCompare(second.range_group_id);
+    });
+
+    sortedRanges.forEach((range) => {
+      const lane = laneEnds.findIndex((laneEnd) => !laneEnd || laneEnd < range.start_date);
+      if (lane < 0) return;
+      laneEnds[lane] = range.end_date;
+      laneByRangeId.set(range.range_group_id, lane);
+    });
+
+    const usedLanes = [...laneByRangeId.values()];
+    return {
+      laneByRangeId,
+      laneCount: usedLanes.length ? Math.max(...usedLanes) + 1 : 0,
+    };
+  }, [visibleRanges]);
+  const visibleRangeLanes = rangeLayout.laneCount;
   const cellWidth = Math.max(28, (gridWidth - 2) / 7);
   const cellHeight = Math.max(68, Math.min(94, Math.round(cellWidth * 1.08) + (visibleRangeLanes * 7)));
   const todayKey = dateKey(today);
@@ -366,9 +382,11 @@ export default function ActivityCalendar({ teamId, refreshKey = 0 }: Props) {
           if (!cell.date) {
             return <View key={cell.key} style={[styles.emptyDayCell, { width: cellWidth, height: cellHeight }]} />;
           }
-          const activeRanges = visibleRanges.filter(
-            (range) => cell.date! >= range.start_date && cell.date! <= range.end_date,
-          ).slice(0, MAX_RANGE_LANES);
+          const activeRanges = visibleRanges
+            .map((range) => ({ range, lane: rangeLayout.laneByRangeId.get(range.range_group_id) }))
+            .filter(({ range, lane }) =>
+              lane !== undefined && cell.date! >= range.start_date && cell.date! <= range.end_date,
+            );
           const remainingDailyCount = getRemainingDailyCount(cell.day);
           const isToday = cell.date === todayKey;
           const isSelected = selectedDay?.date === cell.date;
@@ -402,7 +420,7 @@ export default function ActivityCalendar({ teamId, refreshKey = 0 }: Props) {
                 pointerEvents="none"
                 style={[styles.rangeArea, { height: Math.max(1, visibleRangeLanes) * 7 }]}
               >
-                {activeRanges.map((range, rangeIndex) => {
+                {activeRanges.map(({ range, lane }) => {
                   const beginsHere = cell.date === range.start_date;
                   const endsHere = cell.date === range.end_date;
                   return (
@@ -410,7 +428,7 @@ export default function ActivityCalendar({ teamId, refreshKey = 0 }: Props) {
                       key={range.range_group_id}
                       style={[
                         styles.rangeLine,
-                        { top: rangeIndex * 7, backgroundColor: rangeColor(range) },
+                        { top: lane! * 7, backgroundColor: rangeColor(range) },
                         beginsHere && styles.rangeBeginning,
                         endsHere && styles.rangeEnding,
                       ]}

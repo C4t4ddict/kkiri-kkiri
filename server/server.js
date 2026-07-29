@@ -20,7 +20,7 @@ const { getRequestMetrics, logger, requestLogger } = require('./lib/logger');
 const { createSecureImageUpload } = require('./lib/secureImageUpload');
 const { createTtlCache } = require('./lib/ttlCache');
 const { extractPrizeDetails, extractPrizeSummary } = require('./lib/activityPrize');
-const { buildMonthTodoCalendar } = require('./lib/todoCalendar');
+const { buildMonthTodoCalendar, findPeriodGoalCapacityConflict } = require('./lib/todoCalendar');
 const {
   ensureAwardsSchema,
   listAwards,
@@ -3177,6 +3177,32 @@ app.post('/todos/period', async (req, res) => {
     );
     const existingDates = new Set(existing.map((row) => row.goal_date));
     const datesToCreate = dates.filter((date) => !existingDates.has(date));
+
+    if (datesToCreate.length) {
+      const [activePeriodGoals] = await connection.query(
+        `SELECT
+          range_group_id,
+          DATE_FORMAT(MIN(range_start_date), '%Y-%m-%d') AS start_date,
+          DATE_FORMAT(MAX(range_end_date), '%Y-%m-%d') AS end_date,
+          SUM(CASE WHEN status <> '완료' THEN 1 ELSE 0 END) AS incomplete_count
+         FROM todos
+         WHERE team_id = ? AND assigned_user_id = ? AND range_group_id IS NOT NULL
+           AND range_start_date <= ? AND range_end_date >= ?
+         GROUP BY range_group_id
+         HAVING incomplete_count > 0`,
+        [teamId, userId, dates[dates.length - 1], dates[0]],
+      );
+      const capacityConflict = findPeriodGoalCapacityConflict(dates, activePeriodGoals, 3);
+      if (capacityConflict) {
+        await connection.rollback();
+        return res.status(409).json({
+          message: '선택한 기간에는 진행 중인 기간 목표가 이미 3개입니다. 하나를 완료한 뒤 추가해주세요.',
+          conflict_date: capacityConflict.date,
+          active_count: capacityConflict.active_count,
+          maximum_active_goals: 3,
+        });
+      }
+    }
 
     if (datesToCreate.length) {
       const placeholders = datesToCreate

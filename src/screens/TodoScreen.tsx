@@ -698,6 +698,12 @@ export default function TodoScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>기간 목표 추가</Text>
             <Text style={styles.modalDescription}>설정한 기간의 매일 동일한 일일 목표가 생성됩니다.</Text>
+            <View style={styles.periodLimitNotice}>
+              <Icon name="layers-outline" size={16} color={PURPLE} />
+              <Text style={styles.periodLimitNoticeText}>
+                같은 날짜에는 최대 3개까지 진행할 수 있어요. 하나를 완료하면 새 목표를 추가할 수 있습니다.
+              </Text>
+            </View>
             <Text style={styles.modalFieldLabel}>목표</Text>
             <TextInput
               value={periodGoalTitle}
@@ -901,6 +907,16 @@ const styles = StyleSheet.create({
   modalCard: { width: '86%', backgroundColor: 'white', borderRadius: 14, padding: 16 },
   modalTitle: { fontSize: 16, fontWeight: '700', color: TEXT_MAIN, marginBottom: 10 },
   modalDescription: { marginTop: -4, marginBottom: 12, color: TEXT_HINT, fontSize: 13, lineHeight: 19 },
+  periodLimitNotice: {
+    marginBottom: 14,
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderRadius: 11,
+    backgroundColor: '#F4F0FF',
+  },
+  periodLimitNoticeText: { flex: 1, marginLeft: 7, color: '#53389E', fontSize: 11, lineHeight: 16, fontWeight: '700' },
   modalFieldLabel: { marginBottom: 6, color: '#344054', fontSize: 12, fontWeight: '800' },
   modalHelper: { marginTop: -7, marginBottom: 12, color: TEXT_HINT, fontSize: 11 },
   modalInput: {
