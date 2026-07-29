@@ -360,6 +360,7 @@ const ensureTodoCalendarSchema = async () => {
     ['range_group_id', 'VARCHAR(36) NULL AFTER scope_end_date'],
     ['range_start_date', 'DATE NULL AFTER range_group_id'],
     ['range_end_date', 'DATE NULL AFTER range_start_date'],
+    ['range_color', 'VARCHAR(7) NULL AFTER range_end_date'],
   ];
   for (const [columnName, definition] of requiredColumns) {
     if (!existingColumns.has(columnName)) {
@@ -2873,7 +2874,8 @@ app.get('/teams/:teamId/calendar', async (req, res) => {
         td.scope_end_date,
         td.range_group_id,
         td.range_start_date,
-        td.range_end_date
+        td.range_end_date,
+        td.range_color
       FROM todos td
       JOIN team_members requester ON requester.team_id = td.team_id
       WHERE td.team_id = ?
@@ -3129,11 +3131,14 @@ app.get('/todos/:teamId', (req, res) => {
 });
 
 app.post('/todos/period', async (req, res) => {
+  const periodGoalColors = ['#53389E', '#6941C6', '#7A5AF8', '#7F56D9', '#9E77ED', '#B692F6'];
   const userId = getRequestUserId(req);
   const teamId = Number(req.body?.team_id);
   const title = String(req.body?.title || '').trim();
   const startDate = parseStrictDateOnly(req.body?.start_date);
   const endDate = parseStrictDateOnly(req.body?.end_date);
+  const requestedColor = String(req.body?.color || '').trim().toUpperCase();
+  const rangeColor = requestedColor || '#7A5AF8';
 
   if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
   if (!Number.isInteger(teamId) || teamId <= 0 || !title || !startDate || !endDate) {
@@ -3141,12 +3146,16 @@ app.post('/todos/period', async (req, res) => {
   }
   if (title.length > 255) return res.status(400).json({ message: '목표는 255자 이하로 입력해주세요' });
   if (endDate < startDate) return res.status(400).json({ message: '종료일은 시작일 이후여야 합니다' });
+  if (!periodGoalColors.includes(rangeColor)) {
+    return res.status(400).json({ message: '지원하지 않는 기간 목표 색상입니다' });
+  }
 
   const dayCount = Math.floor((endDate - startDate) / 86_400_000) + 1;
   if (dayCount > 366) return res.status(400).json({ message: '기간 목표는 최대 366일까지 설정할 수 있습니다' });
 
   const dates = listDateRange(startDate, endDate);
   const rangeGroupId = crypto.randomUUID();
+  await todoCalendarSchemaReady;
   const connection = await portfolioDb.getConnection();
   try {
     await connection.beginTransaction();
@@ -3171,7 +3180,7 @@ app.post('/todos/period', async (req, res) => {
 
     if (datesToCreate.length) {
       const placeholders = datesToCreate
-        .map(() => "(?, ?, ?, '미진행', '일일', ?, ?, ?, ?, ?)")
+        .map(() => "(?, ?, ?, '미진행', '일일', ?, ?, ?, ?, ?, ?)")
         .join(', ');
       const values = datesToCreate.flatMap((date) => [
         teamId,
@@ -3182,11 +3191,12 @@ app.post('/todos/period', async (req, res) => {
         rangeGroupId,
         dates[0],
         dates[dates.length - 1],
+        rangeColor,
       ]);
       await connection.query(
         `INSERT INTO todos
           (team_id, assigned_user_id, title, status, scope_type, scope_start_date, scope_end_date,
-           range_group_id, range_start_date, range_end_date)
+           range_group_id, range_start_date, range_end_date, range_color)
          VALUES ${placeholders}`,
         values,
       );
@@ -3201,6 +3211,7 @@ app.post('/todos/period', async (req, res) => {
       start_date: dates[0],
       end_date: dates[dates.length - 1],
       range_group_id: rangeGroupId,
+      color: rangeColor,
     });
   } catch (error) {
     await connection.rollback();

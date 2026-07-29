@@ -51,6 +51,7 @@ const buildMonthTodoCalendar = (year, month, rows = []) => {
       range_group_id: row.range_group_id || null,
       range_start_date: formatDateKey(row.range_start_date),
       range_end_date: formatDateKey(row.range_end_date),
+      range_color: row.range_color || null,
     };
     let currentDate = scopeStart < monthStart ? monthStart : scopeStart;
     const finalDate = scopeEnd > monthEnd ? monthEnd : scopeEnd;
@@ -70,6 +71,7 @@ const buildMonthTodoCalendar = (year, month, rows = []) => {
           range_group_id: todo.range_group_id,
           title: todo.title,
           scope_type: todo.scope_type,
+          color: todo.range_color,
           start_date: todo.range_start_date,
           end_date: todo.range_end_date,
           total_count: 1,

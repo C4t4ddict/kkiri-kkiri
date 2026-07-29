@@ -30,6 +30,14 @@ const LILAC = '#EFEAFF';
 const INPUT_BG = '#F2F4F7';
 const TEXT_MAIN = '#101828';
 const TEXT_HINT = '#667085';
+const PERIOD_GOAL_COLORS = [
+  { value: '#53389E', label: '딥 퍼플' },
+  { value: '#6941C6', label: '다크 퍼플' },
+  { value: '#7A5AF8', label: '끼리끼리 퍼플' },
+  { value: '#7F56D9', label: '바이올렛' },
+  { value: '#9E77ED', label: '라이트 퍼플' },
+  { value: '#B692F6', label: '라일락' },
+];
 
 type Scope = '월간' | '주간' | '일일';
 
@@ -166,6 +174,7 @@ export default function TodoScreen() {
   const [periodGoalTitle, setPeriodGoalTitle] = useState('');
   const [periodGoalStart, setPeriodGoalStart] = useState(ymd(new Date()));
   const [periodGoalEnd, setPeriodGoalEnd] = useState(ymd(new Date()));
+  const [periodGoalColor, setPeriodGoalColor] = useState(PURPLE);
   const [periodCalendarTarget, setPeriodCalendarTarget] = useState<'start' | 'end' | null>(null);
   const [periodGoalSaving, setPeriodGoalSaving] = useState(false);
 
@@ -424,6 +433,7 @@ export default function TodoScreen() {
     setPeriodGoalTitle('');
     setPeriodGoalStart(selectedDate);
     setPeriodGoalEnd(selectedDate);
+    setPeriodGoalColor(PURPLE);
     setPeriodGoalVisible(true);
   };
 
@@ -440,6 +450,7 @@ export default function TodoScreen() {
           title: periodGoalTitle.trim(),
           start_date: periodGoalStart,
           end_date: periodGoalEnd,
+          color: periodGoalColor,
         },
         { headers: authHeader }
       );
@@ -707,6 +718,30 @@ export default function TodoScreen() {
                 <Text style={styles.periodDateText}>{periodGoalEnd}</Text>
               </Pressable>
             </View>
+            <Text style={styles.modalFieldLabel}>캘린더 표시 색상</Text>
+            <View style={styles.colorPalette}>
+              {PERIOD_GOAL_COLORS.map((color) => {
+                const selectedColor = color.value === periodGoalColor;
+                return (
+                  <Pressable
+                    key={color.value}
+                    accessibilityRole="radio"
+                    accessibilityLabel={color.label}
+                    accessibilityState={{ selected: selectedColor }}
+                    onPress={() => setPeriodGoalColor(color.value)}
+                    style={[styles.colorOption, selectedColor && styles.colorOptionSelected]}
+                  >
+                    <View style={[styles.colorSwatch, { backgroundColor: color.value }]}>
+                      {selectedColor ? <Icon name="checkmark" size={17} color="#FFFFFF" /> : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={styles.periodColorPreview}>
+              <View style={[styles.periodColorPreviewLine, { backgroundColor: periodGoalColor }]} />
+              <Text style={styles.periodColorPreviewText}>캘린더 기간선 미리보기</Text>
+            </View>
             <View style={styles.modalActions}>
               <TouchableOpacity style={[styles.modalBtn, styles.modalCancelButton]} onPress={() => setPeriodGoalVisible(false)}>
                 <Text style={[styles.modalBtnText, styles.modalCancelText]}>취소</Text>
@@ -880,6 +915,29 @@ const styles = StyleSheet.create({
   periodDateRow: { flexDirection: 'row', gap: 9, marginBottom: 16 },
   periodDateField: { flex: 1, padding: 12, borderRadius: 12, backgroundColor: INPUT_BG },
   periodDateText: { color: PURPLE, fontSize: 13, fontWeight: '800' },
+  colorPalette: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
+  colorOption: {
+    width: 39,
+    height: 39,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+    borderRadius: 13,
+  },
+  colorOptionSelected: { borderColor: '#D6BBFB', backgroundColor: '#F4F0FF' },
+  colorSwatch: { width: 29, height: 29, alignItems: 'center', justifyContent: 'center', borderRadius: 10 },
+  periodColorPreview: {
+    minHeight: 40,
+    marginBottom: 16,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 11,
+    backgroundColor: '#F8F7FF',
+  },
+  periodColorPreviewLine: { width: 52, height: 6, marginRight: 10, borderRadius: 3 },
+  periodColorPreviewText: { color: TEXT_HINT, fontSize: 11, fontWeight: '700' },
   modalBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10 },
   modalBtnText: { fontSize: 15, fontWeight: '700' },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },

@@ -39,6 +39,7 @@ type CalendarRange = {
   range_group_id: string;
   title: string;
   scope_type: string;
+  color?: string | null;
   start_date: string;
   end_date: string;
   total_count: number;
@@ -79,7 +80,6 @@ const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 const GOAL_TYPES: GoalType[] = ['일일', '주간', '월간'];
 const TODO_STATUSES: TodoStatus[] = ['미진행', '진행중', '완료'];
 const RANGE_COLORS = ['#6941C6', '#7F56D9', '#9E77ED', '#B692F6', '#C3B5FD'];
-const GRID_GAP = 4;
 const MAX_RANGE_LANES = 3;
 
 const createDefaultFilters = (): CalendarFilterConfig => ({
@@ -103,8 +103,9 @@ const normalizeFilters = (value: unknown): CalendarFilterConfig => {
   return defaults;
 };
 
-const rangeColor = (rangeId: string) => {
-  const hash = [...rangeId].reduce((total, character) => total + character.charCodeAt(0), 0);
+const rangeColor = (range: CalendarRange) => {
+  if (range.color && /^#[0-9A-F]{6}$/i.test(range.color)) return range.color;
+  const hash = [...range.range_group_id].reduce((total, character) => total + character.charCodeAt(0), 0);
   return RANGE_COLORS[hash % RANGE_COLORS.length];
 };
 
@@ -257,7 +258,7 @@ export default function ActivityCalendar({ teamId, refreshKey = 0 }: Props) {
     }, 0);
     return Math.min(MAX_RANGE_LANES, maximum);
   }, [cells, visibleRanges]);
-  const cellWidth = Math.max(28, Math.floor((gridWidth - (GRID_GAP * 6)) / 7));
+  const cellWidth = Math.max(28, (gridWidth - 2) / 7);
   const cellHeight = Math.max(68, Math.min(94, Math.round(cellWidth * 1.08) + (visibleRangeLanes * 7)));
   const todayKey = dateKey(today);
 
@@ -363,7 +364,7 @@ export default function ActivityCalendar({ teamId, refreshKey = 0 }: Props) {
       <View style={styles.grid} onLayout={handleGridLayout}>
         {cells.map((cell, index) => {
           if (!cell.date) {
-            return <View key={cell.key} style={{ width: cellWidth, height: cellHeight }} />;
+            return <View key={cell.key} style={[styles.emptyDayCell, { width: cellWidth, height: cellHeight }]} />;
           }
           const activeRanges = visibleRanges.filter(
             (range) => cell.date! >= range.start_date && cell.date! <= range.end_date,
@@ -402,14 +403,14 @@ export default function ActivityCalendar({ teamId, refreshKey = 0 }: Props) {
                 style={[styles.rangeArea, { height: Math.max(1, visibleRangeLanes) * 7 }]}
               >
                 {activeRanges.map((range, rangeIndex) => {
-                  const beginsHere = cell.date === range.start_date || weekdayIndex === 0;
-                  const endsHere = cell.date === range.end_date || weekdayIndex === 6;
+                  const beginsHere = cell.date === range.start_date;
+                  const endsHere = cell.date === range.end_date;
                   return (
                     <View
                       key={range.range_group_id}
                       style={[
                         styles.rangeLine,
-                        { top: rangeIndex * 7, backgroundColor: rangeColor(range.range_group_id) },
+                        { top: rangeIndex * 7, backgroundColor: rangeColor(range) },
                         beginsHere && styles.rangeBeginning,
                         endsHere && styles.rangeEnding,
                       ]}
@@ -437,7 +438,7 @@ export default function ActivityCalendar({ teamId, refreshKey = 0 }: Props) {
           <Text style={styles.rangeLegendTitle}>기간 목표</Text>
           {visibleRanges.slice(0, 4).map((range) => (
             <View key={range.range_group_id} style={styles.rangeLegendItem}>
-              <View style={[styles.rangeLegendColor, { backgroundColor: rangeColor(range.range_group_id) }]} />
+              <View style={[styles.rangeLegendColor, { backgroundColor: rangeColor(range) }]} />
               <Text style={styles.rangeLegendName} numberOfLines={1}>{range.title}</Text>
               <Text style={styles.rangeLegendDate}>{formatShortRange(range.start_date, range.end_date)}</Text>
             </View>
@@ -623,22 +624,37 @@ const styles = StyleSheet.create({
   monthNavigation: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginVertical: 18 },
   monthButton: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
   monthLabel: { minWidth: 130, color: colors.textMain, fontSize: 16, fontWeight: '900', textAlign: 'center' },
-  weekdayRow: { flexDirection: 'row', columnGap: GRID_GAP, marginBottom: 7 },
+  weekdayRow: { flexDirection: 'row', marginBottom: 7 },
   weekday: { color: colors.textSub, fontSize: 11, fontWeight: '800', textAlign: 'center' },
   sunday: { color: '#F04438' },
   saturday: { color: '#4785E8' },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', columnGap: GRID_GAP, rowGap: GRID_GAP, width: '100%' },
+  grid: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    overflow: 'hidden',
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderColor: '#E4E7EC',
+    borderRadius: 16,
+  },
   dayCell: {
     alignItems: 'center',
     paddingTop: 7,
-    borderWidth: 1,
-    borderColor: '#EEF0F4',
-    borderRadius: 12,
-    backgroundColor: '#FAFAFC',
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#E4E7EC',
+    backgroundColor: '#FFFFFF',
     overflow: 'visible',
   },
-  todayCell: { borderColor: colors.primaryLight, backgroundColor: colors.primarySurface },
-  selectedCell: { borderColor: colors.primary, borderWidth: 1.5 },
+  emptyDayCell: {
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#E4E7EC',
+    backgroundColor: '#F8F9FC',
+  },
+  todayCell: { backgroundColor: colors.primarySurface },
+  selectedCell: { backgroundColor: '#EEE9FF' },
   dayPressed: { opacity: 0.7 },
   dayNumber: { color: colors.textMain, fontSize: 12, fontWeight: '700' },
   todayNumber: { color: colors.primaryDark, fontWeight: '900' },
@@ -656,13 +672,12 @@ const styles = StyleSheet.create({
   rangeArea: { position: 'absolute', left: 0, right: 0, bottom: 6 },
   rangeLine: {
     position: 'absolute',
-    left: -(GRID_GAP / 2),
-    right: -(GRID_GAP / 2),
-    height: 5,
-    borderRadius: 3,
+    left: -1,
+    right: -1,
+    height: 6,
   },
-  rangeBeginning: { left: 7, borderRadius: 5 },
-  rangeEnding: { right: 7, borderRadius: 5 },
+  rangeBeginning: { left: 8, borderTopLeftRadius: 6, borderBottomLeftRadius: 6 },
+  rangeEnding: { right: 8, borderTopRightRadius: 6, borderBottomRightRadius: 6 },
   messageRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 13 },
   messageText: { color: colors.textSub, fontSize: 11 },
   errorText: { color: colors.primary, fontSize: 11, fontWeight: '700' },
