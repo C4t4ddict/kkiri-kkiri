@@ -1,11 +1,11 @@
 // HomeScreen.tsx
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, FlatList, Image,
   TouchableOpacity, Platform, Alert, SafeAreaView
 } from 'react-native';
 import axios from 'axios';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import AppHeader from '../components/AppHeader';
 import NotificationBell from '../components/NotificationBell';
 import AppRefreshControl from '../components/AppRefreshControl';
@@ -43,15 +43,17 @@ export default function HomeScreen() {
       setActivities(Array.isArray(res.data) ? res.data : []);
       setError(false);
     } catch (requestError) {
-      console.error(requestError);
+      console.warn('홈 활동 불러오기 오류:', requestError);
       setError(true);
       if (showError) Alert.alert('오류', '활동 목록을 불러오지 못했습니다.');
     }
   }, []);
 
-  useEffect(() => {
-    fetchActivities().finally(() => setLoading(false));
-  }, [fetchActivities]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchActivities().finally(() => setLoading(false));
+    }, [fetchActivities])
+  );
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -282,21 +284,17 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   recruitmentBadge: {
-    minWidth: 24,
-    height: 24,
-    paddingHorizontal: 4,
-    borderRadius: 12,
+    minWidth: 18,
+    paddingTop: 5,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#7A5AF8',
   },
   recruitmentBadgeCompact: {
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
+    minWidth: 18,
+    paddingTop: 0,
   },
-  recruitmentBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '800' },
-  recruitmentBadgeTextCompact: { fontSize: 9 },
+  recruitmentBadgeText: { color: '#A99BEA', fontSize: 11, fontWeight: '800' },
+  recruitmentBadgeTextCompact: { color: '#A99BEA', fontSize: 11 },
   recruitmentHeaderWrapper: {
     paddingHorizontal: 20,
     marginTop: 24,

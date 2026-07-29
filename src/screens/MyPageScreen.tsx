@@ -204,6 +204,11 @@ export default function MyPageScreen() {
       icon: 'paper-plane-outline',
       onPress: () => navigation.navigate('MyApplications'),
     },
+    {
+      label: '수상내역',
+      icon: 'trophy-outline',
+      onPress: () => navigation.navigate('Awards'),
+    },
     ...(user.is_admin ? [{
       label: '운영 관리',
       icon: 'shield-checkmark-outline',

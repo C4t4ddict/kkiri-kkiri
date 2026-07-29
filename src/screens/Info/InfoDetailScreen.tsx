@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,13 @@ import {
   StyleSheet,
   Platform,
   Linking,
+  StyleProp,
+  TextStyle,
   TouchableOpacity,
   Alert,
 } from 'react-native';
-import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import Clipboard from '@react-native-clipboard/clipboard';
+import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import axios from 'axios';
 import colors from '../../config/colors';
@@ -50,6 +53,42 @@ const formatDetails = (details?: string | null) => {
     .trim();
 };
 
+const CONTACT_PATTERN = /([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|(?:\+?82[-.\s]?)?0\d{1,2}[-.\s]?\d{3,4}[-.\s]?\d{4})/gi;
+const EMAIL_PATTERN = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i;
+
+const openContact = async (value: string) => {
+  if (EMAIL_PATTERN.test(value)) {
+    Clipboard.setString(value);
+    Alert.alert('이메일 복사 완료', `${value}\n클립보드에 저장했습니다.`);
+    return;
+  }
+
+  const phoneNumber = value.replace(/[^\d+]/g, '');
+  try {
+    await Linking.openURL(`tel:${phoneNumber}`);
+  } catch {
+    Alert.alert('전화 연결 실패', '이 기기에서 전화 앱을 열 수 없습니다.');
+  }
+};
+
+const LinkifiedText = ({ value, style }: { value: string; style: StyleProp<TextStyle> }) => (
+  <Text style={style} selectable>
+    {String(value).split(CONTACT_PATTERN).filter(Boolean).map((part, index) => {
+      const isContact = EMAIL_PATTERN.test(part) || /^(?:\+?82[-.\s]?)?0\d{1,2}[-.\s]?\d{3,4}[-.\s]?\d{4}$/.test(part);
+      return isContact ? (
+        <Text
+          key={`${part}-${index}`}
+          accessibilityRole="link"
+          onPress={() => openContact(part)}
+          style={styles.contactLinkText}
+        >
+          {part}
+        </Text>
+      ) : part;
+    })}
+  </Text>
+);
+
 const ActivityDetailScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const route = useRoute<RouteProp<{ params: { id: number } }, 'params'>>();
@@ -62,22 +101,31 @@ const ActivityDetailScreen = () => {
   const [savingFavorite, setSavingFavorite] = useState(false);
   const [recruitments, setRecruitments] = useState<any[]>([]);
 
-  useEffect(() => {
-    const fetchActivityDetail = async () => {
-      try {
-        const [activityResponse, recruitmentResponse] = await Promise.all([
-          axios.get(`${BASE_URL}/api/activities/${id}`),
-          axios.get(`${BASE_URL}/api/activities/${id}/recruitments`),
-        ]);
-        setActivity(activityResponse.data);
-        setRecruitments(Array.isArray(recruitmentResponse.data) ? recruitmentResponse.data : []);
-      } catch (error) {
-        console.error('활동 상세 조회 오류:', error);
-      }
-    };
-
-    fetchActivityDetail();
+  const fetchActivityDetail = useCallback(async () => {
+    try {
+      const [activityResponse, recruitmentResponse] = await Promise.all([
+        axios.get(`${BASE_URL}/api/activities/${id}`),
+        axios.get(`${BASE_URL}/api/activities/${id}/recruitments`),
+      ]);
+      setActivity(activityResponse.data);
+      setRecruitments(Array.isArray(recruitmentResponse.data) ? recruitmentResponse.data : []);
+    } catch (error) {
+      console.warn('활동 상세 조회 오류:', error);
+    }
   }, [id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchActivityDetail();
+    }, [fetchActivityDetail])
+  );
+
+  useEffect(() => {
+    if (!activity) return;
+    navigation.setOptions({
+      title: activity.category || activity.topic_category || '활동 정보',
+    });
+  }, [activity, navigation]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -182,17 +230,34 @@ const ActivityDetailScreen = () => {
           start={activity.application_period_start}
           end={activity.application_period_end}
         />
-        <InfoRow label="문의" value={activity.contact} />
+        <ContactRow value={activity.contact} />
         <InfoRow
           label="상금"
-          value={activity.prize_details}
+          value={activity.prize_summary || activity.prize_details}
         />
 
       </View>
 
+      {activity.prize_details ? (
+        <View style={styles.prizeCard}>
+          <View style={styles.prizeHeadingRow}>
+            <View style={styles.prizeIconBox}>
+              <Icon name="trophy-outline" size={20} color={colors.primary} />
+            </View>
+            <View style={styles.prizeHeadingCopy}>
+              <Text style={styles.sectionTitle}>상금 상세</Text>
+              {activity.prize_summary ? (
+                <Text style={styles.prizeSummary}>{activity.prize_summary}</Text>
+              ) : null}
+            </View>
+          </View>
+          <Text style={styles.prizeDetailsText} selectable>{activity.prize_details}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.detailsCard}>
         <Text style={styles.sectionTitle}>세부 내용</Text>
-        <Text style={styles.detailsText} selectable>{formatDetails(activity.details)}</Text>
+        <LinkifiedText style={styles.detailsText} value={formatDetails(activity.details)} />
 
         {externalUrl && (
           <TouchableOpacity style={styles.sourceButton} onPress={openExternalUrl} activeOpacity={0.8}>
@@ -248,6 +313,16 @@ const InfoRow = ({ label, value }: { label: string; value?: string | null }) => 
     <View style={styles.infoRow}>
       <Text style={styles.boldLabel}>{label}</Text>
       <Text style={styles.rowText}>{value}</Text>
+    </View>
+  );
+};
+
+const ContactRow = ({ value }: { value?: string | null }) => {
+  if (!value) return null;
+  return (
+    <View style={styles.infoRow}>
+      <Text style={styles.boldLabel}>문의</Text>
+      <LinkifiedText value={value} style={styles.rowText} />
     </View>
   );
 };
@@ -386,6 +461,11 @@ const styles = StyleSheet.create({
     color: colors.textMain,
     lineHeight: 21,
   },
+  contactLinkText: {
+    color: colors.primary,
+    fontWeight: '800',
+    textDecorationLine: 'underline',
+  },
   applicationValue: {
     flex: 1,
     gap: 6,
@@ -404,10 +484,35 @@ const styles = StyleSheet.create({
     color: colors.textSub,
   },
   detailsCard: {
+    marginTop: 14,
     padding: 17,
     borderRadius: 18,
     backgroundColor: colors.primarySurface,
   },
+  prizeCard: {
+    padding: 17,
+    borderWidth: 1,
+    borderColor: colors.primaryLight,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+  },
+  prizeHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 13,
+  },
+  prizeIconBox: {
+    width: 42,
+    height: 42,
+    marginRight: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    backgroundColor: colors.primarySurface,
+  },
+  prizeHeadingCopy: { flex: 1 },
+  prizeSummary: { color: colors.primaryDark, fontSize: 14, fontWeight: '800' },
+  prizeDetailsText: { color: colors.textMain, fontSize: 14, lineHeight: 22 },
   recruitmentSection: {
     marginTop: 16,
     padding: 17,

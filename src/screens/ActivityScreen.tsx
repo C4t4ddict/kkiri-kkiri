@@ -94,6 +94,7 @@ export default function ActivityScreen() {
   const [dailyTodos, setDailyTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [widgetRefreshKey, setWidgetRefreshKey] = useState(0);
   const [selectedGoalScope, setSelectedGoalScope] = useState<GoalScope>('일일');
 
   const API_BASE = useMemo(() => API_BASE_URL, []);
@@ -120,7 +121,9 @@ export default function ActivityScreen() {
   const fetchTeams = useCallback(async () => {
     if (!currentUserId) return [];
     try {
-      const res = await fetch(`${API_BASE}/users/${currentUserId}/teams`);
+      const res = await fetch(`${API_BASE}/users/${currentUserId}/teams`, {
+        headers: { 'x-user-id': String(currentUserId) },
+      });
       if (!res.ok) throw new Error(`활동 목록 조회 실패 (${res.status})`);
       const data = await res.json();
       if (!Array.isArray(data)) throw new Error('활동 목록 응답 형식 오류');
@@ -172,6 +175,7 @@ export default function ActivityScreen() {
         setDailyTodos([]);
       } finally {
         setLoading(false);
+        setWidgetRefreshKey((value) => value + 1);
       }
     },
     [API_BASE, currentUserId]
@@ -510,7 +514,8 @@ export default function ActivityScreen() {
                   return (
                     <C
                         key={w.id}
-                        teamId={selected?.teamId ?? null}   // ← 팀 ID 내려줌
+                        teamId={selected?.teamId ?? null}
+                        refreshKey={widgetRefreshKey}
                     />
                   );
                 })}

@@ -6,6 +6,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 
 try {
@@ -18,7 +19,13 @@ const { attachAuth, getAuthenticatedUserId, issueAuthToken } = require('./lib/au
 const { getRequestMetrics, logger, requestLogger } = require('./lib/logger');
 const { createSecureImageUpload } = require('./lib/secureImageUpload');
 const { createTtlCache } = require('./lib/ttlCache');
-const { extractPrizeDetails } = require('./lib/activityPrize');
+const { extractPrizeDetails, extractPrizeSummary } = require('./lib/activityPrize');
+const { buildMonthTodoCalendar } = require('./lib/todoCalendar');
+const {
+  ensureAwardsSchema,
+  listAwards,
+  upsertAward,
+} = require('./awards/service');
 const {
   buildApplicationTimeline,
   ensureApplicationSchema,
@@ -107,6 +114,7 @@ const normalizeActivity = (activity) => {
     source_categories: Array.isArray(sourceCategories) ? sourceCategories : [],
     main_image_url: getActivityImageUrl(activity.main_image_url, activity.activity_id),
     prize_details: activity.prize_details || extractPrizeDetails(activity.details),
+    prize_summary: extractPrizeSummary(activity.prize_details || activity.details),
   };
 };
 
@@ -258,6 +266,8 @@ const activityCache = createTtlCache({
 let portfolioQueue = Promise.resolve();
 let matchingSchemaReady = Promise.resolve();
 let adminSchemaReady = Promise.resolve();
+let awardSchemaReady = Promise.resolve();
+let todoCalendarSchemaReady = Promise.resolve();
 let crawlerScheduler = null;
 
 const queuePortfolioJob = (job) => {
@@ -267,10 +277,16 @@ const queuePortfolioJob = (job) => {
 };
 
 const runArchiveMaintenance = () =>
-  queuePortfolioJob(() => archiveExpiredTeams(portfolioDb));
+  queuePortfolioJob(() => archiveExpiredTeams(portfolioDb)).then((result) => {
+    activityCache.clear();
+    return result;
+  });
 
 const runTeamArchive = (teamId, reason) =>
-  queuePortfolioJob(() => archiveTeam(portfolioDb, teamId, reason));
+  queuePortfolioJob(() => archiveTeam(portfolioDb, teamId, reason)).then((result) => {
+    activityCache.clear();
+    return result;
+  });
 
 const ensureActivityTables = () => {
   const statements = [
@@ -335,6 +351,30 @@ const ensureTodoCompletionColumn = () => {
       if (alterErr) console.error('투두 완료 시각 컬럼 준비 오류:', alterErr);
     });
   });
+};
+
+const ensureTodoCalendarSchema = async () => {
+  const [columns] = await portfolioDb.query('SHOW COLUMNS FROM todos');
+  const existingColumns = new Set(columns.map((column) => column.Field));
+  const requiredColumns = [
+    ['range_group_id', 'VARCHAR(36) NULL AFTER scope_end_date'],
+    ['range_start_date', 'DATE NULL AFTER range_group_id'],
+    ['range_end_date', 'DATE NULL AFTER range_start_date'],
+    ['range_color', 'VARCHAR(7) NULL AFTER range_end_date'],
+  ];
+  for (const [columnName, definition] of requiredColumns) {
+    if (!existingColumns.has(columnName)) {
+      await portfolioDb.query(`ALTER TABLE todos ADD COLUMN \`${columnName}\` ${definition}`);
+    }
+  }
+  const [indexes] = await portfolioDb.query(
+    "SHOW INDEX FROM todos WHERE Key_name = 'idx_todos_calendar_range'"
+  );
+  if (!indexes.length) {
+    await portfolioDb.query(
+      'ALTER TABLE todos ADD INDEX idx_todos_calendar_range (team_id, assigned_user_id, scope_start_date, scope_end_date)'
+    );
+  }
 };
 
 const ensureActivityPrizeSchema = async () => {
@@ -540,17 +580,21 @@ db.getConnection((err, connection) => {
     console.log('✅ MySQL 연결 성공!');
     ensureActivityTables();
     ensureTodoCompletionColumn();
+    todoCalendarSchemaReady = ensureTodoCalendarSchema();
     crawlerScheduler = startCrawlerScheduler();
     matchingSchemaReady = Promise.all([
       ensureRecruitmentActivityColumns(),
       ensureActivityPrizeSchema(),
+      todoCalendarSchemaReady,
     ])
       .then(() => ensureMatchingInvitationSchema())
       .then(() => ensureApplicationSchema(portfolioDb));
     adminSchemaReady = ensureAdminSchema();
-    matchingSchemaReady
+    awardSchemaReady = matchingSchemaReady
       .then(() => adminSchemaReady)
       .then(() => ensurePortfolioSchema(portfolioDb))
+      .then(() => ensureAwardsSchema(portfolioDb));
+    awardSchemaReady
       .then(() => runArchiveMaintenance())
       .then((archived) => {
         if (archived.length) {
@@ -1508,6 +1552,7 @@ app.post('/api/team-recruitments', async (req, res) => {
       ]
     );
 
+    activityCache.clear();
     res.status(201).json({
       success: true,
       recruitment_id: result.insertId,
@@ -1680,6 +1725,7 @@ app.put('/api/team-recruitments/:id', async (req, res) => {
     if (!result.affectedRows) {
       return res.status(404).json({ message: '모집글을 찾을 수 없습니다' });
     }
+    activityCache.clear();
     res.json({ success: true, recruitment_id: recruitmentId });
   } catch (error) {
     console.error('팀 모집글 수정 오류:', error);
@@ -1711,6 +1757,7 @@ app.delete('/api/team-recruitments/:id', (req, res) => {
       if (!result.affectedRows) {
         return res.status(404).json({ message: '삭제할 모집글을 찾을 수 없습니다' });
       }
+      activityCache.clear();
       res.json({ success: true, recruitment_id: recruitmentId });
     }
   );
@@ -2333,6 +2380,40 @@ app.get('/users/:userId/past-activities', async (req, res) => {
   }
 });
 
+app.get('/users/:userId/awards', async (req, res) => {
+  const userId = Number(req.params.userId);
+  const requestUserId = getRequestUserId(req);
+  if (!userId) return res.status(400).json({ message: '사용자 정보가 올바르지 않습니다' });
+  if (requestUserId !== userId) return res.status(403).json({ message: '본인의 수상내역만 볼 수 있습니다' });
+
+  try {
+    await awardSchemaReady;
+    await runArchiveMaintenance();
+    res.json(await listAwards(portfolioDb, userId));
+  } catch (error) {
+    console.error('수상내역 조회 오류:', error);
+    res.status(500).json({ message: '수상내역을 불러오지 못했습니다' });
+  }
+});
+
+app.put('/users/:userId/awards/:portfolioId', async (req, res) => {
+  const userId = Number(req.params.userId);
+  const portfolioId = Number(req.params.portfolioId);
+  const requestUserId = getRequestUserId(req);
+  if (!userId || !portfolioId) return res.status(400).json({ message: '요청 정보가 올바르지 않습니다' });
+  if (requestUserId !== userId) return res.status(403).json({ message: '본인의 수상내역만 수정할 수 있습니다' });
+
+  try {
+    await awardSchemaReady;
+    const result = await upsertAward(portfolioDb, userId, portfolioId, req.body);
+    if (!result) return res.status(404).json({ message: '참여 활동을 찾을 수 없습니다' });
+    res.json(result);
+  } catch (error) {
+    console.error('수상내역 저장 오류:', error);
+    res.status(500).json({ message: '수상내역을 저장하지 못했습니다' });
+  }
+});
+
 app.get('/users/:userId/past-activities/:portfolioId', async (req, res) => {
   const userId = Number(req.params.userId);
   const portfolioId = Number(req.params.portfolioId);
@@ -2763,6 +2844,55 @@ app.get('/teams/:teamId/daily-todos', (req, res) => {
   });
 });
 
+app.get('/teams/:teamId/calendar', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const teamId = Number(req.params.teamId);
+  const requestedYear = Number(req.query.year);
+  const requestedMonth = Number(req.query.month);
+  const today = new Date();
+  const year = Number.isInteger(requestedYear) && requestedYear >= 2000 && requestedYear <= 2100
+    ? requestedYear
+    : today.getFullYear();
+  const month = Number.isInteger(requestedMonth) && requestedMonth >= 1 && requestedMonth <= 12
+    ? requestedMonth
+    : today.getMonth() + 1;
+
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!teamId) return res.status(400).json({ message: '활동 정보가 올바르지 않습니다' });
+
+  try {
+    await todoCalendarSchemaReady;
+    const monthStart = formatDateOnly(new Date(year, month - 1, 1));
+    const monthEnd = formatDateOnly(new Date(year, month, 0));
+    const [rows] = await portfolioDb.query(
+      `SELECT
+        td.todo_id,
+        td.title,
+        td.status,
+        td.scope_type,
+        td.scope_start_date,
+        td.scope_end_date,
+        td.range_group_id,
+        td.range_start_date,
+        td.range_end_date,
+        td.range_color
+      FROM todos td
+      JOIN team_members requester ON requester.team_id = td.team_id
+      WHERE td.team_id = ?
+        AND requester.user_id = ?
+        AND td.assigned_user_id = ?
+        AND td.scope_start_date <= ?
+        AND td.scope_end_date >= ?
+      ORDER BY td.scope_start_date, td.todo_id`,
+      [teamId, userId, userId, monthEnd, monthStart],
+    );
+    res.json(buildMonthTodoCalendar(year, month, rows));
+  } catch (error) {
+    console.error('일정 캘린더 조회 오류:', error);
+    res.status(500).json({ message: '일정 캘린더를 불러오지 못했습니다' });
+  }
+});
+
 app.get('/teams/:teamId/heatmap', (req, res) => {
   const { teamId } = req.params;
   const requestedYear = Number(req.query.year);
@@ -3001,11 +3131,14 @@ app.get('/todos/:teamId', (req, res) => {
 });
 
 app.post('/todos/period', async (req, res) => {
+  const periodGoalColors = ['#53389E', '#6941C6', '#7A5AF8', '#7F56D9', '#9E77ED', '#B692F6'];
   const userId = getRequestUserId(req);
   const teamId = Number(req.body?.team_id);
   const title = String(req.body?.title || '').trim();
   const startDate = parseStrictDateOnly(req.body?.start_date);
   const endDate = parseStrictDateOnly(req.body?.end_date);
+  const requestedColor = String(req.body?.color || '').trim().toUpperCase();
+  const rangeColor = requestedColor || '#7A5AF8';
 
   if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
   if (!Number.isInteger(teamId) || teamId <= 0 || !title || !startDate || !endDate) {
@@ -3013,11 +3146,16 @@ app.post('/todos/period', async (req, res) => {
   }
   if (title.length > 255) return res.status(400).json({ message: '목표는 255자 이하로 입력해주세요' });
   if (endDate < startDate) return res.status(400).json({ message: '종료일은 시작일 이후여야 합니다' });
+  if (!periodGoalColors.includes(rangeColor)) {
+    return res.status(400).json({ message: '지원하지 않는 기간 목표 색상입니다' });
+  }
 
   const dayCount = Math.floor((endDate - startDate) / 86_400_000) + 1;
   if (dayCount > 366) return res.status(400).json({ message: '기간 목표는 최대 366일까지 설정할 수 있습니다' });
 
   const dates = listDateRange(startDate, endDate);
+  const rangeGroupId = crypto.randomUUID();
+  await todoCalendarSchemaReady;
   const connection = await portfolioDb.getConnection();
   try {
     await connection.beginTransaction();
@@ -3041,11 +3179,24 @@ app.post('/todos/period', async (req, res) => {
     const datesToCreate = dates.filter((date) => !existingDates.has(date));
 
     if (datesToCreate.length) {
-      const placeholders = datesToCreate.map(() => "(?, ?, ?, '미진행', '일일', ?, ?)").join(', ');
-      const values = datesToCreate.flatMap((date) => [teamId, userId, title, date, date]);
+      const placeholders = datesToCreate
+        .map(() => "(?, ?, ?, '미진행', '일일', ?, ?, ?, ?, ?, ?)")
+        .join(', ');
+      const values = datesToCreate.flatMap((date) => [
+        teamId,
+        userId,
+        title,
+        date,
+        date,
+        rangeGroupId,
+        dates[0],
+        dates[dates.length - 1],
+        rangeColor,
+      ]);
       await connection.query(
         `INSERT INTO todos
-          (team_id, assigned_user_id, title, status, scope_type, scope_start_date, scope_end_date)
+          (team_id, assigned_user_id, title, status, scope_type, scope_start_date, scope_end_date,
+           range_group_id, range_start_date, range_end_date, range_color)
          VALUES ${placeholders}`,
         values,
       );
@@ -3059,6 +3210,8 @@ app.post('/todos/period', async (req, res) => {
       skipped_count: dates.length - datesToCreate.length,
       start_date: dates[0],
       end_date: dates[dates.length - 1],
+      range_group_id: rangeGroupId,
+      color: rangeColor,
     });
   } catch (error) {
     await connection.rollback();

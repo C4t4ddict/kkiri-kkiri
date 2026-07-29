@@ -5,6 +5,7 @@ import {
 } from '../constants/widgets';
 
 const KEY_GLOBAL = 'dashboard_prefs_global_v1';
+const CALENDAR_MIGRATION_SUFFIX = ':calendar_widget_v1';
 
 // 팀별 커스터마이징이 필요하면 KEY에 teamId를 섞어주면 됨
 const keyFor = (teamId?: number | null) =>
@@ -46,7 +47,22 @@ export async function loadWidgetPrefs(
     const arr: WidgetPref[] = JSON.parse(raw);
     // 방어코드: 혹시 빠진 항목 보정
     const byId = new Map(arr.map(a => [a.id, a]));
-    const merged = DEFAULT_WIDGET_PREFS.map(d => byId.get(d.id) ?? d);
+    let merged = DEFAULT_WIDGET_PREFS.map(d => byId.get(d.id) ?? d);
+    const migrationKey = `${key}${CALENDAR_MIGRATION_SUFFIX}`;
+    const migrated = storage
+      ? await storage.getItem(migrationKey)
+      : memoryStore.get(migrationKey) ?? null;
+    if (!migrated) {
+      merged = merged.map((pref) => pref.id === 'calendar' ? { ...pref, visible: true } : pref);
+      const serialized = JSON.stringify(merged);
+      if (storage) {
+        await storage.setItem(key, serialized);
+        await storage.setItem(migrationKey, '1');
+      } else {
+        memoryStore.set(key, serialized);
+        memoryStore.set(migrationKey, '1');
+      }
+    }
     return normalizePrefs(merged).sort((a, b) => a.order - b.order);
   } catch {
     return DEFAULT_WIDGET_PREFS;

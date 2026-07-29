@@ -101,4 +101,37 @@
 - P1: 없음
 - P2: 없음
 
+## 이슈 #36 검증
+
+- 기준 이미지: `/var/folders/hb/lmqmwjpx2w1cbvqy8xxm3jzm0000gn/T/TemporaryItems/NSIRD_screencaptureui_NGt6W2/스크린샷 2026-07-28 오후 7.59.23.png`
+- 구현 캡처: `/tmp/kkiri-calendar-header36b.png`, `/tmp/kkiri-calendar-settings36-late.png`
+- 모집글 검증: `/tmp/kkiri-home-issue36.png`, `/tmp/kkiri-detail36.png`, `/tmp/kkiri-detail-contact36.png`
+- 날짜 숫자와 기간 목표 선을 별도 세로 영역으로 분리해 기준 이미지의 겹침을 제거함
+- 기간 목표 선을 둥근 5px 세그먼트와 보라색 계열 팔레트로 정리하고 겹치는 목표는 최대 3개 레인으로 분리함
+- 캘린더 설정에서 일일·주간·월간 및 미진행·진행중·완료 표시를 각각 제어하고 설정 저장·복원을 확인함
+- 일일 목표 표시를 끄면 남은 목표 숫자와 일일 기간 목표가 함께 숨겨지고 기본값 복원 후 다시 표시되는 것을 확인함
+- 홈과 상세의 모집글 `+1`, 상세 하단 모집글 1개, 이메일 복사 완료 알림을 실제 Android Emulator에서 확인함
+
+## 이슈 #36 등급
+
+- P0: 없음
+- P1: 없음
+- P2: 없음
+
+## 이슈 #37 검증
+
+- 연속 그리드 캡처: `/tmp/issue37-calendar-grid-fixed.png`
+- 기간 목표 색상표 캡처: `/tmp/issue37-color-palette.png`, `/tmp/issue37-color-palette-selected.png`
+- 날짜 칸의 간격을 제거하고 연한 실선으로 연결된 7열 캘린더 그리드를 Android Emulator에서 확인함
+- 부모 테두리 너비를 반영해 일요일부터 토요일까지 모든 날짜가 같은 행에 정렬되고 화면 너비에 맞게 반응하는 것을 확인함
+- 기간 목표 선이 인접 날짜와 주 경계에서 끊기지 않고 이어지며 실제 시작일과 종료일에만 둥근 끝 처리가 적용됨
+- 기간 목표 모달에서 보라색 계열 6색을 선택하고 체크 표시와 기간선 미리보기가 즉시 같은 색으로 바뀌는 것을 확인함
+- 선택한 색상이 DB의 `range_color`에 저장되고 캘린더 API의 집계 기간 목표 색상으로 반환되는 것을 확인한 뒤 검증 데이터를 삭제함
+
+## 이슈 #37 등급
+
+- P0: 없음
+- P1: 없음
+- P2: 없음
+
 final result: passed

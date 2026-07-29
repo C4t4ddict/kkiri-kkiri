@@ -27,6 +27,7 @@ import MyRecruitmentsScreen from './src/screens/MyRecruitmentsScreen';
 import MyApplicationsScreen from './src/screens/MyApplicationsScreen';
 import ApplicationDetailScreen from './src/screens/ApplicationDetailScreen';
 import ApplicationTemplatesScreen from './src/screens/ApplicationTemplatesScreen';
+import AwardsScreen from './src/screens/AwardsScreen';
 
 // MyPage 관련 스크린 import 추가
 import MyPage2 from './src/screens/mypage2';
@@ -77,7 +78,7 @@ export default function App() {
             name="InfoDetail"
             component={InfoDetailScreen}
             options={{
-              title: '비교과 활동',
+              title: '활동 정보',
               headerBackTitle: '',
               headerLeftContainerStyle: {
                 paddingLeft: 10,
@@ -135,6 +136,11 @@ export default function App() {
               headerBackTitle: '',
               headerTitleAlign: 'center',
             }}
+          />
+          <Stack.Screen
+            name="Awards"
+            component={AwardsScreen}
+            options={{ title: '수상내역', headerBackTitle: '', headerTitleAlign: 'center' }}
           />
           <Stack.Screen
             name="ApplicationDetail"
