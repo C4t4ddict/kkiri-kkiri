@@ -687,7 +687,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E9E4FF',
   },
   countText: { color: colors.primaryDark, fontSize: 9, fontWeight: '900' },
-  rangeArea: { position: 'absolute', left: 0, right: 0, bottom: 6 },
+  rangeArea: { position: 'absolute', left: 0, right: 0, bottom: 2 },
   rangeLine: {
     position: 'absolute',
     left: -1,
