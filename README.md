@@ -55,6 +55,13 @@ VITE_API_BASE_URL=https://api.example.com npm run web:build
 - `LOG_LEVEL`: 운영은 `info`, 상세 진단은 일시적으로 `debug` 권장
 - `ADMIN_EMAILS`: 쉼표로 구분한 운영자 이메일. 서버 시작 시 해당 계정에 운영 권한을 부여
 
+## 이메일·학교 인증과 매칭 범위
+
+- 회원가입과 비밀번호 재설정은 10분 동안 유효한 6자리 이메일 인증 코드를 사용합니다.
+- 운영 환경에서는 `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`을 설정해야 합니다. 개발 환경에서 SMTP가 없으면 서버 로그와 API의 `development_code`로 코드를 확인할 수 있습니다.
+- `SCHOOL_EMAIL_DOMAINS`에는 허용할 학교 이메일 도메인을 쉼표로 등록합니다. 기존 학교 계정의 `.ac.kr` 도메인도 서버 시작 시 등록 목록으로 이관됩니다.
+- 인증된 학교 계정은 `본교`와 `전국` 모집을 이용할 수 있고, 일반 계정은 `전국` 모집만 조회·작성·지원할 수 있습니다. 이 제한은 앱 화면뿐 아니라 API에서도 검증합니다.
+
 크롤러 운영 방법과 수집 이력 테이블은 `server/crawler/README.md`를 참고합니다.
 
 ## 앱 운영 관리

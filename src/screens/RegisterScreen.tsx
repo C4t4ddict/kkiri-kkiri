@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform, SafeAreaView } from 'react-native';
+import { Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform, SafeAreaView } from 'react-native';
 import CustomTextInput from '../components/CustomTextInput';
 import colors from '../config/colors';
 import { useNavigation } from '@react-navigation/native';
@@ -8,10 +8,7 @@ import { RootStackParamList } from '../../App.tsx'; // 실제 경로로 수정
 
 type RegisterScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Register'>;
 
-const API_URL =
-  Platform.OS === 'android'
-    ? 'http://10.0.2.2:3000/register'
-    : 'http://localhost:3000/register';
+const API_BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 
 export default function RegisterScreen() {
   const nav = useNavigation<RegisterScreenNavigationProp>();
@@ -22,7 +19,65 @@ export default function RegisterScreen() {
   const [department, setDepartment] = useState('');
   const [studentId, setStudentId] = useState('');
   const [birth, setBirth] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const pwMismatch = passwordConfirm && password !== passwordConfirm;
+  const isSchoolEmail = /@(?:[^@.]+\.)*ac\.kr$/i.test(email.trim());
+
+  const updateEmail = (value: string) => {
+    setEmail(value);
+    setCodeSent(false);
+    setEmailVerified(false);
+    setVerificationCode('');
+  };
+
+  const requestVerificationCode = async () => {
+    if (!email.trim()) return Alert.alert('확인', '이메일을 입력해주세요.');
+    setVerifying(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/email-verification/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || '인증 코드를 전송하지 못했습니다.');
+      setCodeSent(true);
+      if (result.development_code) setVerificationCode(String(result.development_code));
+      Alert.alert(
+        '인증 코드 전송',
+        result.development_code
+          ? `개발 환경 인증 코드 ${result.development_code}가 입력되었습니다.`
+          : '이메일로 전송된 6자리 코드를 입력해주세요.',
+      );
+    } catch (error) {
+      Alert.alert('전송 실패', error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const verifyEmail = async () => {
+    if (!/^\d{6}$/.test(verificationCode)) return Alert.alert('확인', '6자리 인증 코드를 입력해주세요.');
+    setVerifying(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/email-verification/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code: verificationCode }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || '인증에 실패했습니다.');
+      setEmailVerified(true);
+      Alert.alert('인증 완료', '이메일 인증이 완료되었습니다.');
+    } catch (error) {
+      Alert.alert('인증 실패', error instanceof Error ? error.message : '인증 코드를 확인해주세요.');
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   const handleRegister = async () => {
     if (!email || !password || !passwordConfirm || !name) {
@@ -34,9 +89,13 @@ export default function RegisterScreen() {
       Alert.alert('비밀번호 불일치', '비밀번호가 일치하지 않습니다.');
       return;
     }
+    if (!emailVerified) {
+      Alert.alert('이메일 인증 필요', '이메일 인증을 먼저 완료해주세요.');
+      return;
+    }
 
     try {
-      const response = await fetch(API_URL, {
+      const response = await fetch(`${API_BASE_URL}/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -80,11 +139,39 @@ export default function RegisterScreen() {
         <CustomTextInput
             label="이메일"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={updateEmail}
+            editable={!emailVerified}
             autoCapitalize="none"       // ✅ 첫 글자 대문자 방지
             keyboardType="email-address"
             autoCorrect={false}
         />
+        <TouchableOpacity
+          style={[styles.verifyButton, (verifying || emailVerified) && styles.disabledButton]}
+          onPress={requestVerificationCode}
+          disabled={verifying || emailVerified}
+        >
+          <Text style={styles.verifyButtonText}>
+            {emailVerified ? '이메일 인증 완료' : codeSent ? '인증 코드 다시 받기' : '인증 코드 받기'}
+          </Text>
+        </TouchableOpacity>
+        {codeSent && !emailVerified ? (
+          <>
+            <CustomTextInput
+              label="인증 코드"
+              value={verificationCode}
+              onChangeText={(value) => setVerificationCode(value.replace(/\D/g, '').slice(0, 6))}
+              keyboardType="number-pad"
+            />
+            <TouchableOpacity style={styles.codeButton} onPress={verifyEmail} disabled={verifying}>
+              <Text style={styles.codeButtonText}>{verifying ? '확인 중...' : '인증 확인'}</Text>
+            </TouchableOpacity>
+          </>
+        ) : null}
+        <Text style={styles.accountGuide}>
+          {isSchoolEmail
+            ? '학교 계정 · 이메일 인증 후 본교 및 전국 모집을 이용할 수 있어요.'
+            : '일반 계정 · 전국 모집 활동만 이용할 수 있어요.'}
+        </Text>
         <CustomTextInput
             label="비밀번호"
             value={password}
@@ -132,4 +219,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 16,
   },
+  verifyButton: {
+    marginTop: -4,
+    marginBottom: 14,
+    paddingVertical: 12,
+    borderRadius: 11,
+    alignItems: 'center',
+    backgroundColor: colors.primarySurface,
+  },
+  verifyButtonText: { color: colors.primaryDark, fontSize: 13, fontWeight: '800' },
+  codeButton: { marginTop: -4, marginBottom: 10, alignSelf: 'flex-end', paddingVertical: 8, paddingHorizontal: 12 },
+  codeButtonText: { color: colors.primary, fontSize: 13, fontWeight: '800' },
+  accountGuide: { marginBottom: 16, color: colors.textSub, fontSize: 12, lineHeight: 18 },
+  disabledButton: { opacity: 0.62 },
 });
