@@ -1,6 +1,7 @@
 // src/screens/ActivityScreen.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   View,
   Text,
   Image,
@@ -96,6 +97,7 @@ export default function ActivityScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [widgetRefreshKey, setWidgetRefreshKey] = useState(0);
   const [selectedGoalScope, setSelectedGoalScope] = useState<GoalScope>('일일');
+  const [updatingTodoId, setUpdatingTodoId] = useState<number | null>(null);
 
   const API_BASE = useMemo(() => API_BASE_URL, []);
 
@@ -267,6 +269,39 @@ export default function ActivityScreen() {
     }
   }, [reloadActivityData]);
 
+  const changeTodoStatus = useCallback(async (todo: Todo) => {
+    if (!currentUserId || updatingTodoId) return;
+    const statuses: Todo['status'][] = ['미진행', '진행중', '완료'];
+    const nextStatus = statuses[(statuses.indexOf(todo.status) + 1) % statuses.length];
+    const updateList = (items: Todo[]) => items.map((item) => (
+      item.todo_id === todo.todo_id ? { ...item, status: nextStatus } : item
+    ));
+    setUpdatingTodoId(todo.todo_id);
+    setDailyTodos(updateList);
+    setWeeklyTodos(updateList);
+    setMonthlyTodos(updateList);
+    try {
+      const response = await fetch(`${API_BASE}/todos/${todo.todo_id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': String(currentUserId) },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || '목표 상태를 변경하지 못했습니다');
+      setWidgetRefreshKey((value) => value + 1);
+    } catch (error) {
+      const rollback = (items: Todo[]) => items.map((item) => (
+        item.todo_id === todo.todo_id ? { ...item, status: todo.status } : item
+      ));
+      setDailyTodos(rollback);
+      setWeeklyTodos(rollback);
+      setMonthlyTodos(rollback);
+      Alert.alert('변경 실패', error instanceof Error ? error.message : '잠시 후 다시 시도해주세요');
+    } finally {
+      setUpdatingTodoId(null);
+    }
+  }, [API_BASE, currentUserId, updatingTodoId]);
+
   // 포커스 시 위젯 설정 로드(팀별 커스텀 쓰려면 selected?.teamId 넘겨줘)
   useFocusEffect(
     useCallback(() => {
@@ -282,7 +317,18 @@ export default function ActivityScreen() {
     const isDone = item.status === '완료';
     const isDoing = item.status === '진행중';
     return (
-      <View style={[styles.todoRow, isDoing && styles.todoRowDoing]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${item.title}, 현재 ${item.status}. 누르면 다음 상태로 변경`}
+        disabled={updatingTodoId === item.todo_id}
+        onPress={() => changeTodoStatus(item)}
+        style={({ pressed }) => [
+          styles.todoRow,
+          isDoing && styles.todoRowDoing,
+          pressed && styles.todoRowPressed,
+          updatingTodoId === item.todo_id && styles.todoRowUpdating,
+        ]}
+      >
         <View style={[
           styles.todoStatus,
           isDone && styles.todoStatusDone,
@@ -294,8 +340,10 @@ export default function ActivityScreen() {
         <Text style={[styles.todoText, isDone && styles.todoDone]} numberOfLines={2}>
           {item.title}
         </Text>
-        {isDoing && <Text style={styles.doingBadge}>진행중</Text>}
-      </View>
+        <Text style={[styles.statusBadge, isDoing && styles.statusBadgeDoing, isDone && styles.statusBadgeDone]}>
+          {item.status}
+        </Text>
+      </Pressable>
     );
   };
 
@@ -851,6 +899,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D8CCFF',
   },
+  todoRowPressed: { transform: [{ scale: 0.992 }], opacity: 0.82 },
+  todoRowUpdating: { opacity: 0.58 },
   todoStatus: {
     width: 19,
     height: 19,
@@ -885,12 +935,19 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     textDecorationLine: 'line-through',
   },
-  doingBadge: {
+  statusBadge: {
     marginLeft: 8,
-    color: '#6941C6',
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 8,
+    overflow: 'hidden',
+    color: '#667085',
     fontSize: 10,
     fontWeight: '800',
+    backgroundColor: '#EAECF0',
   },
+  statusBadgeDoing: { color: '#6941C6', backgroundColor: '#E4DCFF' },
+  statusBadgeDone: { color: '#FFFFFF', backgroundColor: PURPLE },
 
   // FAB
   fab: {

@@ -35,6 +35,9 @@ const ensureAuthVerificationSchema = async (db) => {
     ['account_type', "VARCHAR(20) NOT NULL DEFAULT 'GENERAL' AFTER email_verified"],
     ['school_domain', 'VARCHAR(255) NULL AFTER account_type'],
     ['school_name', 'VARCHAR(255) NULL AFTER school_domain'],
+    ['school_email', 'VARCHAR(255) NULL AFTER school_name'],
+    ['school_email_verified', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER school_email'],
+    ['school_verified_at', 'DATETIME NULL AFTER school_email_verified'],
   ];
   for (const [name, definition] of additions) {
     if (!columnNames.has(name)) {
@@ -56,6 +59,11 @@ const ensureAuthVerificationSchema = async (db) => {
     INDEX idx_email_verification_lookup (email, purpose, created_at),
     INDEX idx_email_verification_expiry (expires_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  const [verificationColumns] = await db.query('SHOW COLUMNS FROM email_verifications');
+  if (!verificationColumns.some((column) => column.Field === 'user_id')) {
+    await queryWithLockRetry(db, 'ALTER TABLE email_verifications ADD COLUMN user_id INT NULL AFTER verification_id');
+  }
 
   await db.query(`CREATE TABLE IF NOT EXISTS password_reset_tokens (
     reset_id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -102,6 +110,13 @@ const ensureAuthVerificationSchema = async (db) => {
         school_name = LOWER(SUBSTRING_INDEX(email, '@', -1))
     WHERE LOWER(SUBSTRING_INDEX(email, '@', -1)) REGEXP '(^|\\.)ac\\.kr$'
       AND (school_domain IS NULL OR school_domain = '')`);
+
+  await db.query(`UPDATE users
+    SET school_email = email,
+        school_email_verified = email_verified,
+        school_verified_at = CASE WHEN email_verified = 1 THEN COALESCE(school_verified_at, NOW()) ELSE school_verified_at END
+    WHERE LOWER(SUBSTRING_INDEX(email, '@', -1)) REGEXP '(^|\\.)ac\\.kr$'
+      AND (school_email IS NULL OR school_email = '')`);
 };
 
 const getRegisteredSchool = async (db, email) => {
@@ -117,14 +132,14 @@ const getRegisteredSchool = async (db, email) => {
   return rows[0] || null;
 };
 
-const requestEmailCode = async (db, { email, purpose, requestedIp }) => {
+const requestEmailCode = async (db, { email, purpose, requestedIp, userId = null }) => {
   const normalizedEmail = normalizeEmail(email);
   const [recent] = await db.query(
     `SELECT verification_id, TIMESTAMPDIFF(SECOND, created_at, NOW()) AS elapsed_seconds
      FROM email_verifications
-     WHERE email = ? AND purpose = ?
+     WHERE email = ? AND purpose = ? AND user_id <=> ?
      ORDER BY created_at DESC LIMIT 1`,
-    [normalizedEmail, purpose],
+    [normalizedEmail, purpose, userId],
   );
   if (recent.length && Number(recent[0].elapsed_seconds) < REQUEST_COOLDOWN_SECONDS) {
     return {
@@ -136,9 +151,9 @@ const requestEmailCode = async (db, { email, purpose, requestedIp }) => {
   const code = generateCode();
   const [result] = await db.query(
     `INSERT INTO email_verifications
-      (email, purpose, code_hash, expires_at, requested_ip)
-     VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? MINUTE), ?)`,
-    [normalizedEmail, purpose, hashSecret(code), CODE_TTL_MINUTES, requestedIp || null],
+      (user_id, email, purpose, code_hash, expires_at, requested_ip)
+     VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? MINUTE), ?)`,
+    [userId, normalizedEmail, purpose, hashSecret(code), CODE_TTL_MINUTES, requestedIp || null],
   );
   try {
     const delivery = await sendVerificationCode({ email: normalizedEmail, code, purpose });
@@ -149,15 +164,15 @@ const requestEmailCode = async (db, { email, purpose, requestedIp }) => {
   }
 };
 
-const verifyEmailCode = async (db, { email, purpose, code, consume = false }) => {
+const verifyEmailCode = async (db, { email, purpose, code, consume = false, userId = null }) => {
   const normalizedEmail = normalizeEmail(email);
   const [rows] = await db.query(
     `SELECT verification_id, code_hash, attempts
      FROM email_verifications
-     WHERE email = ? AND purpose = ? AND expires_at > NOW()
+     WHERE email = ? AND purpose = ? AND user_id <=> ? AND expires_at > NOW()
        AND verified_at IS NULL AND consumed_at IS NULL
      ORDER BY created_at DESC LIMIT 1`,
-    [normalizedEmail, purpose],
+    [normalizedEmail, purpose, userId],
   );
   if (!rows.length) return { verified: false, reason: 'EXPIRED' };
   const verification = rows[0];

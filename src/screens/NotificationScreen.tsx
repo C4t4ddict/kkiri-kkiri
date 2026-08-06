@@ -6,7 +6,7 @@ import colors from '../config/colors';
 
 type Notification = {
   notification_id: number;
-  type: 'notice' | 'notice_comment' | 'team_invitation';
+  type: 'notice' | 'notice_comment' | 'team_invitation' | 'developer_reply' | 'friend_request' | 'friend_accepted';
   title: string;
   content: string;
   created_at: string;
@@ -56,9 +56,10 @@ export default function NotificationScreen() {
   }, [user?.id]);
 
   useFocusEffect(useCallback(() => { loadNotifications(); }, [loadNotifications]));
+  const isNotice = (item: Notification) => ['notice', 'developer_reply'].includes(item.type);
   const data = tab === '활동'
-    ? items.filter((item) => item.type !== 'notice')
-    : items.filter((item) => item.type === 'notice');
+    ? items.filter((item) => !isNotice(item))
+    : items.filter(isNotice);
 
   const respondToOffer = async (item: Notification, decision: 'ACCEPTED' | 'REJECTED') => {
     if (!user?.id || !item.offer_id || respondingOfferId) return;
@@ -99,12 +100,22 @@ export default function NotificationScreen() {
             <View style={[styles.card, !item.is_read && styles.unreadCard]}>
               <View style={styles.cardTop}>
                 <Text style={styles.channel}>
-                  {item.type === 'team_invitation' ? '팀 합류 제안' : item.type === 'notice_comment' ? '댓글 알림' : '공지 알림'}
+                  {item.type === 'team_invitation'
+                    ? '팀 합류 제안'
+                    : item.type === 'notice_comment'
+                      ? '댓글 알림'
+                      : item.type === 'developer_reply'
+                        ? '개발자 답장'
+                        : item.type === 'friend_request'
+                          ? '친구 요청'
+                          : item.type === 'friend_accepted'
+                            ? '친구 알림'
+                            : '공지 알림'}
                 </Text>
                 <Text style={styles.time}>{relativeTime(item.created_at)}</Text>
               </View>
               <Text style={styles.title}>{item.title}</Text>
-              <Text style={styles.content} numberOfLines={1}>{item.content}</Text>
+              <Text style={styles.content} numberOfLines={item.type === 'developer_reply' ? 5 : 2}>{item.content}</Text>
               {item.type === 'team_invitation' && item.offer_id ? (
                 item.offer_status === 'PENDING' ? (
                   <View style={styles.offerActions}>

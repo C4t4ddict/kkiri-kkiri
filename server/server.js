@@ -60,10 +60,18 @@ const {
   verifyEmailCode,
 } = require('./auth/verificationService');
 const { ensureDeveloperFeedbackSchema, normalizeFeedback } = require('./feedback/service');
+const {
+  ensureSocialSchema,
+  ensureUserFriendCode,
+  getFriendPair,
+  normalizeFriendCode,
+  normalizeMessage,
+} = require('./social/service');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const BCRYPT_SALT_ROUNDS = 10;
+const TODO_STATUSES = new Set(['미진행', '진행중', '완료']);
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const FALLBACK_UPLOAD_IMAGES = ['info1.png', 'info2.png', 'info3.png', 'info4.png', 'info5.png'];
 
@@ -240,6 +248,15 @@ const normalizeTodo = (todo, fallbackScope, fallbackStart, fallbackEnd) => ({
   scope_end_date: fallbackEnd || formatDateOnly(todo.scope_end_date),
 });
 
+const getConfiguredAdminEmails = () => String(process.env.ADMIN_EMAILS || 'useradmin@admin.com')
+  .split(',')
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean);
+
+const isConfiguredAdmin = (user) => Boolean(
+  user?.is_admin && getConfiguredAdminEmails().includes(normalizeEmail(user.email)),
+);
+
 const toClientUser = (user) => ({
   id: user.user_id,
   user_id: user.user_id,
@@ -252,7 +269,7 @@ const toClientUser = (user) => ({
   birth_date: formatDateOnly(user.birth_date || user.birth),
   profile_picture: normalizeLocalUrl(user.profile_picture),
   self_intro: user.self_intro,
-  is_admin: Boolean(user.is_admin),
+  is_admin: isConfiguredAdmin(user),
   email_verified: Boolean(user.email_verified),
   emailVerified: Boolean(user.email_verified),
   account_type: user.account_type || 'GENERAL',
@@ -261,6 +278,13 @@ const toClientUser = (user) => ({
   schoolDomain: user.school_domain || null,
   school_name: user.school_name || null,
   schoolName: user.school_name || null,
+  school_email: user.school_email || null,
+  schoolEmail: user.school_email || null,
+  school_email_verified: Boolean(user.school_email_verified),
+  schoolEmailVerified: Boolean(user.school_email_verified),
+  school_verified_at: user.school_verified_at || null,
+  friend_code: user.friend_code || null,
+  friendCode: user.friend_code || null,
 });
 
 // Middleware 설정
@@ -269,7 +293,7 @@ app.use(bodyParser.json());
 app.use(attachAuth);
 app.use(requestLogger);
 
-const privateApiPattern = /^(?:\/api\/(?:user(?:\/|$)|delete-user(?:\/|$)|upload(?:\/|$)|favorite-activities(?:\/|$)|application-templates(?:\/|$)|developer-feedback(?:\/|$)|my-(?:recruitments|applications)(?:\/|$)|applications(?:\/|$)|reviews(?:\/|$)|participations(?:\/|$)|team-join-offers(?:\/|$))|\/(?:users|teams|todos|notifications)(?:\/|$))/;
+const privateApiPattern = /^(?:\/api\/(?:user(?:\/|$)|delete-user(?:\/|$)|upload(?:\/|$)|favorite-activities(?:\/|$)|application-templates(?:\/|$)|developer-feedback(?:\/|$)|my-(?:recruitments|applications)(?:\/|$)|applications(?:\/|$)|reviews(?:\/|$)|participations(?:\/|$)|team-join-offers(?:\/|$)|friends(?:\/|$)|menu-preferences(?:\/|$)|admin(?:\/|$))|\/(?:users|teams|todos|notifications)(?:\/|$))/;
 app.use((req, res, next) => {
   if (!privateApiPattern.test(req.path)) return next();
   if (!getRequestUserId(req)) return res.status(401).json({ message: '로그인이 필요합니다' });
@@ -310,6 +334,7 @@ let awardSchemaReady = Promise.resolve();
 let todoCalendarSchemaReady = Promise.resolve();
 let authSchemaReady = Promise.resolve();
 let feedbackSchemaReady = Promise.resolve();
+let socialSchemaReady = Promise.resolve();
 let crawlerScheduler = null;
 
 const queuePortfolioJob = (job) => {
@@ -494,7 +519,7 @@ const ensureRecruitmentActivityColumns = async () => {
 const getMatchingUserProfile = async (database, userId) => {
   if (!userId) return null;
   const [rows] = await database.query(
-    `SELECT id, email_verified, account_type, school_domain, school_name
+    `SELECT id, email_verified, account_type, school_domain, school_name, school_email, school_email_verified
      FROM users WHERE id = ? LIMIT 1`,
     [userId],
   );
@@ -565,10 +590,7 @@ const ensureAdminSchema = async () => {
     await portfolioDb.query('ALTER TABLE activitys ADD INDEX idx_activitys_hidden_updated (is_hidden, updated_at)');
   }
 
-  const adminEmails = String(process.env.ADMIN_EMAILS || '')
-    .split(',')
-    .map((email) => email.trim().toLowerCase())
-    .filter(Boolean);
+  const adminEmails = getConfiguredAdminEmails();
   if (adminEmails.length) {
     await portfolioDb.query(
       `UPDATE users SET is_admin = 1 WHERE LOWER(email) IN (${adminEmails.map(() => '?').join(', ')})`,
@@ -582,8 +604,8 @@ const requireAdmin = async (req, res, next) => {
   if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
   try {
     await adminSchemaReady;
-    const [rows] = await portfolioDb.query('SELECT is_admin FROM users WHERE id = ?', [userId]);
-    if (!rows.length || !rows[0].is_admin) {
+    const [rows] = await portfolioDb.query('SELECT email, is_admin FROM users WHERE id = ?', [userId]);
+    if (!rows.length || !isConfiguredAdmin(rows[0])) {
       return res.status(403).json({ message: '운영자 권한이 필요합니다' });
     }
     next();
@@ -649,7 +671,8 @@ db.getConnection((err, connection) => {
     ])
       .then(() => ensureMatchingInvitationSchema())
       .then(() => ensureApplicationSchema(portfolioDb));
-    adminSchemaReady = ensureAdminSchema();
+    socialSchemaReady = matchingSchemaReady.then(() => ensureSocialSchema(portfolioDb));
+    adminSchemaReady = Promise.all([authSchemaReady, socialSchemaReady]).then(() => ensureAdminSchema());
     awardSchemaReady = matchingSchemaReady
       .then(() => adminSchemaReady)
       .then(() => ensurePortfolioSchema(portfolioDb))
@@ -809,6 +832,88 @@ app.post('/auth/email-verification/verify', async (req, res) => {
   }
 });
 
+app.post('/auth/school-email/request', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const email = normalizeEmail(req.body?.email);
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!isValidEmail(email) || !getAccountIdentity(email).schoolDomain) {
+    return res.status(400).json({ message: '학교 이메일(.ac.kr)을 입력해주세요' });
+  }
+  try {
+    await authSchemaReady;
+    const school = await getRegisteredSchool(portfolioDb, email);
+    if (!school) return res.status(400).json({ message: '등록되지 않은 학교 이메일 도메인입니다' });
+    const [existing] = await portfolioDb.query(
+      `SELECT id FROM users
+       WHERE id <> ? AND (LOWER(email) = ? OR LOWER(school_email) = ?)
+       LIMIT 1`,
+      [userId, email, email],
+    );
+    if (existing.length) return res.status(409).json({ message: '이미 다른 계정에서 사용 중인 학교 이메일입니다' });
+    const result = await requestEmailCode(portfolioDb, {
+      email,
+      purpose: 'SCHOOL_LINK',
+      requestedIp: req.ip,
+      userId,
+    });
+    if (result.rateLimited) {
+      res.set('Retry-After', String(result.retryAfterSeconds));
+      return res.status(429).json({ message: `${result.retryAfterSeconds}초 후 다시 요청해주세요` });
+    }
+    return res.json({
+      success: true,
+      message: '학교 이메일로 인증 코드를 전송했습니다',
+      school_name: school.school_name,
+      ...(result.developmentCode ? { development_code: result.developmentCode } : {}),
+    });
+  } catch (error) {
+    return handleAuthError(res, error, '학교 인증 코드를 전송하지 못했습니다');
+  }
+});
+
+app.post('/auth/school-email/verify', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const email = normalizeEmail(req.body?.email);
+  const code = String(req.body?.code || '').trim();
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!isValidEmail(email) || !/^\d{6}$/.test(code)) {
+    return res.status(400).json({ message: '학교 이메일과 6자리 인증 코드를 확인해주세요' });
+  }
+  try {
+    await authSchemaReady;
+    const school = await getRegisteredSchool(portfolioDb, email);
+    if (!school) return res.status(400).json({ message: '등록되지 않은 학교 이메일 도메인입니다' });
+    const verification = await verifyEmailCode(portfolioDb, {
+      email,
+      purpose: 'SCHOOL_LINK',
+      code,
+      consume: true,
+      userId,
+    });
+    if (!verification.verified) {
+      return res.status(400).json({ message: '인증 코드가 올바르지 않거나 만료되었습니다' });
+    }
+    await portfolioDb.query(
+      `UPDATE users
+       SET school_email = ?, school_email_verified = 1, school_verified_at = NOW(),
+           school_domain = ?, school_name = ?
+       WHERE id = ?`,
+      [email, school.school_domain, school.school_name, userId],
+    );
+    const [rows] = await portfolioDb.query(
+      `SELECT id AS user_id, email, name, department, student_number, birth AS birth_date,
+              profile_picture, self_intro, is_admin, email_verified, account_type,
+              school_domain, school_name, school_email, school_email_verified,
+              school_verified_at, friend_code
+       FROM users WHERE id = ? LIMIT 1`,
+      [userId],
+    );
+    return res.json({ success: true, message: '학교 인증이 완료되었습니다', user: toClientUser(rows[0]) });
+  } catch (error) {
+    return handleAuthError(res, error, '학교 이메일 인증을 완료하지 못했습니다');
+  }
+});
+
 app.post('/auth/password-reset/request', async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   if (!isValidEmail(email)) return res.status(400).json({ message: '올바른 이메일을 입력해주세요' });
@@ -939,7 +1044,11 @@ app.post('/api/login', (req, res) => {
       email_verified,
       account_type,
       school_domain,
-      school_name
+      school_name,
+      school_email,
+      school_email_verified,
+      school_verified_at,
+      friend_code
     FROM users
     WHERE email = ?
   `;
@@ -1039,7 +1148,11 @@ app.post('/login', (req, res) => {
       email_verified,
       account_type,
       school_domain,
-      school_name
+      school_name,
+      school_email,
+      school_email_verified,
+      school_verified_at,
+      friend_code
     FROM users
     WHERE email = ?
   `;
@@ -1108,13 +1221,17 @@ const registerUser = async (req, res) => {
 
     await portfolioDb.query(
       `INSERT INTO users
-        (email, email_verified, account_type, school_domain, school_name, password, name, department, student_number, birth)
-       VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (email, email_verified, account_type, school_domain, school_name, school_email,
+         school_email_verified, school_verified_at, password, name, department, student_number, birth)
+       VALUES (?, 1, ?, ?, ?, ?, ?, IF(? = 1, NOW(), NULL), ?, ?, ?, ?, ?)`,
       [
         email,
         school ? 'STUDENT' : 'GENERAL',
         school?.school_domain || null,
         school?.school_name || null,
+        school ? email : null,
+        school ? 1 : 0,
+        school ? 1 : 0,
         hashPassword(password),
         name,
         department,
@@ -1147,10 +1264,89 @@ app.get('/api/developer-feedback/mine', async (req, res) => {
        LIMIT 20`,
       [userId],
     );
-    res.json(rows);
+    if (!rows.length) return res.json([]);
+    const [replies] = await portfolioDb.query(
+      `SELECT reply_id, feedback_id, content, created_at
+       FROM developer_feedback_replies
+       WHERE feedback_id IN (${rows.map(() => '?').join(', ')})
+       ORDER BY created_at ASC, reply_id ASC`,
+      rows.map((row) => row.feedback_id),
+    );
+    const repliesByFeedback = new Map();
+    replies.forEach((reply) => {
+      const list = repliesByFeedback.get(reply.feedback_id) || [];
+      list.push(reply);
+      repliesByFeedback.set(reply.feedback_id, list);
+    });
+    res.json(rows.map((row) => ({ ...row, replies: repliesByFeedback.get(row.feedback_id) || [] })));
   } catch (error) {
     logger.error('developer_feedback_list_failed', { userId, error: error.message });
     res.status(500).json({ message: '전달 내역을 불러오지 못했습니다' });
+  }
+});
+
+app.get('/api/admin/developer-feedback', requireAdmin, async (req, res) => {
+  try {
+    await feedbackSchemaReady;
+    const [rows] = await portfolioDb.query(
+      `SELECT feedback.feedback_id, feedback.user_id, feedback.category, feedback.content,
+              feedback.platform, feedback.status, feedback.created_at,
+              users.name AS user_name, users.email AS user_email,
+              (SELECT COUNT(*) FROM developer_feedback_replies reply
+               WHERE reply.feedback_id = feedback.feedback_id) AS reply_count
+       FROM developer_feedback feedback
+       JOIN users ON users.id = feedback.user_id
+       ORDER BY feedback.created_at DESC, feedback.feedback_id DESC
+       LIMIT 100`,
+    );
+    res.json(rows || []);
+  } catch (error) {
+    logger.error('admin_feedback_list_failed', { error: error.message });
+    res.status(500).json({ message: '사용자 의견을 불러오지 못했습니다' });
+  }
+});
+
+app.post('/api/admin/developer-feedback/:feedbackId/replies', requireAdmin, async (req, res) => {
+  const adminUserId = getRequestUserId(req);
+  const feedbackId = Number(req.params.feedbackId);
+  const content = String(req.body?.content || '').trim();
+  if (!Number.isInteger(feedbackId) || feedbackId <= 0 || content.length < 1 || content.length > 2000) {
+    return res.status(400).json({ message: '답장 내용을 1자 이상 2,000자 이하로 입력해주세요' });
+  }
+  const connection = await portfolioDb.getConnection();
+  try {
+    await Promise.all([feedbackSchemaReady, socialSchemaReady]);
+    await connection.beginTransaction();
+    const [[feedback]] = await connection.query(
+      'SELECT feedback_id, user_id FROM developer_feedback WHERE feedback_id = ? FOR UPDATE',
+      [feedbackId],
+    );
+    if (!feedback) {
+      await connection.rollback();
+      return res.status(404).json({ message: '전달된 의견을 찾을 수 없습니다' });
+    }
+    const [result] = await connection.query(
+      `INSERT INTO developer_feedback_replies (feedback_id, admin_user_id, content)
+       VALUES (?, ?, ?)`,
+      [feedbackId, adminUserId, content],
+    );
+    await connection.query(
+      "UPDATE developer_feedback SET status = 'REPLIED' WHERE feedback_id = ?",
+      [feedbackId],
+    );
+    await connection.query(
+      `INSERT INTO user_notifications (user_id, team_id, notice_id, type, title, content)
+       VALUES (?, NULL, NULL, 'developer_reply', '개발자 답장이 도착했어요', ?)`,
+      [feedback.user_id, content.slice(0, 255)],
+    );
+    await connection.commit();
+    res.status(201).json({ success: true, reply_id: result.insertId });
+  } catch (error) {
+    await connection.rollback();
+    logger.error('admin_feedback_reply_failed', { feedbackId, error: error.message });
+    res.status(500).json({ message: '답장을 전송하지 못했습니다' });
+  } finally {
+    connection.release();
   }
 });
 
@@ -1171,6 +1367,297 @@ app.post('/api/developer-feedback', async (req, res) => {
   } catch (error) {
     logger.error('developer_feedback_create_failed', { userId, error: error.message });
     res.status(500).json({ message: '의견을 전달하지 못했습니다' });
+  }
+});
+
+app.get('/api/menu-preferences', async (req, res) => {
+  const userId = getRequestUserId(req);
+  try {
+    await socialSchemaReady;
+    const [rows] = await portfolioDb.query(
+      'SELECT menu_key, sort_order FROM user_menu_preferences WHERE user_id = ? ORDER BY sort_order ASC',
+      [userId],
+    );
+    res.json({ order: rows.map((row) => row.menu_key) });
+  } catch (error) {
+    logger.error('menu_preferences_list_failed', { userId, error: error.message });
+    res.status(500).json({ message: '메뉴 순서를 불러오지 못했습니다' });
+  }
+});
+
+app.put('/api/menu-preferences', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const order = Array.isArray(req.body?.order)
+    ? [...new Set(req.body.order.map((item) => String(item || '').trim()).filter((item) => /^[a-z0-9_-]{1,40}$/i.test(item)))]
+    : [];
+  if (!order.length || order.length > 30) {
+    return res.status(400).json({ message: '저장할 메뉴 순서를 확인해주세요' });
+  }
+  const connection = await portfolioDb.getConnection();
+  try {
+    await socialSchemaReady;
+    await connection.beginTransaction();
+    await connection.query('DELETE FROM user_menu_preferences WHERE user_id = ?', [userId]);
+    await connection.query(
+      `INSERT INTO user_menu_preferences (user_id, menu_key, sort_order) VALUES ${order.map(() => '(?, ?, ?)').join(', ')}`,
+      order.flatMap((menuKey, index) => [userId, menuKey, index]),
+    );
+    await connection.commit();
+    res.json({ success: true, order });
+  } catch (error) {
+    await connection.rollback();
+    logger.error('menu_preferences_update_failed', { userId, error: error.message });
+    res.status(500).json({ message: '메뉴 순서를 저장하지 못했습니다' });
+  } finally {
+    connection.release();
+  }
+});
+
+app.get('/api/friends', async (req, res) => {
+  const userId = getRequestUserId(req);
+  try {
+    await socialSchemaReady;
+    const friendCode = await ensureUserFriendCode(portfolioDb, userId);
+    const [rows] = await portfolioDb.query(
+      `SELECT friendship.friendship_id,
+              users.id AS user_id, users.name, users.profile_picture, users.friend_code,
+              (SELECT MAX(message.created_at) FROM friend_messages message
+               WHERE message.friendship_id = friendship.friendship_id) AS last_message_at,
+              (SELECT COUNT(*) FROM friend_messages message
+               WHERE message.friendship_id = friendship.friendship_id
+                 AND message.recipient_id = ? AND message.read_at IS NULL) AS unread_count
+       FROM friendships friendship
+       JOIN users ON users.id = IF(friendship.user_low_id = ?, friendship.user_high_id, friendship.user_low_id)
+       WHERE friendship.status = 'ACCEPTED'
+         AND (friendship.user_low_id = ? OR friendship.user_high_id = ?)
+       ORDER BY COALESCE(last_message_at, friendship.responded_at, friendship.updated_at) DESC,
+                friendship.friendship_id DESC`,
+      [userId, userId, userId, userId],
+    );
+    res.json({
+      friend_code: friendCode,
+      friends: rows.map((row) => ({ ...row, profile_picture: normalizeLocalUrl(row.profile_picture) })),
+    });
+  } catch (error) {
+    logger.error('friends_list_failed', { userId, error: error.message });
+    res.status(500).json({ message: '친구 목록을 불러오지 못했습니다' });
+  }
+});
+
+app.get('/api/friends/requests', async (req, res) => {
+  const userId = getRequestUserId(req);
+  try {
+    await socialSchemaReady;
+    const [rows] = await portfolioDb.query(
+      `SELECT friendship.friendship_id, friendship.created_at,
+              users.id AS user_id, users.name, users.profile_picture
+       FROM friendships friendship
+       JOIN users ON users.id = friendship.requested_by
+       WHERE friendship.status = 'PENDING'
+         AND friendship.requested_by <> ?
+         AND (friendship.user_low_id = ? OR friendship.user_high_id = ?)
+       ORDER BY friendship.created_at DESC`,
+      [userId, userId, userId],
+    );
+    res.json(rows.map((row) => ({ ...row, profile_picture: normalizeLocalUrl(row.profile_picture) })));
+  } catch (error) {
+    logger.error('friend_requests_list_failed', { userId, error: error.message });
+    res.status(500).json({ message: '친구 요청을 불러오지 못했습니다' });
+  }
+});
+
+app.post('/api/friends/requests', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const friendCode = normalizeFriendCode(req.body?.friend_code);
+  if (!friendCode) return res.status(400).json({ message: '친구 코드를 입력해주세요' });
+  const connection = await portfolioDb.getConnection();
+  try {
+    await socialSchemaReady;
+    await connection.beginTransaction();
+    const [[target]] = await connection.query(
+      'SELECT id, name FROM users WHERE friend_code = ? LIMIT 1 FOR UPDATE',
+      [friendCode],
+    );
+    if (!target) {
+      await connection.rollback();
+      return res.status(404).json({ message: '친구 코드를 확인해주세요' });
+    }
+    if (Number(target.id) === Number(userId)) {
+      await connection.rollback();
+      return res.status(400).json({ message: '내 코드는 친구 추가에 사용할 수 없습니다' });
+    }
+    const [userLowId, userHighId] = getFriendPair(userId, target.id);
+    const [[existing]] = await connection.query(
+      'SELECT friendship_id, status FROM friendships WHERE user_low_id = ? AND user_high_id = ? FOR UPDATE',
+      [userLowId, userHighId],
+    );
+    if (existing?.status === 'ACCEPTED') {
+      await connection.rollback();
+      return res.status(409).json({ message: '이미 친구로 등록되어 있습니다' });
+    }
+    if (existing?.status === 'PENDING') {
+      await connection.rollback();
+      return res.status(409).json({ message: '이미 처리 중인 친구 요청이 있습니다' });
+    }
+    let friendshipId;
+    if (existing) {
+      friendshipId = existing.friendship_id;
+      await connection.query(
+        `UPDATE friendships
+         SET requested_by = ?, status = 'PENDING', created_at = NOW(), responded_at = NULL
+         WHERE friendship_id = ?`,
+        [userId, friendshipId],
+      );
+    } else {
+      const [result] = await connection.query(
+        `INSERT INTO friendships (user_low_id, user_high_id, requested_by)
+         VALUES (?, ?, ?)`,
+        [userLowId, userHighId, userId],
+      );
+      friendshipId = result.insertId;
+    }
+    const [[requester]] = await connection.query('SELECT name FROM users WHERE id = ? LIMIT 1', [userId]);
+    await connection.query(
+      `INSERT INTO user_notifications (user_id, team_id, notice_id, type, title, content)
+       VALUES (?, NULL, NULL, 'friend_request', '새 친구 요청', ?)`,
+      [target.id, `${requester?.name || '사용자'}님이 친구 요청을 보냈어요`],
+    );
+    await connection.commit();
+    res.status(201).json({ success: true, friendship_id: friendshipId, friend_name: target.name });
+  } catch (error) {
+    await connection.rollback();
+    logger.error('friend_request_create_failed', { userId, error: error.message });
+    res.status(500).json({ message: '친구 요청을 보내지 못했습니다' });
+  } finally {
+    connection.release();
+  }
+});
+
+app.put('/api/friends/requests/:friendshipId', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const friendshipId = Number(req.params.friendshipId);
+  const decision = String(req.body?.decision || '').toUpperCase();
+  if (!Number.isInteger(friendshipId) || !['ACCEPTED', 'REJECTED'].includes(decision)) {
+    return res.status(400).json({ message: '친구 요청 처리 값을 확인해주세요' });
+  }
+  const connection = await portfolioDb.getConnection();
+  try {
+    await socialSchemaReady;
+    await connection.beginTransaction();
+    const [[friendship]] = await connection.query(
+      `SELECT friendship_id, requested_by FROM friendships
+       WHERE friendship_id = ? AND status = 'PENDING'
+         AND requested_by <> ? AND (user_low_id = ? OR user_high_id = ?)
+       FOR UPDATE`,
+      [friendshipId, userId, userId, userId],
+    );
+    if (!friendship) {
+      await connection.rollback();
+      return res.status(404).json({ message: '처리할 친구 요청을 찾을 수 없습니다' });
+    }
+    await connection.query(
+      'UPDATE friendships SET status = ?, responded_at = NOW() WHERE friendship_id = ?',
+      [decision, friendshipId],
+    );
+    if (decision === 'ACCEPTED') {
+      const [[responder]] = await connection.query('SELECT name FROM users WHERE id = ? LIMIT 1', [userId]);
+      await connection.query(
+        `INSERT INTO user_notifications (user_id, team_id, notice_id, type, title, content)
+         VALUES (?, NULL, NULL, 'friend_accepted', '친구 요청 수락', ?)`,
+        [friendship.requested_by, `${responder?.name || '사용자'}님과 친구가 되었어요`],
+      );
+    }
+    await connection.commit();
+    res.json({ success: true, status: decision });
+  } catch (error) {
+    await connection.rollback();
+    logger.error('friend_request_respond_failed', { userId, friendshipId, error: error.message });
+    res.status(500).json({ message: '친구 요청을 처리하지 못했습니다' });
+  } finally {
+    connection.release();
+  }
+});
+
+const getAcceptedFriendship = async (database, userId, friendUserId) => {
+  const [userLowId, userHighId] = getFriendPair(userId, friendUserId);
+  const [rows] = await database.query(
+    `SELECT friendship_id FROM friendships
+     WHERE user_low_id = ? AND user_high_id = ? AND status = 'ACCEPTED' LIMIT 1`,
+    [userLowId, userHighId],
+  );
+  return rows[0] || null;
+};
+
+app.get('/api/friends/:friendUserId/messages', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const friendUserId = Number(req.params.friendUserId);
+  if (!Number.isInteger(friendUserId) || friendUserId <= 0) {
+    return res.status(400).json({ message: '친구 정보를 확인해주세요' });
+  }
+  try {
+    await socialSchemaReady;
+    const friendship = await getAcceptedFriendship(portfolioDb, userId, friendUserId);
+    if (!friendship) return res.status(403).json({ message: '친구끼리만 쪽지를 주고받을 수 있습니다' });
+    const [[friend]] = await portfolioDb.query(
+      'SELECT id AS user_id, name, profile_picture FROM users WHERE id = ? LIMIT 1',
+      [friendUserId],
+    );
+    const [messages] = await portfolioDb.query(
+      `SELECT message_id, sender_id, recipient_id, content, read_at, created_at
+       FROM friend_messages WHERE friendship_id = ?
+       ORDER BY created_at ASC, message_id ASC LIMIT 300`,
+      [friendship.friendship_id],
+    );
+    res.json({ friend: { ...friend, profile_picture: normalizeLocalUrl(friend?.profile_picture) }, messages });
+  } catch (error) {
+    logger.error('friend_messages_list_failed', { userId, friendUserId, error: error.message });
+    res.status(500).json({ message: '쪽지를 불러오지 못했습니다' });
+  }
+});
+
+app.post('/api/friends/:friendUserId/messages', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const friendUserId = Number(req.params.friendUserId);
+  const content = normalizeMessage(req.body?.content);
+  if (!Number.isInteger(friendUserId) || friendUserId <= 0 || !content) {
+    return res.status(400).json({ message: '쪽지 내용을 입력해주세요' });
+  }
+  if (String(req.body?.content || '').trim().length > 200) {
+    return res.status(400).json({ message: '쪽지는 200자 이하로 입력해주세요' });
+  }
+  try {
+    await socialSchemaReady;
+    const friendship = await getAcceptedFriendship(portfolioDb, userId, friendUserId);
+    if (!friendship) return res.status(403).json({ message: '친구끼리만 쪽지를 주고받을 수 있습니다' });
+    const [result] = await portfolioDb.query(
+      `INSERT INTO friend_messages (friendship_id, sender_id, recipient_id, content)
+       VALUES (?, ?, ?, ?)`,
+      [friendship.friendship_id, userId, friendUserId, content],
+    );
+    await portfolioDb.query('UPDATE friendships SET updated_at = NOW() WHERE friendship_id = ?', [friendship.friendship_id]);
+    res.status(201).json({ success: true, message_id: result.insertId });
+  } catch (error) {
+    logger.error('friend_message_create_failed', { userId, friendUserId, error: error.message });
+    res.status(500).json({ message: '쪽지를 보내지 못했습니다' });
+  }
+});
+
+app.put('/api/friends/:friendUserId/messages/read', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const friendUserId = Number(req.params.friendUserId);
+  try {
+    await socialSchemaReady;
+    const friendship = await getAcceptedFriendship(portfolioDb, userId, friendUserId);
+    if (!friendship) return res.status(403).json({ message: '친구 정보를 확인해주세요' });
+    await portfolioDb.query(
+      `UPDATE friend_messages SET read_at = NOW()
+       WHERE friendship_id = ? AND recipient_id = ? AND read_at IS NULL`,
+      [friendship.friendship_id, userId],
+    );
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('friend_messages_read_failed', { userId, friendUserId, error: error.message });
+    res.status(500).json({ message: '쪽지를 읽음 처리하지 못했습니다' });
   }
 });
 
@@ -1223,7 +1710,7 @@ app.get('/api/activities', async (req, res) => {
   try {
   await matchingSchemaReady;
   const profile = await getMatchingUserProfile(portfolioDb, getRequestUserId(req));
-  const schoolDomain = profile?.email_verified && profile?.account_type === 'STUDENT'
+  const schoolDomain = profile?.school_email_verified
     ? profile.school_domain
     : null;
   const cacheKey = `activities:all:${schoolDomain || 'nationwide'}`;
@@ -1269,7 +1756,7 @@ app.get('/api/activities/open', async (req, res) => {
   try {
   await matchingSchemaReady;
   const profile = await getMatchingUserProfile(portfolioDb, getRequestUserId(req));
-  const schoolDomain = profile?.email_verified && profile?.account_type === 'STUDENT'
+  const schoolDomain = profile?.school_email_verified
     ? profile.school_domain
     : null;
   const cacheKey = `activities:open:${schoolDomain || 'nationwide'}`;
@@ -1330,7 +1817,7 @@ app.get('/api/activities/:id', async (req, res) => {
   try {
   await matchingSchemaReady;
   const profile = await getMatchingUserProfile(portfolioDb, getRequestUserId(req));
-  const schoolDomain = profile?.email_verified && profile?.account_type === 'STUDENT'
+  const schoolDomain = profile?.school_email_verified
     ? profile.school_domain
     : null;
   // 실제 DB 쿼리
@@ -1372,7 +1859,7 @@ app.get('/api/activities/:id/recruitments', async (req, res) => {
   try {
     await matchingSchemaReady;
     const profile = await getMatchingUserProfile(portfolioDb, userId);
-    const canSeeSchool = Boolean(profile?.email_verified && profile?.account_type === 'STUDENT');
+    const canSeeSchool = Boolean(profile?.school_email_verified && profile?.school_domain);
     const sql = `
     SELECT
       recruitment_id,
@@ -1666,7 +2153,24 @@ app.get('/api/team-recruitments', async (req, res) => {
   try {
     await matchingSchemaReady;
     const profile = await getMatchingUserProfile(portfolioDb, userId);
-    const canSeeSchool = Boolean(profile?.email_verified && profile?.account_type === 'STUDENT');
+    const canSeeSchool = Boolean(profile?.school_email_verified && profile?.school_domain);
+    const requestedScope = String(req.query.scope || 'ALL').toUpperCase();
+    if (!['ALL', 'SCHOOL', 'NATIONWIDE'].includes(requestedScope)) {
+      return res.status(400).json({ message: '올바른 모집 범위를 선택해주세요' });
+    }
+    if (requestedScope === 'SCHOOL' && !canSeeSchool) {
+      return res.status(403).json({ message: '학교 이메일 인증 후 본교 모집글을 볼 수 있습니다' });
+    }
+    let scopeClause = "COALESCE(tr.recruitment_scope, 'NATIONWIDE') = 'NATIONWIDE'";
+    let scopeParams = [];
+    if (requestedScope === 'SCHOOL') {
+      scopeClause = "tr.recruitment_scope = 'SCHOOL' AND tr.school_domain = ?";
+      scopeParams = [profile.school_domain];
+    } else if (requestedScope === 'ALL') {
+      scopeClause = `(COALESCE(tr.recruitment_scope, 'NATIONWIDE') = 'NATIONWIDE'
+        OR (? = 1 AND tr.recruitment_scope = 'SCHOOL' AND tr.school_domain = ?))`;
+      scopeParams = [canSeeSchool ? 1 : 0, profile?.school_domain || null];
+    }
     const sql = `
     SELECT
       recruitment_id,
@@ -1694,16 +2198,10 @@ app.get('/api/team-recruitments', async (req, res) => {
     FROM team_recruitments tr
     LEFT JOIN activitys a ON a.activity_id = tr.activity_id
     WHERE tr.status = 'OPEN' AND tr.deleted_at IS NULL
-      AND (
-        COALESCE(tr.recruitment_scope, 'NATIONWIDE') = 'NATIONWIDE'
-        OR (? = 1 AND tr.recruitment_scope = 'SCHOOL' AND tr.school_domain = ?)
-      )
+      AND (${scopeClause})
     ORDER BY tr.created_at DESC, tr.recruitment_id DESC
   `;
-    const [results] = await portfolioDb.query(sql, [
-      canSeeSchool ? 1 : 0,
-      profile?.school_domain || null,
-    ]);
+    const [results] = await portfolioDb.query(sql, scopeParams);
     res.json(results || []);
   } catch (error) {
     console.error('팀 모집글 조회 오류:', error);
@@ -3599,6 +4097,12 @@ app.put('/todos/:todoId', (req, res) => {
   if (updates.length === 0) {
     return res.status(400).json({ message: '수정할 값이 없습니다' });
   }
+  if (req.body.status !== undefined && !TODO_STATUSES.has(String(req.body.status))) {
+    return res.status(400).json({ message: '올바른 목표 상태를 선택해주세요' });
+  }
+  if (req.body.title !== undefined && !String(req.body.title).trim()) {
+    return res.status(400).json({ message: '할 일 내용을 입력해주세요' });
+  }
 
   const setClause = updates.map(field => `${field} = ?`).join(', ');
   const values = updates.map(field => req.body[field]);
@@ -3612,9 +4116,7 @@ app.put('/todos/:todoId', (req, res) => {
     UPDATE todos
     SET ${setClause}${completionClause}
     WHERE todo_id = ?
-      AND team_id IN (
-        SELECT team_id FROM team_members WHERE user_id = ?
-      )
+      AND assigned_user_id = ?
   `;
 
   db.query(sql, [...values, todoId, userId], (err, result) => {
@@ -3772,7 +4274,8 @@ app.get('/api/user/:id', (req, res) => {
   // 실제 DB 쿼리
   const userQuery = `SELECT id AS user_id, email, name, department, student_number,
     birth AS birth_date, profile_picture, self_intro, is_admin, email_verified,
-    account_type, school_domain, school_name FROM users WHERE id = ?`;
+    account_type, school_domain, school_name, school_email, school_email_verified,
+    school_verified_at, friend_code FROM users WHERE id = ?`;
   
   db.query(userQuery, [userId], (err, results) => {
     if (err) {

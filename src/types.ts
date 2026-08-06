@@ -18,6 +18,13 @@ export interface User {
   schoolDomain?: string | null;
   school_name?: string | null;
   schoolName?: string | null;
+  school_email?: string | null;
+  schoolEmail?: string | null;
+  school_email_verified?: boolean;
+  schoolEmailVerified?: boolean;
+  school_verified_at?: string | null;
+  friend_code?: string | null;
+  friendCode?: string | null;
 }
 
 export type RootStackParamList = {
@@ -39,6 +46,10 @@ export type RootStackParamList = {
   MyApplications: undefined;
   Awards: undefined;
   DeveloperFeedback: undefined;
+  SchoolEmailVerification: undefined;
+  Friends: undefined;
+  FriendAdd: undefined;
+  MessageThread: { friendUserId: number; friendName: string };
   ApplicationDetail: { applicationId: number };
   ApplicationTemplates: undefined;
   MyPage2: { user: User };

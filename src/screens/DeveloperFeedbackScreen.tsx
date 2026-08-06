@@ -26,6 +26,7 @@ type Feedback = {
   content: string;
   status: string;
   created_at: string;
+  replies?: Array<{ reply_id: number; content: string; created_at: string }>;
 };
 
 export default function DeveloperFeedbackScreen() {
@@ -123,6 +124,12 @@ export default function DeveloperFeedbackScreen() {
               {CATEGORIES.find((item) => item.value === feedback.category)?.label || '기타'} · {String(feedback.created_at).slice(0, 10)}
             </Text>
             <Text style={styles.historyContent} numberOfLines={3}>{feedback.content}</Text>
+            {(feedback.replies || []).map((reply) => (
+              <View key={reply.reply_id} style={styles.replyCard}>
+                <Text style={styles.replyLabel}>개발자 답장 · {String(reply.created_at).slice(0, 10)}</Text>
+                <Text style={styles.replyContent}>{reply.content}</Text>
+              </View>
+            ))}
           </View>
         ))}
       </ScrollView>
@@ -152,4 +159,7 @@ const styles = StyleSheet.create({
   historyCard: { marginBottom: 10, padding: 15, borderRadius: 15, backgroundColor: colors.inputBackground },
   historyMeta: { color: colors.primary, fontSize: 11, fontWeight: '800' },
   historyContent: { marginTop: 7, color: colors.textMain, fontSize: 13, lineHeight: 19 },
+  replyCard: { marginTop: 11, padding: 12, borderLeftWidth: 3, borderLeftColor: colors.primary, borderRadius: 10, backgroundColor: '#FFFFFF' },
+  replyLabel: { color: colors.primary, fontSize: 10, fontWeight: '900' },
+  replyContent: { marginTop: 6, color: colors.textMain, fontSize: 12, lineHeight: 18 },
 });
