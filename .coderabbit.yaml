@@ -1,0 +1,74 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "ko-KR"
+
+reviews:
+  profile: "assertive"
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  review_status: true
+
+  auto_review:
+    enabled: true
+    drafts: true
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 10
+    base_branches:
+      - "develop"
+      - "main"
+    ignore_title_keywords:
+      - "[skip review]"
+      - "[리뷰 제외]"
+    ignore_usernames:
+      - "dependabot[bot]"
+      - "github-actions[bot]"
+
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/build/**"
+    - "!**/dist/**"
+    - "!android/.gradle/**"
+    - "!android/app/build/**"
+    - "!ios/Pods/**"
+    - "!ios/build/**"
+    - "!server/uploads/**"
+    - "!**/package-lock.json"
+    - "!Gemfile.lock"
+
+  path_instructions:
+    - path: "src/**/*.{ts,tsx}"
+      instructions: |
+        React Native 앱 코드로 검토합니다.
+        - iOS와 Android에서 동작 및 레이아웃이 동일한지 확인합니다.
+        - 터치 영역, Safe Area, 키보드, 접근성과 긴 텍스트 오버플로를 확인합니다.
+        - useEffect 정리, 비동기 경쟁 상태, 불필요한 렌더링과 긴 목록 성능을 확인합니다.
+        - 기존 디자인 토큰과 아이콘 에셋을 우선 사용했는지 확인합니다.
+
+    - path: "server/**/*.js"
+      instructions: |
+        Express 및 MySQL 서버 코드로 검토합니다.
+        - 인증과 권한 검사를 우회할 수 없는지 확인합니다.
+        - SQL 인젝션, 파일 업로드, 개인정보 노출, 비밀값 하드코딩을 중점 확인합니다.
+        - 입력값 검증, 트랜잭션, 중복 요청, 동시성 및 오류 응답의 일관성을 확인합니다.
+        - DB 스키마 변경이 기존 데이터와 하위 호환되는지 확인합니다.
+
+    - path: "web/src/**/*.{ts,tsx}"
+      instructions: |
+        React 웹 코드로 검토합니다.
+        - 모바일 앱과 API 계약, 인증 정책 및 상태 표시가 일치하는지 확인합니다.
+        - 모바일부터 데스크톱까지 반응형 레이아웃과 키보드 접근성을 확인합니다.
+        - 로딩, 빈 상태, 오류 및 재시도 흐름이 누락되지 않았는지 확인합니다.
+
+    - path: "**/*.{test,spec}.{js,jsx,ts,tsx}"
+      instructions: |
+        변경된 핵심 동작의 정상·실패·경계 조건을 검증하는지 확인합니다.
+        테스트가 구현 세부사항보다 사용자 관찰 동작과 API 계약을 검증하도록 제안합니다.
+
+    - path: "android/**"
+      instructions: |
+        Android 네이티브 설정 변경이 빌드, 권한, 네트워크 보안 및 릴리스 설정에 미치는 영향을 확인합니다.
+
+    - path: "ios/**"
+      instructions: |
+        iOS 네이티브 설정 변경이 빌드, 권한, ATS, 서명 및 App Store 배포에 미치는 영향을 확인합니다.

@@ -68,6 +68,12 @@ VITE_API_BASE_URL=https://api.example.com npm run web:build
 
 운영 API는 로그인 토큰과 DB의 `users.is_admin` 권한을 모두 확인합니다. 운영 환경에서는 `ADMIN_EMAILS`와 `AUTH_TOKEN_SECRET`을 비밀 환경변수로 관리합니다.
 
+## CodeRabbit 코드 리뷰
+
+저장소 루트의 `.coderabbit.yaml`은 `main`, `develop` 대상 PR과 Draft PR을 자동으로 검토하도록 설정합니다. 새 커밋을 푸시하면 변경된 부분을 증분 리뷰하며, 서버 보안·DB 호환성, React Native의 iOS/Android 일관성, 웹 API 계약을 경로별 기준으로 확인합니다.
+
+CodeRabbit GitHub App을 `C4t4ddict/kkiri-kkiri` 저장소에 설치해야 자동 리뷰가 시작됩니다. 자동 리뷰가 누락된 경우 PR 댓글에 `@coderabbitai review`를 입력하고, 전체 변경을 다시 검토하려면 `@coderabbitai full review`를 사용합니다. 리뷰를 생략해야 하는 예외 PR은 제목에 `[리뷰 제외]` 또는 `[skip review]`를 포함합니다.
+
 > **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
 
 ## Step 1: Start Metro
