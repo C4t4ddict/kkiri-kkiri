@@ -9,7 +9,7 @@ import { PageTitle } from '../shared/ui/PageTitle';
 
 export function InfoPage() {
   const [query, setQuery] = useState('');
-  const result = useAsync(() => api<ActivityItem[]>('/api/activities'), []);
+  const result = useAsync(() => api<ActivityItem[]>('/api/activities'));
   const filtered = useMemo(() => (result.data || []).filter((item) =>
     `${item.title} ${item.organizer} ${item.category}`.toLowerCase().includes(query.toLowerCase()),
   ), [query, result.data]);

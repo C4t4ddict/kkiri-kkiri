@@ -18,6 +18,8 @@ try {
 const { attachAuth, getAuthenticatedUserId, issueAuthToken } = require('./lib/auth');
 const { getRequestMetrics, logger, requestLogger } = require('./lib/logger');
 const { createSecureImageUpload } = require('./lib/secureImageUpload');
+const { getAllowedOrigins, isOriginAllowed, securityHeaders } = require('./lib/httpSecurity');
+const { getPasswordValidationError } = require('./lib/passwordPolicy');
 const { createTtlCache } = require('./lib/ttlCache');
 const { extractPrizeDetails, extractPrizeSummary } = require('./lib/activityPrize');
 const { buildMonthTodoCalendar, findPeriodGoalCapacityConflict } = require('./lib/todoCalendar');
@@ -67,6 +69,7 @@ const {
   ensureUserFriendCode,
   getFriendPair,
   normalizeFriendCode,
+  normalizeMenuOrder,
   normalizeMessage,
 } = require('./social/service');
 
@@ -78,15 +81,8 @@ const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const FALLBACK_UPLOAD_IMAGES = ['info1.png', 'info2.png', 'info3.png', 'info4.png', 'info5.png'];
 
 const isPasswordValid = (inputPassword, savedPassword) => {
-  if (!savedPassword) {
-    return false;
-  }
-
-  if (savedPassword.startsWith('$2')) {
-    return bcrypt.compareSync(inputPassword, savedPassword);
-  }
-
-  return inputPassword === savedPassword;
+  if (!savedPassword?.startsWith('$2')) return false;
+  return bcrypt.compareSync(inputPassword, savedPassword);
 };
 
 const hashPassword = (password) => bcrypt.hashSync(password, BCRYPT_SALT_ROUNDS);
@@ -291,9 +287,25 @@ const toClientUser = (user) => ({
   friendCode: user.friend_code || null,
 });
 
+const toPublicClientUser = (user) => ({
+  id: user.user_id,
+  user_id: user.user_id,
+  name: user.name,
+  department: user.department || null,
+  profile_picture: normalizeLocalUrl(user.profile_picture),
+  self_intro: user.self_intro || null,
+});
+
 // Middleware 설정
-app.use(cors());
-app.use(bodyParser.json());
+const allowedWebOrigins = getAllowedOrigins();
+app.disable('x-powered-by');
+app.use(cors({
+  origin: (origin, callback) => callback(null, isOriginAllowed(origin, allowedWebOrigins)),
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Authorization', 'Content-Type'],
+}));
+app.use(securityHeaders);
+app.use(bodyParser.json({ limit: '100kb' }));
 app.use(attachAuth);
 app.use(requestLogger);
 
@@ -1001,9 +1013,8 @@ app.post('/auth/password-reset/verify', async (req, res) => {
 app.post('/auth/password-reset/confirm', async (req, res) => {
   const token = String(req.body?.reset_token || '');
   const password = String(req.body?.password || '');
-  if (!token || password.length < 4) {
-    return res.status(400).json({ message: '비밀번호는 4자 이상 입력해주세요' });
-  }
+  const passwordError = getPasswordValidationError(password);
+  if (!token || passwordError) return res.status(400).json({ message: passwordError || '재설정 요청을 확인해주세요' });
   try {
     await authSchemaReady;
     const reset = await resetPasswordWithToken(portfolioDb, {
@@ -1231,8 +1242,9 @@ const registerUser = async (req, res) => {
   const studentNumber = String(req.body?.student_number ?? req.body?.studentId ?? '').trim() || null;
   const birth = String(req.body?.birth_date ?? req.body?.birth ?? '').trim() || null;
 
-  if (!isValidEmail(email) || password.length < 4 || !name) {
-    return res.status(400).json({ success: false, message: '이메일, 비밀번호, 이름을 확인해주세요' });
+  const passwordError = getPasswordValidationError(password);
+  if (!isValidEmail(email) || passwordError || !name) {
+    return res.status(400).json({ success: false, message: passwordError || '이메일과 이름을 확인해주세요' });
   }
   if (db.state !== 'connected') {
     return res.status(503).json({ success: false, message: '데이터베이스에 연결할 수 없습니다' });
@@ -1405,12 +1417,20 @@ app.post('/api/developer-feedback', async (req, res) => {
 app.get('/api/menu-preferences', async (req, res) => {
   const userId = getRequestUserId(req);
   try {
-    await socialSchemaReady;
-    const [rows] = await portfolioDb.query(
-      'SELECT menu_key, sort_order FROM user_menu_preferences WHERE user_id = ? ORDER BY sort_order ASC',
-      [userId],
-    );
-    res.json({ order: rows.map((row) => row.menu_key) });
+    await Promise.all([socialSchemaReady, adminSchemaReady]);
+    const [[users], [rows]] = await Promise.all([
+      portfolioDb.query('SELECT email, is_admin FROM users WHERE id = ? LIMIT 1', [userId]),
+      portfolioDb.query(
+        'SELECT menu_key, sort_order FROM user_menu_preferences WHERE user_id = ? ORDER BY sort_order ASC',
+        [userId],
+      ),
+    ]);
+    res.json({
+      order: normalizeMenuOrder(
+        rows.map((row) => row.menu_key),
+        { includeAdmin: isConfiguredAdmin(users[0]) },
+      ),
+    });
   } catch (error) {
     logger.error('menu_preferences_list_failed', { userId, error: error.message });
     res.status(500).json({ message: '메뉴 순서를 불러오지 못했습니다' });
@@ -1419,15 +1439,23 @@ app.get('/api/menu-preferences', async (req, res) => {
 
 app.put('/api/menu-preferences', async (req, res) => {
   const userId = getRequestUserId(req);
-  const order = Array.isArray(req.body?.order)
-    ? [...new Set(req.body.order.map((item) => String(item || '').trim()).filter((item) => /^[a-z0-9_-]{1,40}$/i.test(item)))]
+  const requestedOrder = Array.isArray(req.body?.order)
+    ? [...new Set(req.body.order.map((item) => String(item || '').trim()).filter(Boolean))]
     : [];
-  if (!order.length || order.length > 30) {
+  if (!requestedOrder.length || requestedOrder.length > 30) {
     return res.status(400).json({ message: '저장할 메뉴 순서를 확인해주세요' });
   }
   const connection = await portfolioDb.getConnection();
   try {
-    await socialSchemaReady;
+    await Promise.all([socialSchemaReady, adminSchemaReady]);
+    const [[user]] = await connection.query(
+      'SELECT email, is_admin FROM users WHERE id = ? LIMIT 1',
+      [userId],
+    );
+    const order = normalizeMenuOrder(requestedOrder, { includeAdmin: isConfiguredAdmin(user) });
+    if (order.length !== requestedOrder.length) {
+      return res.status(400).json({ message: '허용되지 않은 메뉴가 포함되어 있습니다' });
+    }
     await connection.beginTransaction();
     await connection.query('DELETE FROM user_menu_preferences WHERE user_id = ?', [userId]);
     await connection.query(
@@ -1636,8 +1664,14 @@ app.get('/api/friends/:friendUserId/messages', async (req, res) => {
     );
     const [messages] = await portfolioDb.query(
       `SELECT message_id, sender_id, recipient_id, content, read_at, created_at
-       FROM friend_messages WHERE friendship_id = ?
-       ORDER BY created_at ASC, message_id ASC LIMIT 300`,
+       FROM (
+         SELECT message_id, sender_id, recipient_id, content, read_at, created_at
+         FROM friend_messages
+         WHERE friendship_id = ?
+         ORDER BY created_at DESC, message_id DESC
+         LIMIT 100
+       ) recent
+       ORDER BY created_at ASC, message_id ASC`,
       [friendship.friendship_id],
     );
     res.json({ friend: { ...friend, profile_picture: normalizeLocalUrl(friend?.profile_picture) }, messages });
@@ -3182,7 +3216,10 @@ app.get('/my-teams', (req, res) => {
 });
 
 app.get('/users/:userId/teams', (req, res) => {
-  const { userId } = req.params;
+  const userId = Number(req.params.userId);
+  const requestUserId = getRequestUserId(req);
+  if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ message: '사용자 정보가 올바르지 않습니다' });
+  if (requestUserId !== userId) return res.status(403).json({ message: '본인의 활동만 볼 수 있습니다' });
 
   const sql = `
     SELECT
@@ -3621,8 +3658,11 @@ app.get('/notifications', async (req, res) => {
 });
 
 app.get('/teams/:teamId/progress', (req, res) => {
+  const userId = getRequestUserId(req);
   const { teamId } = req.params;
   const { scope_type, start, end } = req.query;
+
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
 
   const exactSql = `
     SELECT
@@ -3633,9 +3673,13 @@ app.get('/teams/:teamId/progress', (req, res) => {
       AND scope_type = ?
       AND scope_start_date <= ?
       AND scope_end_date >= ?
+      AND EXISTS (
+        SELECT 1 FROM team_members requester
+        WHERE requester.team_id = todos.team_id AND requester.user_id = ?
+      )
   `;
 
-  db.query(exactSql, [teamId, scope_type, end, start], (err, rows) => {
+  db.query(exactSql, [teamId, scope_type, end, start, userId], (err, rows) => {
     if (err) {
       console.error('진행률 조회 오류:', err);
       return res.status(500).json({ message: '서버 오류' });
@@ -3655,9 +3699,13 @@ app.get('/teams/:teamId/progress', (req, res) => {
       FROM todos
       WHERE team_id = ?
         AND scope_type = '전체'
+        AND EXISTS (
+          SELECT 1 FROM team_members requester
+          WHERE requester.team_id = todos.team_id AND requester.user_id = ?
+        )
     `;
 
-    db.query(fallbackSql, [teamId], (fallbackErr, fallbackRows) => {
+    db.query(fallbackSql, [teamId, userId], (fallbackErr, fallbackRows) => {
       if (fallbackErr) {
         console.error('진행률 fallback 조회 오류:', fallbackErr);
         return res.status(500).json({ message: '서버 오류' });
@@ -3770,6 +3818,7 @@ app.get('/teams/:teamId/calendar', async (req, res) => {
 });
 
 app.get('/teams/:teamId/heatmap', (req, res) => {
+  const userId = getRequestUserId(req);
   const { teamId } = req.params;
   const requestedYear = Number(req.query.year);
   const requestedMonth = Number(req.query.month);
@@ -3784,6 +3833,8 @@ app.get('/teams/:teamId/heatmap', (req, res) => {
   const nextMonthStart = new Date(year, month, 1);
   const monthStartKey = formatDateOnly(monthStart);
   const nextMonthStartKey = formatDateOnly(nextMonthStart);
+
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
 
   const buildMonthHeatmap = (countByDate = new Map()) => {
     const start = new Date(year, month - 1, 1);
@@ -3815,11 +3866,15 @@ app.get('/teams/:teamId/heatmap', (req, res) => {
       AND status = '완료'
       AND COALESCE(completed_at, updated_at) >= ?
       AND COALESCE(completed_at, updated_at) < ?
+      AND EXISTS (
+        SELECT 1 FROM team_members requester
+        WHERE requester.team_id = todos.team_id AND requester.user_id = ?
+      )
     GROUP BY DATE(COALESCE(completed_at, updated_at))
     ORDER BY activity_date ASC
   `;
 
-  db.query(sql, [teamId, monthStartKey, nextMonthStartKey], (err, results) => {
+  db.query(sql, [teamId, monthStartKey, nextMonthStartKey, userId], (err, results) => {
     if (err) {
       console.error('히트맵 조회 오류:', err);
       return res.status(500).json({ message: '서버 오류' });
@@ -3907,20 +3962,17 @@ app.post('/teams/:teamId/todos', (req, res) => {
     return res.status(400).json({ message: '필수 값이 누락되었습니다' });
   }
 
-  const memberSql = `
-    SELECT COUNT(*) AS count
-    FROM team_members
-    WHERE team_id = ?
-      AND user_id IN (?, ?)
-  `;
+  const memberSql = `SELECT
+    EXISTS(SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?) AS requester_member,
+    EXISTS(SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?) AS assignee_member`;
 
-  db.query(memberSql, [teamId, userId, assigned_user_id], (memberErr, memberRows) => {
+  db.query(memberSql, [teamId, userId, teamId, assigned_user_id], (memberErr, memberRows) => {
     if (memberErr) {
       console.error('팀원 투두 생성 권한 확인 오류:', memberErr);
       return res.status(500).json({ message: '서버 오류' });
     }
 
-    if (Number(memberRows?.[0]?.count || 0) < 2 && Number(userId) !== Number(assigned_user_id)) {
+    if (!Number(memberRows?.[0]?.requester_member) || !Number(memberRows?.[0]?.assignee_member)) {
       return res.status(403).json({ message: '팀원에게만 할 일을 추가할 수 있습니다' });
     }
 
@@ -4126,25 +4178,35 @@ app.post('/todos/period', async (req, res) => {
 
 app.post('/todos', (req, res) => {
   const userId = getRequestUserId(req);
-  const { team_id, title, scope_type, scope_start_date, scope_end_date } = req.body;
+  const teamId = Number(req.body?.team_id);
+  const title = String(req.body?.title || '').trim();
+  const { scope_type, scope_start_date, scope_end_date } = req.body;
 
   if (!userId) {
     return res.status(401).json({ message: '로그인이 필요합니다' });
   }
 
-  if (!team_id || !title || !scope_type || !scope_start_date || !scope_end_date) {
+  if (!Number.isInteger(teamId) || teamId <= 0 || !title || !scope_type || !scope_start_date || !scope_end_date) {
     return res.status(400).json({ message: '필수 값이 누락되었습니다' });
   }
+  if (title.length > 255) return res.status(400).json({ message: '목표는 255자 이하로 입력해주세요' });
 
   const insertSql = `
     INSERT INTO todos (team_id, assigned_user_id, title, status, scope_type, scope_start_date, scope_end_date)
-    VALUES (?, ?, ?, '미진행', ?, ?, ?)
+    SELECT ?, ?, ?, '미진행', ?, ?, ?
+    WHERE EXISTS (
+      SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?
+    )
   `;
 
-  db.query(insertSql, [team_id, userId, title, scope_type, scope_start_date, scope_end_date], (err, result) => {
+  db.query(insertSql, [teamId, userId, title, scope_type, scope_start_date, scope_end_date, teamId, userId], (err, result) => {
     if (err) {
       console.error('투두 생성 오류:', err);
       return res.status(500).json({ message: '서버 오류' });
+    }
+
+    if (!result.affectedRows) {
+      return res.status(403).json({ message: '참여 중인 활동에만 목표를 추가할 수 있습니다' });
     }
 
     const selectSql = `
@@ -4320,10 +4382,11 @@ app.put('/teams/:teamId/name', (req, res) => {
 
 // 사용자 정보 조회 API
 app.get('/api/user/:id', (req, res) => {
-  const userId = req.params.id;
+  const userId = Number(req.params.id);
+  const requestUserId = getRequestUserId(req);
   
   
-  if (!userId) {
+  if (!Number.isInteger(userId) || userId <= 0) {
     return res.status(400).json({
       success: false,
       message: '사용자 ID가 필요합니다'
@@ -4352,10 +4415,14 @@ app.get('/api/user/:id', (req, res) => {
   }
   
   // 실제 DB 쿼리
-  const userQuery = `SELECT id AS user_id, email, name, department, student_number,
-    birth AS birth_date, profile_picture, self_intro, is_admin, email_verified,
-    account_type, school_domain, school_name, school_email, school_email_verified,
-    school_verified_at, friend_code FROM users WHERE id = ?`;
+  const isSelf = requestUserId === userId;
+  const userQuery = isSelf
+    ? `SELECT id AS user_id, email, name, department, student_number,
+       birth AS birth_date, profile_picture, self_intro, is_admin, email_verified,
+       account_type, school_domain, school_name, school_email, school_email_verified,
+       school_verified_at, friend_code FROM users WHERE id = ?`
+    : `SELECT id AS user_id, name, department, profile_picture, self_intro
+       FROM users WHERE id = ?`;
   
   db.query(userQuery, [userId], (err, results) => {
     if (err) {
@@ -4373,7 +4440,7 @@ app.get('/api/user/:id', (req, res) => {
       });
     }
     
-    const userData = toClientUser(results[0]);
+    const userData = isSelf ? toClientUser(results[0]) : toPublicClientUser(results[0]);
     
     res.json({
       success: true,
@@ -4386,7 +4453,10 @@ app.get('/api/user/:id', (req, res) => {
 
 // 사용자 참여 활동 조회 (MyPage2에서 사용)
 app.get('/api/participations/user/:userId', (req, res) => {
-  const userId = req.params.userId;
+  const userId = Number(req.params.userId);
+  const requestUserId = getRequestUserId(req);
+  if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ message: '사용자 정보가 올바르지 않습니다' });
+  if (requestUserId !== userId) return res.status(403).json({ message: '본인의 참여 활동만 볼 수 있습니다' });
   
   
   // 더미 데이터 (DB 연결 전)
@@ -4467,7 +4537,9 @@ app.get('/api/participations/user/:userId', (req, res) => {
 
 // 여러 사용자 정보 조회 (MyPage2에서 사용)
 app.post('/api/users/batch', (req, res) => {
-  const user_ids = req.body.user_ids || req.body.userIds;
+  const user_ids = [...new Set((req.body.user_ids || req.body.userIds || []).map(Number))]
+    .filter((id) => Number.isInteger(id) && id > 0)
+    .slice(0, 100);
   
   
   if (!user_ids || !Array.isArray(user_ids) || user_ids.length === 0) {
@@ -4483,11 +4555,8 @@ app.post('/api/users/batch', (req, res) => {
     const dummyUsers = user_ids.map(id => ({
       id: parseInt(id),
       user_id: parseInt(id),
-      email: `user${id}@test.com`,
       name: `사용자 ${id}`,
       department: '컴퓨터공학과',
-      student_number: `20201234${id}`,
-      studentId: `20201234${id}`,
     }));
     
     return res.json({
@@ -4498,7 +4567,8 @@ app.post('/api/users/batch', (req, res) => {
 
   // 실제 DB 쿼리
   const placeholders = user_ids.map(() => '?').join(',');
-  const query = `SELECT id, id AS user_id, email, name, department, student_number, student_number AS studentId, birth AS birth_date FROM users WHERE id IN (${placeholders})`;
+  const query = `SELECT id, id AS user_id, name, department, profile_picture, self_intro
+    FROM users WHERE id IN (${placeholders})`;
   
   db.query(query, user_ids, (err, results) => {
     if (err) {
@@ -4519,6 +4589,10 @@ app.post('/api/users/batch', (req, res) => {
 // 기존 평가 조회 (MyPage3에서 사용)
 app.get('/api/reviews/existing/:reviewerId/:revieweeId/:activityId', (req, res) => {
   const { reviewerId, revieweeId, activityId } = req.params;
+  const requestUserId = getRequestUserId(req);
+  if (Number(reviewerId) !== requestUserId) {
+    return res.status(403).json({ success: false, message: '본인이 작성한 평가만 볼 수 있습니다' });
+  }
   
   console.log(`기존 평가 조회: 평가자 ${reviewerId}, 피평가자 ${revieweeId}, 활동 ${activityId}`);
   
@@ -4622,7 +4696,8 @@ app.post('/api/reviews', (req, res) => {
 
 // 사용자의 평가 통계 조회 (MyPage4에서 사용)
 app.get('/api/user/:id/evaluations', (req, res) => {
-  const userId = req.params.id;
+  const userId = Number(req.params.id);
+  if (getRequestUserId(req) !== userId) return res.status(403).json({ message: '본인의 평가만 볼 수 있습니다' });
   
   
   // 더미 데이터 (DB 연결 전)
@@ -4674,7 +4749,8 @@ app.get('/api/user/:id/evaluations', (req, res) => {
 });
 
 app.get('/api/user/:id/reviews', (req, res) => {
-  const userId = req.params.id;
+  const userId = Number(req.params.id);
+  if (getRequestUserId(req) !== userId) return res.status(403).json({ message: '본인의 리뷰만 볼 수 있습니다' });
 
   if (!db || db.state === 'disconnected') {
     return res.json({
@@ -4721,7 +4797,8 @@ app.get('/api/user/:id/reviews', (req, res) => {
 
 // 사용자의 활동 이력 조회 (MyPage4에서 사용)
 app.get('/api/user/:id/activities', (req, res) => {
-  const userId = req.params.id;
+  const userId = Number(req.params.id);
+  if (getRequestUserId(req) !== userId) return res.status(403).json({ message: '본인의 활동 이력만 볼 수 있습니다' });
   
   
   // 더미 데이터 (DB 연결 전)
@@ -4800,15 +4877,25 @@ app.put('/api/user/:id', (req, res) => {
   }
 
   // 실제 DB 쿼리
-  const allowedFields = ['email', 'name', 'department', 'student_number', 'birth_date', 'profile_picture', 'self_intro'];
+  const allowedFields = ['name', 'department', 'student_number', 'birth_date', 'self_intro'];
+  const maximumLengths = { name: 100, department: 120, student_number: 40, self_intro: 1000 };
   const updateFields = [];
   const updateValues = [];
+
+  for (const [key, maximumLength] of Object.entries(maximumLengths)) {
+    if (updateData[key] !== undefined && String(updateData[key] || '').length > maximumLength) {
+      return res.status(400).json({ success: false, message: `${key} 입력값이 너무 깁니다` });
+    }
+  }
+  if (updateData.birth_date && !parseStrictDateOnly(updateData.birth_date)) {
+    return res.status(400).json({ success: false, message: '생년월일은 YYYY-MM-DD 형식으로 입력해주세요' });
+  }
   
   Object.keys(updateData).forEach(key => {
     if (allowedFields.includes(key) && updateData[key] !== undefined) {
       const columnName = key === 'birth_date' ? 'birth' : key;
       updateFields.push(`${columnName} = ?`);
-      updateValues.push(updateData[key]);
+      updateValues.push(typeof updateData[key] === 'string' ? updateData[key].trim() : updateData[key]);
     }
   });
   
@@ -4852,8 +4939,9 @@ app.put('/api/user/:id/password', (req, res) => {
     return res.status(403).json({ success: false, message: '본인의 비밀번호만 변경할 수 있습니다' });
   }
 
-  if (!currentPassword || newPassword.length < 4) {
-    return res.status(400).json({ success: false, message: '현재 비밀번호와 4자 이상의 새 비밀번호를 입력해주세요' });
+  const passwordError = getPasswordValidationError(newPassword);
+  if (!currentPassword || passwordError) {
+    return res.status(400).json({ success: false, message: passwordError || '현재 비밀번호를 입력해주세요' });
   }
 
   db.query('SELECT password FROM users WHERE id = ?', [userId], (findErr, rows) => {

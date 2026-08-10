@@ -3,6 +3,18 @@ const crypto = require('crypto');
 const FRIEND_CODE_LENGTH = 8;
 const MESSAGE_MAX_LENGTH = 200;
 const FRIENDSHIP_STATUSES = new Set(['PENDING', 'ACCEPTED', 'REJECTED']);
+const MENU_KEYS = new Set([
+  'my_evaluation',
+  'team_evaluation',
+  'settings',
+  'favorites',
+  'my_recruitments',
+  'my_applications',
+  'awards',
+  'friends',
+  'school_verification',
+  'developer_feedback',
+]);
 
 const normalizeFriendCode = (value) => String(value || '').trim().toUpperCase();
 const normalizeMessage = (value) => String(value || '').trim().slice(0, MESSAGE_MAX_LENGTH);
@@ -11,6 +23,14 @@ const getFriendPair = (firstUserId, secondUserId) => {
   const first = Number(firstUserId);
   const second = Number(secondUserId);
   return first < second ? [first, second] : [second, first];
+};
+
+const normalizeMenuOrder = (value, { includeAdmin = false } = {}) => {
+  if (!Array.isArray(value)) return [];
+  const allowed = includeAdmin ? new Set([...MENU_KEYS, 'admin']) : MENU_KEYS;
+  return [...new Set(value
+    .map((item) => String(item || '').trim())
+    .filter((item) => allowed.has(item)))];
 };
 
 const queryWithDuplicateRetry = async (job, maximumAttempts = 8) => {
@@ -110,5 +130,6 @@ module.exports = {
   ensureUserFriendCode,
   getFriendPair,
   normalizeFriendCode,
+  normalizeMenuOrder,
   normalizeMessage,
 };

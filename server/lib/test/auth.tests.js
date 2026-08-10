@@ -21,3 +21,13 @@ test('인증된 사용자 ID가 기존 헤더보다 우선한다', () => {
   };
   assert.equal(getAuthenticatedUserId(req), 17);
 });
+
+test('사용자 ID 헤더만으로 인증을 우회할 수 없다', () => {
+  const req = {
+    authUserId: null,
+    get: () => '99',
+    body: { user_id: 99 },
+    query: { user_id: 99 },
+  };
+  assert.equal(getAuthenticatedUserId(req), 0);
+});

@@ -5,6 +5,7 @@ import colors from '../config/colors';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App.tsx'; // 실제 경로로 수정
+import { getPasswordValidationError } from '../utils/passwordPolicy';
 
 type RegisterScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Register'>;
 
@@ -87,6 +88,11 @@ export default function RegisterScreen() {
 
     if (password !== passwordConfirm) {
       Alert.alert('비밀번호 불일치', '비밀번호가 일치하지 않습니다.');
+      return;
+    }
+    const passwordError = getPasswordValidationError(password);
+    if (passwordError) {
+      Alert.alert('비밀번호 확인', passwordError);
       return;
     }
     if (!emailVerified) {
@@ -178,6 +184,7 @@ export default function RegisterScreen() {
             onChangeText={setPassword}
             secureTextEntry
         />
+        <Text style={styles.accountGuide}>8자 이상 · 문자/숫자/특수문자 중 2종류 이상</Text>
         <CustomTextInput
             label="비밀번호 확인"
             value={passwordConfirm}

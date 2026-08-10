@@ -15,8 +15,8 @@ function Metric({ icon, label, value }: { icon: ReactNode; label: string; value:
 
 export function HomePage() {
   const { user } = useAuth();
-  const activities = useAsync(() => api<{ items: ActivityItem[] }>('/api/activities/open?page=1&limit=6'), []);
-  const applications = useAsync(() => api<Application[]>('/api/my-applications'), []);
+  const activities = useAsync(() => api<{ items: ActivityItem[] }>('/api/activities/open?page=1&limit=6'));
+  const applications = useAsync(() => api<Application[]>('/api/my-applications'));
   const items = activities.data?.items || [];
 
   return <>

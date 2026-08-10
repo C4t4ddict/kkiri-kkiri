@@ -11,8 +11,8 @@ type PortfolioSummary = { portfolio_id: number; activity_name: string; role?: st
 
 export function ActivityPage() {
   const { user } = useAuth();
-  const active = useAsync(() => api<TeamSummary[]>('/my-teams'), []);
-  const past = useAsync(() => api<PortfolioSummary[]>(`/users/${user?.id}/past-activities`), [user?.id]);
+  const active = useAsync(() => api<TeamSummary[]>('/my-teams'));
+  const past = useAsync(() => api<PortfolioSummary[]>(`/users/${user?.id}/past-activities`), String(user?.id || ''));
 
   return <>
     <PageTitle eyebrow="MY ACTIVITY" title="나의 활동" description="진행 중인 목표와 지난 활동의 성장 기록을 관리하세요." />

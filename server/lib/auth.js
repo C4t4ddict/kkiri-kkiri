@@ -52,13 +52,8 @@ const attachAuth = (req, _res, next) => {
   next();
 };
 
-const allowLegacyUserHeader =
-  String(process.env.ALLOW_LEGACY_USER_HEADER ?? (process.env.NODE_ENV !== 'production')).toLowerCase() === 'true';
-
 const getAuthenticatedUserId = (req) => {
-  if (req.authUserId) return Number(req.authUserId);
-  if (!allowLegacyUserHeader) return 0;
-  return Number(req.get('x-user-id') || req.body?.user_id || req.query?.user_id) || 0;
+  return Number(req.authUserId) || 0;
 };
 
 module.exports = {
