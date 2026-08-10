@@ -21,12 +21,18 @@ const getAccountIdentity = (email) => {
   };
 };
 
+const normalizeSchoolDomain = (value) => String(value || '').trim().toLowerCase();
+
+const hasVerifiedSchool = (user) => Boolean(
+  user?.school_email_verified
+  && normalizeSchoolDomain(user?.school_domain),
+);
+
 const canAccessRecruitment = (user, recruitment) => {
   if (String(recruitment?.recruitment_scope || 'NATIONWIDE') !== 'SCHOOL') return true;
   return Boolean(
-    user?.school_email_verified
-    && user?.school_domain
-    && user.school_domain === recruitment.school_domain,
+    hasVerifiedSchool(user)
+    && normalizeSchoolDomain(user.school_domain) === normalizeSchoolDomain(recruitment.school_domain),
   );
 };
 
@@ -35,6 +41,8 @@ module.exports = {
   getAccountIdentity,
   getEmailDomain,
   getSchoolDomain,
+  hasVerifiedSchool,
   isValidEmail,
   normalizeEmail,
+  normalizeSchoolDomain,
 };

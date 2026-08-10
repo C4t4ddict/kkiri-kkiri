@@ -45,6 +45,16 @@ const ensureAuthVerificationSchema = async (db) => {
     }
   }
 
+  const [schoolEmailIndexes] = await db.query(
+    "SHOW INDEX FROM users WHERE Column_name = 'school_email' AND Non_unique = 0",
+  );
+  if (!schoolEmailIndexes.length) {
+    await queryWithLockRetry(
+      db,
+      'ALTER TABLE users ADD UNIQUE INDEX uq_users_school_email (school_email)',
+    );
+  }
+
   await db.query(`CREATE TABLE IF NOT EXISTS email_verifications (
     verification_id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     email VARCHAR(255) NOT NULL,

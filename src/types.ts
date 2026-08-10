@@ -22,6 +22,8 @@ export interface User {
   schoolEmail?: string | null;
   school_email_verified?: boolean;
   schoolEmailVerified?: boolean;
+  school_access_enabled?: boolean;
+  schoolAccessEnabled?: boolean;
   school_verified_at?: string | null;
   friend_code?: string | null;
   friendCode?: string | null;

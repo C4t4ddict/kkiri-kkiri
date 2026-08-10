@@ -130,9 +130,9 @@ const MatchingDetailScreen = () => {
         })
       );
       setApps(enriched);
-    } catch (e) {
+    } catch (e: any) {
       console.error('상세 조회 오류:', e);
-      Alert.alert('오류', '상세 정보를 불러오지 못했습니다.');
+      Alert.alert('조회 불가', e?.response?.data?.message || '상세 정보를 불러오지 못했습니다.');
     }
   }, [me?.id, route.params.id]);
 
@@ -184,9 +184,9 @@ const MatchingDetailScreen = () => {
       Alert.alert('완료', '지원이 등록되었습니다.');
       setIntro('');
       fetchDetail();
-    } catch (e) {
+    } catch (e: any) {
       console.error('지원 오류:', e);
-      Alert.alert('오류', '지원에 실패했습니다.');
+      Alert.alert('지원 불가', e?.response?.data?.message || '지원에 실패했습니다.');
     } finally {
       setLoading(false);
     }

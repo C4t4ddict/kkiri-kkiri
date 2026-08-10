@@ -22,6 +22,7 @@ import NotificationBell from '../components/NotificationBell';
 import AppRefreshControl from '../components/AppRefreshControl';
 import ScreenState from '../components/ScreenState';
 import { getActivityCategory, getVisibleActivityCategories } from '../constants/activityCategories';
+import { hasSchoolAccess } from '../utils/accountPolicy';
 
 const BASE_URL =
   Platform.OS === 'android'
@@ -45,15 +46,7 @@ type Recruitment = {
   status?: string;
   created_at?: string;
   recruitment_scope?: 'NATIONWIDE' | 'SCHOOL';
-};
-
-type Application = {
-  application_id: number;
-  recruitment_id: number;
-  applicant_id: number;
-  memo?: string;
-  status?: string; // 'pending' | 'approved' | 'rejected' 등일 수 있음
-  created_at?: string;
+  application_count?: number;
 };
 
 const MatchingScreen = () => {
@@ -63,35 +56,21 @@ const MatchingScreen = () => {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedMeetingType, setSelectedMeetingType] = useState('전체');
   const [recruitments, setRecruitments] = useState<Recruitment[]>([]);
-  const [applications, setApplications] = useState<Application[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [scope, setScope] = useState<'SCHOOL' | 'NATIONWIDE'>('NATIONWIDE');
 
   const { user } = useAuth();
+  const schoolAccessEnabled = hasSchoolAccess(user);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const applicationRequest = user?.id
-        ? axios.get(`${BASE_URL}/api/applications`, {
-          headers: { 'x-user-id': String(user.id) },
-        })
-        : Promise.resolve({ data: [] });
-      const [recruitmentResult, applicationResult] = await Promise.allSettled([
-        axios.get(`${BASE_URL}/api/team-recruitments?scope=${scope}`, {
-          headers: user?.id ? { 'x-user-id': String(user.id) } : undefined,
-        }),
-        applicationRequest,
-      ]);
-      if (recruitmentResult.status === 'rejected') throw recruitmentResult.reason;
-      setRecruitments(Array.isArray(recruitmentResult.value.data) ? recruitmentResult.value.data : []);
-      setApplications(
-        applicationResult.status === 'fulfilled' && Array.isArray(applicationResult.value.data)
-          ? applicationResult.value.data
-          : []
-      );
+      const response = await axios.get(`${BASE_URL}/api/team-recruitments?scope=${scope}`, {
+        headers: user?.id ? { 'x-user-id': String(user.id) } : undefined,
+      });
+      setRecruitments(Array.isArray(response.data) ? response.data : []);
       setLoadError(false);
     } catch (e) {
       console.warn('매칭 데이터 불러오기 오류:', e);
@@ -114,17 +93,6 @@ const MatchingScreen = () => {
       topic_category: recruitment.activity_topic_category,
     })));
   }, [recruitments]);
-
-  // ---- 현재 인원 집계 (status가 cancel/rejected가 아닌 것만 카운트) ----
-  const headcountsByRecruitment = useMemo(() => {
-    const map = new Map<number, number>();
-    for (const app of applications) {
-      const s = (app.status || '').toLowerCase();
-      if (s === 'rejected' || s === 'canceled' || s === 'cancelled') continue;
-      map.set(app.recruitment_id, (map.get(app.recruitment_id) || 0) + 1);
-    }
-    return map;
-  }, [applications]);
 
   // ---- 필터 적용 ----
   const filtered = useMemo(() => {
@@ -185,7 +153,7 @@ const MatchingScreen = () => {
               key={value}
               style={[styles.scopeTab, selected && styles.scopeTabSelected]}
               onPress={() => {
-                if (value === 'SCHOOL' && !user?.schoolEmailVerified && !user?.school_email_verified) {
+                if (value === 'SCHOOL' && !schoolAccessEnabled) {
                   navigation.navigate('SchoolEmailVerification');
                   return;
                 }
@@ -193,7 +161,7 @@ const MatchingScreen = () => {
               }}
             >
               <Text style={[styles.scopeTabText, selected && styles.scopeTabTextSelected]}>{label}</Text>
-              {value === 'SCHOOL' && (user?.schoolEmailVerified || user?.school_email_verified) ? (
+              {value === 'SCHOOL' && schoolAccessEnabled ? (
                 <Icon name="checkmark-circle" size={14} color="#7A5AF8" />
               ) : null}
             </TouchableOpacity>
@@ -270,7 +238,7 @@ const MatchingScreen = () => {
           <ScreenState kind="empty" title="현재 모집 중인 글이 없어요" description="조건을 바꾸거나 새로운 팀을 만들어보세요." />
         ) : null}
         {filtered.map((r) => {
-          const current = headcountsByRecruitment.get(r.recruitment_id) || 0;
+          const current = Number(r.application_count || 0);
           return (
             <TouchableOpacity
               key={r.recruitment_id}

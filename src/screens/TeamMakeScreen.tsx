@@ -22,6 +22,7 @@ import { useAuth } from '../context/AuthContext';
 import colors from '../config/colors';
 import MiniCalendarModal from '../components/MiniCalendarModal';
 import { RootStackParamList } from '../types';
+import { hasSchoolAccess } from '../utils/accountPolicy';
 
 const BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 const CATEGORIES = [...MATCHING_ACTIVITY_CATEGORIES];
@@ -54,6 +55,7 @@ export default function TeamMakeScreen() {
   const { user } = useAuth();
   const recruitmentId = route.params?.recruitmentId;
   const isEditing = Number.isInteger(recruitmentId);
+  const schoolAccessEnabled = hasSchoolAccess(user);
   const today = useMemo(() => toDateString(new Date()), []);
   const defaultEnd = useMemo(() => {
     const date = new Date();
@@ -246,6 +248,10 @@ export default function TeamMakeScreen() {
 
   const handleSubmit = async () => {
     if (!validate() || !user?.id || !selectedActivity || submitting) return;
+    if (recruitmentScope === 'SCHOOL' && !schoolAccessEnabled) {
+      Alert.alert('학교 인증 필요', '학교 이메일 인증 후 본교 모집을 만들 수 있습니다.');
+      return;
+    }
     setSubmitting(true);
     try {
       await axios.request({
@@ -359,13 +365,12 @@ export default function TeamMakeScreen() {
             title="본교"
             description="인증된 같은 학교만"
             active={recruitmentScope === 'SCHOOL'}
-            disabled={!(user?.emailVerified ?? user?.email_verified)
-              || (user?.accountType ?? user?.account_type) !== 'STUDENT'}
+            disabled={!schoolAccessEnabled}
             onPress={() => setRecruitmentScope('SCHOOL')}
           />
         </View>
-        {(user?.accountType ?? user?.account_type) !== 'STUDENT' ? (
-          <Text style={styles.scopeHelper}>일반 계정은 전국 모집만 만들 수 있어요.</Text>
+        {!schoolAccessEnabled ? (
+          <Text style={styles.scopeHelper}>학교 이메일 인증 후 본교 모집을 만들 수 있어요.</Text>
         ) : null}
         <SelectField
           label={department}

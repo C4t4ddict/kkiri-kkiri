@@ -25,6 +25,7 @@ import { useAuth } from '../context/AuthContext';
 import { RootStackParamList, User } from '../types';
 import AppRefreshControl from '../components/AppRefreshControl';
 import colors from '../config/colors';
+import { hasSchoolAccess } from '../utils/accountPolicy';
 
 type NavigationProp = StackNavigationProp<RootStackParamList>;
 type ImageAsset = {
@@ -111,6 +112,16 @@ const normalizeUser = (raw: any): User => ({
   schoolEmail: raw.school_email ?? raw.schoolEmail ?? null,
   school_email_verified: Boolean(raw.school_email_verified ?? raw.schoolEmailVerified),
   schoolEmailVerified: Boolean(raw.school_email_verified ?? raw.schoolEmailVerified),
+  school_access_enabled: Boolean(
+    raw.school_access_enabled
+    ?? raw.schoolAccessEnabled
+    ?? ((raw.school_email_verified ?? raw.schoolEmailVerified) && (raw.school_domain ?? raw.schoolDomain)),
+  ),
+  schoolAccessEnabled: Boolean(
+    raw.school_access_enabled
+    ?? raw.schoolAccessEnabled
+    ?? ((raw.school_email_verified ?? raw.schoolEmailVerified) && (raw.school_domain ?? raw.schoolDomain)),
+  ),
   school_verified_at: raw.school_verified_at ?? null,
   friend_code: raw.friend_code ?? raw.friendCode ?? null,
   friendCode: raw.friend_code ?? raw.friendCode ?? null,
@@ -124,6 +135,7 @@ export default function MyPageScreen() {
   const [menuOrder, setMenuOrder] = useState<string[]>([]);
   const [editingMenus, setEditingMenus] = useState<MenuItem[] | null>(null);
   const [savingMenuOrder, setSavingMenuOrder] = useState(false);
+  const schoolAccessEnabled = hasSchoolAccess(user);
 
   const fetchMenuOrder = useCallback(async () => {
     if (!user?.id) return;
@@ -313,7 +325,7 @@ export default function MyPageScreen() {
     {
       key: 'school_verification',
       label: '학교 인증',
-      icon: user.school_email_verified || user.schoolEmailVerified ? 'school' : 'school-outline',
+      icon: schoolAccessEnabled ? 'school' : 'school-outline',
       onPress: () => navigation.navigate('SchoolEmailVerification'),
     },
     {
@@ -397,15 +409,15 @@ export default function MyPageScreen() {
           <Text style={styles.userEmail}>{user.email}</Text>
           <TouchableOpacity style={styles.schoolStatus} onPress={() => navigation.navigate('SchoolEmailVerification')}>
             <Icon
-              name={user.school_email_verified || user.schoolEmailVerified ? 'checkmark-circle' : 'school-outline'}
+              name={schoolAccessEnabled ? 'checkmark-circle' : 'school-outline'}
               size={14}
-              color={user.school_email_verified || user.schoolEmailVerified ? '#12B76A' : colors.textSub}
+              color={schoolAccessEnabled ? '#12B76A' : colors.textSub}
             />
             <Text style={[
               styles.schoolStatusText,
-              (user.school_email_verified || user.schoolEmailVerified) && styles.schoolStatusVerified,
+              schoolAccessEnabled && styles.schoolStatusVerified,
             ]}>
-              {user.school_email_verified || user.schoolEmailVerified
+              {schoolAccessEnabled
                 ? `${user.school_name || '학교'} 인증됨`
                 : '학교 이메일 추가'}
             </Text>
