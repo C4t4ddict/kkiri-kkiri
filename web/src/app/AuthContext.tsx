@@ -6,6 +6,7 @@ type AuthContextValue = {
   user: User | null;
   login: (token: string, user: User) => void;
   logout: () => void;
+  updateUser: (user: User) => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -21,6 +22,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     logout: () => {
       clearStoredSession();
       setUser(null);
+    },
+    updateUser: (nextUser: User) => {
+      const token = localStorage.getItem('kkiri_token');
+      if (token) setStoredSession(token, nextUser);
+      setUser(nextUser);
     },
   }), [user]);
 

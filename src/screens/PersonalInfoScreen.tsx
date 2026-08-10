@@ -14,6 +14,7 @@ import {
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../context/AuthContext';
 import colors from '../config/colors';
+import { getPasswordValidationError } from '../utils/passwordPolicy';
 
 const BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -77,8 +78,9 @@ export default function PersonalInfoScreen() {
 
   const savePassword = async () => {
     if (!user?.id || savingPassword) return;
-    if (!currentPassword || newPassword.length < 4) {
-      Alert.alert('입력 확인', '현재 비밀번호와 4자 이상의 새 비밀번호를 입력해주세요.');
+    const passwordError = getPasswordValidationError(newPassword);
+    if (!currentPassword || passwordError) {
+      Alert.alert('입력 확인', passwordError || '현재 비밀번호를 입력해주세요.');
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -170,7 +172,7 @@ export default function PersonalInfoScreen() {
               label="새 비밀번호"
               value={newPassword}
               onChangeText={setNewPassword}
-              placeholder="4자 이상 입력"
+              placeholder="8자 이상 입력"
               secureTextEntry
             />
             <Field

@@ -8,6 +8,17 @@ import { LoginPage } from '../pages/LoginPage';
 import { MatchingPage } from '../pages/MatchingPage';
 import { MyPage } from '../pages/MyPage';
 import { TemplatesPage } from '../pages/TemplatesPage';
+import {
+  AccountSettingsPage,
+  AdminPage,
+  AwardsPage,
+  DeveloperFeedbackPage,
+  FavoriteActivitiesPage,
+  FriendsPage,
+  MessageThreadPage,
+  MyRecruitmentsPage,
+  SchoolVerificationPage,
+} from '../pages/MyPageFeatures';
 import { useAuth } from './AuthContext';
 import { AppShell } from './AppShell';
 
@@ -31,6 +42,15 @@ export function AppRoutes() {
       <Route path="mypage/applications" element={<ApplicationsPage />} />
       <Route path="mypage/applications/:id" element={<ApplicationDetailPage />} />
       <Route path="mypage/templates" element={<TemplatesPage />} />
+      <Route path="mypage/favorites" element={<FavoriteActivitiesPage />} />
+      <Route path="mypage/recruitments" element={<MyRecruitmentsPage />} />
+      <Route path="mypage/awards" element={<AwardsPage />} />
+      <Route path="mypage/feedback" element={<DeveloperFeedbackPage />} />
+      <Route path="mypage/school" element={<SchoolVerificationPage />} />
+      <Route path="mypage/settings" element={<AccountSettingsPage />} />
+      <Route path="mypage/friends" element={<FriendsPage />} />
+      <Route path="mypage/friends/:friendUserId" element={<MessageThreadPage />} />
+      <Route path="mypage/admin" element={<AdminPage />} />
     </Route>
     <Route path="*" element={<Navigate to="/" replace />} />
   </Routes>;

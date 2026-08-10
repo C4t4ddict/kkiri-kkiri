@@ -13,6 +13,7 @@ import { useNavigation } from '@react-navigation/native';
 import CustomTextInput from '../components/CustomTextInput';
 import colors from '../config/colors';
 import { RootStackParamList } from '../types';
+import { getPasswordValidationError } from '../utils/passwordPolicy';
 
 const API_BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 type Step = 'EMAIL' | 'CODE' | 'PASSWORD';
@@ -74,7 +75,8 @@ export default function ForgotPasswordScreen() {
   };
 
   const resetPassword = async () => {
-    if (password.length < 4) return setError('비밀번호는 4자 이상 입력해주세요.');
+    const passwordError = getPasswordValidationError(password);
+    if (passwordError) return setError(passwordError);
     if (password !== passwordConfirm) return setError('비밀번호가 일치하지 않습니다.');
     setSubmitting(true);
     setError('');

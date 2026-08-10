@@ -24,7 +24,7 @@
     "express": "^5.1.0",
     "multer": "^2.0.2",
     "mysql2": "^3.14.1",
-    "nodemailer": "^7.0.13",
+    "nodemailer": "^9.0.5",
     "pdfkit": "^0.19.1"
   }
 }

@@ -10,7 +10,7 @@ import { SectionHead } from '../shared/ui/SectionHead';
 export function ApplicationDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const result = useAsync(() => api<ApplicationDetail>(`/api/my-applications/${id}`), [id]);
+  const result = useAsync(() => api<ApplicationDetail>(`/api/my-applications/${id}`), String(id));
   const respond = async (path: string, body?: object) => {
     await api(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined });
     await result.reload();

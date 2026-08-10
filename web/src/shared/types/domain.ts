@@ -1,11 +1,22 @@
 export type User = {
   id: number;
+  user_id?: number;
   email: string;
   name: string;
   department?: string;
   studentId?: string;
+  student_number?: string;
+  birth?: string;
+  birth_date?: string;
   profile_picture?: string;
   is_admin?: boolean;
+  account_type?: 'GENERAL' | 'STUDENT' | 'ADMIN';
+  school_domain?: string | null;
+  school_name?: string | null;
+  school_email?: string | null;
+  school_email_verified?: boolean;
+  school_access_enabled?: boolean;
+  friend_code?: string | null;
 };
 
 export type ActivityItem = {

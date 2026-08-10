@@ -6,7 +6,7 @@ import { PageState } from '../shared/ui/PageState';
 import { PageTitle } from '../shared/ui/PageTitle';
 
 export function MatchingPage() {
-  const result = useAsync(() => api<Recruitment[]>('/api/team-recruitments'), []);
+  const result = useAsync(() => api<Recruitment[]>('/api/team-recruitments'));
   return <>
     <PageTitle eyebrow="TEAM MATCHING" title="함께할 팀 찾기" description="관심 활동을 중심으로 조건이 맞는 팀을 찾아보세요." />
     <PageState loading={result.loading} error={result.error} empty={!result.loading && !result.data?.length ? '현재 모집 중인 팀이 없습니다.' : undefined} />
