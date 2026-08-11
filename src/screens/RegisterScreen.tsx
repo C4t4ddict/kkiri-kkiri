@@ -45,11 +45,12 @@ export default function RegisterScreen() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || '인증 코드를 전송하지 못했습니다.');
       setCodeSent(true);
-      if (result.development_code) setVerificationCode(String(result.development_code));
+      const developmentCode = __DEV__ ? result.development_code : undefined;
+      if (developmentCode) setVerificationCode(String(developmentCode));
       Alert.alert(
         '인증 코드 전송',
-        result.development_code
-          ? `개발 환경 인증 코드 ${result.development_code}가 입력되었습니다.`
+        developmentCode
+          ? `개발 환경 인증 코드 ${developmentCode}가 입력되었습니다.`
           : '이메일로 전송된 6자리 코드를 입력해주세요.',
       );
     } catch (error) {

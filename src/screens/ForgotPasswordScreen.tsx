@@ -40,9 +40,10 @@ export default function ForgotPasswordScreen() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || '인증 코드를 전송하지 못했습니다');
-      if (data.development_code) setCode(String(data.development_code));
-      setMessage(data.development_code
-        ? `개발 환경 인증 코드가 입력되었습니다: ${data.development_code}`
+      const developmentCode = __DEV__ ? data.development_code : undefined;
+      if (developmentCode) setCode(String(developmentCode));
+      setMessage(developmentCode
+        ? `개발 환경 인증 코드가 입력되었습니다: ${developmentCode}`
         : data.message);
       setStep('CODE');
     } catch (requestError) {
