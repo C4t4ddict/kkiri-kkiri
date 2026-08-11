@@ -1,8 +1,9 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  LayoutAnimation,
   Platform,
   ScrollView,
   StyleSheet,
@@ -19,11 +20,13 @@ import colors from '../config/colors';
 import { useAuth } from '../context/AuthContext';
 
 type AwardItem = {
+  award_id?: number | null;
   portfolio_id: number;
   team_id: number;
   activity_name: string;
   activity_type: string;
   period?: string | null;
+  is_recorded: boolean;
   is_awarded: boolean;
   award_title?: string | null;
   has_prize: boolean;
@@ -52,15 +55,32 @@ export default function AwardsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [savingId, setSavingId] = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [error, setError] = useState('');
 
   const applyResponse = useCallback((data: any) => {
-    setItems(Array.isArray(data?.items) ? data.items : []);
+    setItems(Array.isArray(data?.items) ? data.items.map((item: AwardItem) => ({
+      ...item,
+      is_recorded: Boolean(item.is_recorded ?? item.award_id),
+    })) : []);
     setSummary({
       award_count: Number(data?.summary?.award_count || 0),
       total_net_prize: Number(data?.summary?.total_net_prize || 0),
     });
   }, []);
+
+  const sortedItems = useMemo(() => items
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const completionOrder = Number(left.item.is_recorded) - Number(right.item.is_recorded);
+      return completionOrder || left.index - right.index;
+    })
+    .map(({ item }) => item), [items]);
+
+  const toggleExpanded = (portfolioId: number) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedId((current) => current === portfolioId ? null : portfolioId);
+  };
 
   const fetchAwards = useCallback(async (isRefresh = false) => {
     if (!user?.id) return;
@@ -114,7 +134,9 @@ export default function AwardsScreen() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || '수상내역을 저장하지 못했습니다');
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       applyResponse(data);
+      setExpandedId(null);
       Alert.alert('저장 완료', '수상내역이 반영되었습니다.');
     } catch (saveError) {
       Alert.alert('저장 실패', saveError instanceof Error ? saveError.message : '서버 오류가 발생했습니다.');
@@ -177,20 +199,39 @@ export default function AwardsScreen() {
             <Text style={styles.emptyTitle}>기록할 지난 활동이 없어요</Text>
             <Text style={styles.emptyDescription}>활동을 마무리하면 이곳에서 수상 여부를 기록할 수 있습니다.</Text>
           </View>
-        ) : items.map((item) => (
-          <View key={item.portfolio_id} style={styles.awardCard}>
-            <View style={styles.cardHeadingRow}>
-              <View style={styles.cardHeadingCopy}>
-                <Text style={styles.activityType}>{item.activity_type || '팀 활동'}</Text>
-                <Text style={styles.activityName}>{item.activity_name}</Text>
-                {item.period ? <Text style={styles.period}>{item.period}</Text> : null}
-              </View>
-              <View style={[styles.statusBadge, item.is_awarded && styles.statusBadgeActive]}>
-                <Text style={[styles.statusText, item.is_awarded && styles.statusTextActive]}>
-                  {item.is_awarded ? '수상' : '미기록'}
-                </Text>
-              </View>
-            </View>
+        ) : sortedItems.map((item) => {
+          const isExpanded = expandedId === item.portfolio_id;
+          return (
+          <View
+            key={item.portfolio_id}
+            style={[styles.awardCard, item.is_recorded && styles.awardCardRecorded]}
+          >
+            <TouchableOpacity
+              style={styles.cardHeader}
+              onPress={() => toggleExpanded(item.portfolio_id)}
+              activeOpacity={0.72}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: isExpanded }}
+            >
+              <Text
+                style={[styles.activityName, item.is_recorded && styles.activityNameRecorded]}
+                numberOfLines={2}
+              >
+                {item.activity_name}
+              </Text>
+              <Icon
+                name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                size={20}
+                color={item.is_recorded ? '#98A2B3' : colors.primary}
+              />
+            </TouchableOpacity>
+
+            {isExpanded ? (
+              <View style={styles.formSection}>
+                <View style={styles.activityMetaRow}>
+                  <Text style={styles.activityType}>{item.activity_type || '팀 활동'}</Text>
+                  {item.period ? <Text style={styles.period}>{item.period}</Text> : null}
+                </View>
 
             <View style={styles.settingRow}>
               <View style={styles.settingCopy}>
@@ -277,7 +318,7 @@ export default function AwardsScreen() {
               </>
             ) : null}
 
-            <TouchableOpacity
+                <TouchableOpacity
               style={[styles.saveButton, savingId === item.portfolio_id && styles.saveButtonDisabled]}
               onPress={() => saveAward(item)}
               disabled={savingId !== null}
@@ -286,11 +327,14 @@ export default function AwardsScreen() {
               {savingId === item.portfolio_id ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Text style={styles.saveButtonText}>이 활동 저장</Text>
+                <Text style={styles.saveButtonText}>활동 내용 저장</Text>
               )}
             </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
-        ))}
+          );
+        })}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -339,8 +383,9 @@ const styles = StyleSheet.create({
   retryButton: { marginTop: 16, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 14, backgroundColor: colors.primary },
   retryText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
   awardCard: {
-    marginBottom: 16,
-    padding: 18,
+    marginBottom: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 17,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 24,
@@ -351,22 +396,28 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 2,
   },
-  cardHeadingRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  cardHeadingCopy: { flex: 1 },
+  awardCardRecorded: {
+    borderColor: '#EAECF0',
+    backgroundColor: '#F2F4F7',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  formSection: {
+    marginTop: 16,
+    paddingTop: 15,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  activityMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   activityType: { color: colors.primary, fontSize: 11, fontWeight: '800' },
-  activityName: { marginTop: 5, color: colors.textMain, fontSize: 19, lineHeight: 26, fontWeight: '900' },
-  period: { marginTop: 5, color: colors.textSub, fontSize: 11 },
-  statusBadge: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, backgroundColor: '#F2F4F7' },
-  statusBadgeActive: { backgroundColor: colors.primarySurface },
-  statusText: { color: colors.textSub, fontSize: 10, fontWeight: '800' },
-  statusTextActive: { color: colors.primary },
+  activityName: { flex: 1, color: colors.textMain, fontSize: 16, lineHeight: 23, fontWeight: '800' },
+  activityNameRecorded: { color: '#667085' },
+  period: { flexShrink: 1, color: colors.textSub, fontSize: 11, textAlign: 'right' },
   settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 17,
-    paddingTop: 15,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
   },
   settingRowCompact: { flexDirection: 'row', alignItems: 'center' },
   settingCopy: { flex: 1, paddingRight: 12 },
