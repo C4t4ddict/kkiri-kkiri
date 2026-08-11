@@ -10,11 +10,20 @@ export interface User {
   profile_picture?: string;
   authToken?: string;
   is_admin?: boolean;
+  email_verified?: boolean;
+  emailVerified?: boolean;
+  account_type?: 'STUDENT' | 'GENERAL';
+  accountType?: 'STUDENT' | 'GENERAL';
+  school_domain?: string | null;
+  schoolDomain?: string | null;
+  school_name?: string | null;
+  schoolName?: string | null;
 }
 
 export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
+  ForgotPassword: undefined;
   MainTabs: { screen?: string; params?: any };
   InfoDetail: { id: number };
   Settings: { user: User };
@@ -29,6 +38,7 @@ export type RootStackParamList = {
   MyRecruitments: undefined;
   MyApplications: undefined;
   Awards: undefined;
+  DeveloperFeedback: undefined;
   ApplicationDetail: { applicationId: number };
   ApplicationTemplates: undefined;
   MyPage2: { user: User };
@@ -51,6 +61,6 @@ export type RootStackParamList = {
   MiniPortfolioScreen: { portfolioId: number };
   MiniPortfolioEditScreen: { portfolioId: number };
   AdminScreen: undefined;
-  TodoScreen: undefined;
+  TodoScreen: { openActivityEdit?: boolean; teamId?: number } | undefined;
   TodoTeamScreen: { teamId: number };
 };

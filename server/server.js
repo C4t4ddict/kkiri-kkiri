@@ -43,6 +43,23 @@ const {
 } = require('./portfolio/service');
 const { createMiniPortfolioPdf } = require('./portfolio/pdf');
 const { startCrawlerScheduler } = require('./crawler/scheduler');
+const {
+  canAccessRecruitment,
+  getAccountIdentity,
+  isValidEmail,
+  normalizeEmail,
+} = require('./auth/accountPolicy');
+const {
+  consumeSignupVerification,
+  createPasswordResetToken,
+  ensureAuthVerificationSchema,
+  getRegisteredSchool,
+  hasVerifiedSignup,
+  requestEmailCode,
+  resetPasswordWithToken,
+  verifyEmailCode,
+} = require('./auth/verificationService');
+const { ensureDeveloperFeedbackSchema, normalizeFeedback } = require('./feedback/service');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -179,6 +196,21 @@ const formatDateOnly = (value) => {
   return String(value).slice(0, 10);
 };
 
+const queryWithLockRetry = async (database, sql, params = [], maximumAttempts = 3) => {
+  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    try {
+      return await database.query(sql, params);
+    } catch (error) {
+      if (error.code === 'ER_DUP_FIELDNAME') return [[], []];
+      if (!['ER_LOCK_DEADLOCK', 'ER_LOCK_WAIT_TIMEOUT'].includes(error.code) || attempt === maximumAttempts) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, attempt * 250));
+    }
+  }
+  throw new Error('데이터베이스 스키마 변경 재시도에 실패했습니다');
+};
+
 const parseStrictDateOnly = (value) => {
   const text = String(value || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
@@ -221,6 +253,14 @@ const toClientUser = (user) => ({
   profile_picture: normalizeLocalUrl(user.profile_picture),
   self_intro: user.self_intro,
   is_admin: Boolean(user.is_admin),
+  email_verified: Boolean(user.email_verified),
+  emailVerified: Boolean(user.email_verified),
+  account_type: user.account_type || 'GENERAL',
+  accountType: user.account_type || 'GENERAL',
+  school_domain: user.school_domain || null,
+  schoolDomain: user.school_domain || null,
+  school_name: user.school_name || null,
+  schoolName: user.school_name || null,
 });
 
 // Middleware 설정
@@ -229,7 +269,7 @@ app.use(bodyParser.json());
 app.use(attachAuth);
 app.use(requestLogger);
 
-const privateApiPattern = /^(?:\/api\/(?:user(?:\/|$)|delete-user(?:\/|$)|upload(?:\/|$)|favorite-activities(?:\/|$)|application-templates(?:\/|$)|my-(?:recruitments|applications)(?:\/|$)|applications(?:\/|$)|reviews(?:\/|$)|participations(?:\/|$)|team-join-offers(?:\/|$))|\/(?:users|teams|todos|notifications)(?:\/|$))/;
+const privateApiPattern = /^(?:\/api\/(?:user(?:\/|$)|delete-user(?:\/|$)|upload(?:\/|$)|favorite-activities(?:\/|$)|application-templates(?:\/|$)|developer-feedback(?:\/|$)|my-(?:recruitments|applications)(?:\/|$)|applications(?:\/|$)|reviews(?:\/|$)|participations(?:\/|$)|team-join-offers(?:\/|$))|\/(?:users|teams|todos|notifications)(?:\/|$))/;
 app.use((req, res, next) => {
   if (!privateApiPattern.test(req.path)) return next();
   if (!getRequestUserId(req)) return res.status(401).json({ message: '로그인이 필요합니다' });
@@ -268,6 +308,8 @@ let matchingSchemaReady = Promise.resolve();
 let adminSchemaReady = Promise.resolve();
 let awardSchemaReady = Promise.resolve();
 let todoCalendarSchemaReady = Promise.resolve();
+let authSchemaReady = Promise.resolve();
+let feedbackSchemaReady = Promise.resolve();
 let crawlerScheduler = null;
 
 const queuePortfolioJob = (job) => {
@@ -407,6 +449,8 @@ const ensureRecruitmentActivityColumns = async () => {
     ['activity_start_date', 'DATE NULL AFTER required_members'],
     ['activity_end_date', 'DATE NULL AFTER activity_start_date'],
     ['deleted_at', 'DATETIME NULL AFTER created_at'],
+    ['recruitment_scope', "VARCHAR(20) NOT NULL DEFAULT 'NATIONWIDE' AFTER meeting_type"],
+    ['school_domain', 'VARCHAR(255) NULL AFTER recruitment_scope'],
   ];
 
   const [columns] = await portfolioDb.query('SHOW COLUMNS FROM team_recruitments');
@@ -414,7 +458,10 @@ const ensureRecruitmentActivityColumns = async () => {
 
   for (const [columnName, definition] of requiredColumns) {
     if (!existingColumns.has(columnName)) {
-      await portfolioDb.query(`ALTER TABLE team_recruitments ADD COLUMN \`${columnName}\` ${definition}`);
+      await queryWithLockRetry(
+        portfolioDb,
+        `ALTER TABLE team_recruitments ADD COLUMN \`${columnName}\` ${definition}`,
+      );
     }
   }
 
@@ -442,6 +489,16 @@ const ensureRecruitmentActivityColumns = async () => {
     SET tr.activity_id = a.activity_id
     WHERE tr.activity_id IS NULL
   `);
+};
+
+const getMatchingUserProfile = async (database, userId) => {
+  if (!userId) return null;
+  const [rows] = await database.query(
+    `SELECT id, email_verified, account_type, school_domain, school_name
+     FROM users WHERE id = ? LIMIT 1`,
+    [userId],
+  );
+  return rows[0] || null;
 };
 
 const ensureMatchingInvitationSchema = async () => {
@@ -581,11 +638,14 @@ db.getConnection((err, connection) => {
     ensureActivityTables();
     ensureTodoCompletionColumn();
     todoCalendarSchemaReady = ensureTodoCalendarSchema();
+    authSchemaReady = ensureAuthVerificationSchema(portfolioDb);
+    feedbackSchemaReady = ensureDeveloperFeedbackSchema(portfolioDb);
     crawlerScheduler = startCrawlerScheduler();
     matchingSchemaReady = Promise.all([
       ensureRecruitmentActivityColumns(),
       ensureActivityPrizeSchema(),
       todoCalendarSchemaReady,
+      authSchemaReady,
     ])
       .then(() => ensureMatchingInvitationSchema())
       .then(() => ensureApplicationSchema(portfolioDb));
@@ -689,6 +749,137 @@ app.get('/api/ops/status', requireOpsToken, async (req, res) => {
 
 // ===== 인증 관련 API =====
 
+const handleAuthError = (res, error, fallbackMessage) => {
+  logger.error('auth_request_failed', { error: error.message, code: error.code });
+  if (error.code === 'EMAIL_NOT_CONFIGURED') {
+    return res.status(503).json({ message: '이메일 발송 설정이 완료되지 않았습니다' });
+  }
+  return res.status(500).json({ message: fallbackMessage });
+};
+
+app.post('/auth/email-verification/request', async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  if (!isValidEmail(email)) return res.status(400).json({ message: '올바른 이메일을 입력해주세요' });
+  if (db.state !== 'connected') return res.status(503).json({ message: '데이터베이스에 연결할 수 없습니다' });
+
+  try {
+    await authSchemaReady;
+    const [existing] = await portfolioDb.query('SELECT id FROM users WHERE email = ? LIMIT 1', [email]);
+    if (existing.length) return res.status(409).json({ message: '이미 가입된 이메일입니다' });
+
+    const identity = getAccountIdentity(email);
+    if (identity.schoolDomain && !(await getRegisteredSchool(portfolioDb, email))) {
+      return res.status(400).json({ message: '등록되지 않은 학교 이메일 도메인입니다' });
+    }
+
+    const result = await requestEmailCode(portfolioDb, {
+      email,
+      purpose: 'SIGNUP',
+      requestedIp: req.ip,
+    });
+    if (result.rateLimited) {
+      res.set('Retry-After', String(result.retryAfterSeconds));
+      return res.status(429).json({ message: `${result.retryAfterSeconds}초 후 다시 요청해주세요` });
+    }
+    res.json({
+      success: true,
+      message: '인증 코드를 전송했습니다',
+      account_type: identity.accountType,
+      school_domain: identity.schoolDomain,
+      ...(result.developmentCode ? { development_code: result.developmentCode } : {}),
+    });
+  } catch (error) {
+    handleAuthError(res, error, '인증 코드를 전송하지 못했습니다');
+  }
+});
+
+app.post('/auth/email-verification/verify', async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const code = String(req.body?.code || '').trim();
+  if (!isValidEmail(email) || !/^\d{6}$/.test(code)) {
+    return res.status(400).json({ message: '이메일과 6자리 인증 코드를 확인해주세요' });
+  }
+  try {
+    await authSchemaReady;
+    const result = await verifyEmailCode(portfolioDb, { email, purpose: 'SIGNUP', code });
+    if (!result.verified) return res.status(400).json({ message: '인증 코드가 올바르지 않거나 만료되었습니다' });
+    res.json({ success: true, message: '이메일 인증이 완료되었습니다' });
+  } catch (error) {
+    handleAuthError(res, error, '이메일 인증을 완료하지 못했습니다');
+  }
+});
+
+app.post('/auth/password-reset/request', async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  if (!isValidEmail(email)) return res.status(400).json({ message: '올바른 이메일을 입력해주세요' });
+  const genericResponse = { success: true, message: '가입된 이메일이면 인증 코드가 전송됩니다' };
+  try {
+    await authSchemaReady;
+    const [users] = await portfolioDb.query('SELECT id FROM users WHERE email = ? LIMIT 1', [email]);
+    if (!users.length) return res.json(genericResponse);
+    const result = await requestEmailCode(portfolioDb, {
+      email,
+      purpose: 'PASSWORD_RESET',
+      requestedIp: req.ip,
+    });
+    if (result.rateLimited) {
+      res.set('Retry-After', String(result.retryAfterSeconds));
+      return res.status(429).json({ message: `${result.retryAfterSeconds}초 후 다시 요청해주세요` });
+    }
+    res.json({
+      ...genericResponse,
+      ...(result.developmentCode ? { development_code: result.developmentCode } : {}),
+    });
+  } catch (error) {
+    handleAuthError(res, error, '비밀번호 재설정 메일을 전송하지 못했습니다');
+  }
+});
+
+app.post('/auth/password-reset/verify', async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const code = String(req.body?.code || '').trim();
+  if (!isValidEmail(email) || !/^\d{6}$/.test(code)) {
+    return res.status(400).json({ message: '이메일과 6자리 인증 코드를 확인해주세요' });
+  }
+  try {
+    await authSchemaReady;
+    const [users] = await portfolioDb.query('SELECT id FROM users WHERE email = ? LIMIT 1', [email]);
+    if (!users.length) return res.status(400).json({ message: '인증 코드가 올바르지 않거나 만료되었습니다' });
+    const verification = await verifyEmailCode(portfolioDb, {
+      email,
+      purpose: 'PASSWORD_RESET',
+      code,
+      consume: true,
+    });
+    if (!verification.verified) {
+      return res.status(400).json({ message: '인증 코드가 올바르지 않거나 만료되었습니다' });
+    }
+    const resetToken = await createPasswordResetToken(portfolioDb, users[0].id);
+    res.json({ success: true, reset_token: resetToken });
+  } catch (error) {
+    handleAuthError(res, error, '인증 코드를 확인하지 못했습니다');
+  }
+});
+
+app.post('/auth/password-reset/confirm', async (req, res) => {
+  const token = String(req.body?.reset_token || '');
+  const password = String(req.body?.password || '');
+  if (!token || password.length < 4) {
+    return res.status(400).json({ message: '비밀번호는 4자 이상 입력해주세요' });
+  }
+  try {
+    await authSchemaReady;
+    const reset = await resetPasswordWithToken(portfolioDb, {
+      token,
+      passwordHash: hashPassword(password),
+    });
+    if (!reset) return res.status(400).json({ message: '재설정 요청이 만료되었습니다. 다시 인증해주세요' });
+    res.json({ success: true, message: '비밀번호가 변경되었습니다' });
+  } catch (error) {
+    handleAuthError(res, error, '비밀번호를 변경하지 못했습니다');
+  }
+});
+
 // 새로운 로그인 API (LoginScreen0에서 사용)
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
@@ -744,7 +935,11 @@ app.post('/api/login', (req, res) => {
       birth AS birth_date,
       profile_picture,
       self_intro,
-      is_admin
+      is_admin,
+      email_verified,
+      account_type,
+      school_domain,
+      school_name
     FROM users
     WHERE email = ?
   `;
@@ -840,7 +1035,11 @@ app.post('/login', (req, res) => {
       birth AS birth_date,
       profile_picture,
       self_intro,
-      is_admin
+      is_admin,
+      email_verified,
+      account_type,
+      school_domain,
+      school_name
     FROM users
     WHERE email = ?
   `;
@@ -879,112 +1078,106 @@ app.post('/login', (req, res) => {
   });
 });
 
-// 새로운 회원가입 API
-app.post('/api/register', (req, res) => {
-  const { email, password, name, department, student_number, birth_date } = req.body;
+const registerUser = async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const password = String(req.body?.password || '');
+  const name = String(req.body?.name || '').trim();
+  const department = String(req.body?.department || '').trim() || null;
+  const studentNumber = String(req.body?.student_number ?? req.body?.studentId ?? '').trim() || null;
+  const birth = String(req.body?.birth_date ?? req.body?.birth ?? '').trim() || null;
 
-  // 필수값 확인
-  if (!email || !password || !name) {
-    return res.status(400).json({
-      success: false,
-      message: '필수 항목이 누락되었습니다.'
-    });
+  if (!isValidEmail(email) || password.length < 4 || !name) {
+    return res.status(400).json({ success: false, message: '이메일, 비밀번호, 이름을 확인해주세요' });
+  }
+  if (db.state !== 'connected') {
+    return res.status(503).json({ success: false, message: '데이터베이스에 연결할 수 없습니다' });
   }
 
-  // 더미 응답 (DB 연결 전)
-  if (!db || db.state === 'disconnected') {
-    console.log('더미 회원가입 처리 (MySQL 미연결)');
-    return res.status(201).json({
-      success: true,
-      message: '회원가입 성공'
-    });
-  }
-
-  // 실제 DB 쿼리
-  const sql = `INSERT INTO users (email, password, name, department, student_number, birth)
-               VALUES (?, ?, ?, ?, ?, ?)`;
-
-  const values = [email, hashPassword(password), name, department, student_number, birth_date];
-
-  db.query(sql, values, (err, result) => {
-    if (err) {
-      console.error('회원가입 오류:', err);
-      if (err.code === 'ER_DUP_ENTRY') {
-        return res.status(400).json({
-          success: false,
-          message: '이미 존재하는 이메일입니다.'
-        });
-      }
-      return res.status(500).json({
-        success: false,
-        message: '서버 오류'
-      });
+  try {
+    await authSchemaReady;
+    const verificationId = await hasVerifiedSignup(portfolioDb, email);
+    if (!verificationId) {
+      return res.status(400).json({ success: false, message: '이메일 인증을 먼저 완료해주세요' });
     }
-    
-    console.log('회원가입 성공:', email);
-    return res.status(201).json({
-      success: true,
-      message: '회원가입 성공'
-    });
-  });
+
+    const identity = getAccountIdentity(email);
+    const school = identity.schoolDomain ? await getRegisteredSchool(portfolioDb, email) : null;
+    if (identity.schoolDomain && !school) {
+      return res.status(400).json({ success: false, message: '등록되지 않은 학교 이메일 도메인입니다' });
+    }
+
+    await portfolioDb.query(
+      `INSERT INTO users
+        (email, email_verified, account_type, school_domain, school_name, password, name, department, student_number, birth)
+       VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        email,
+        school ? 'STUDENT' : 'GENERAL',
+        school?.school_domain || null,
+        school?.school_name || null,
+        hashPassword(password),
+        name,
+        department,
+        studentNumber,
+        birth,
+      ],
+    );
+    await consumeSignupVerification(portfolioDb, verificationId);
+    return res.status(201).json({ success: true, message: '회원가입 성공' });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ success: false, message: '이미 존재하는 이메일입니다' });
+    }
+    return handleAuthError(res, error, '회원가입을 완료하지 못했습니다');
+  }
+};
+
+app.post('/api/register', registerUser);
+app.post('/register', registerUser);
+
+app.get('/api/developer-feedback/mine', async (req, res) => {
+  const userId = getRequestUserId(req);
+  try {
+    await feedbackSchemaReady;
+    const [rows] = await portfolioDb.query(
+      `SELECT feedback_id, category, content, platform, status, created_at
+       FROM developer_feedback
+       WHERE user_id = ?
+       ORDER BY created_at DESC, feedback_id DESC
+       LIMIT 20`,
+      [userId],
+    );
+    res.json(rows);
+  } catch (error) {
+    logger.error('developer_feedback_list_failed', { userId, error: error.message });
+    res.status(500).json({ message: '전달 내역을 불러오지 못했습니다' });
+  }
 });
 
-// 기존 회원가입 API 호환성 (RegisterScreen에서 사용)
-app.post('/register', (req, res) => {
-  console.log('기존 회원가입 API 호출 - /register 라우트');
-  
-  const { email, password, name, department, studentId, birth } = req.body;
-
-  // 필수값 확인
-  if (!email || !password || !name) {
-    return res.status(400).json({
-      success: false,
-      message: '모든 필수 항목을 입력해주세요.'
-    });
+app.post('/api/developer-feedback', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const feedback = normalizeFeedback(req.body || {});
+  if (feedback.content.length < 10 || feedback.content.length > 2000) {
+    return res.status(400).json({ message: '내용은 10자 이상 2,000자 이하로 입력해주세요' });
   }
-
-  // 더미 응답 (DB 연결 전)
-  if (!db || db.state === 'disconnected') {
-    console.log('더미 회원가입 처리 (MySQL 미연결) - 기존 API');
-    return res.status(200).json({
-      success: true,
-      message: '회원가입 성공'
-    });
+  try {
+    await feedbackSchemaReady;
+    const [result] = await portfolioDb.query(
+      `INSERT INTO developer_feedback (user_id, category, content, platform)
+       VALUES (?, ?, ?, ?)`,
+      [userId, feedback.category, feedback.content, feedback.platform],
+    );
+    res.status(201).json({ success: true, feedback_id: result.insertId });
+  } catch (error) {
+    logger.error('developer_feedback_create_failed', { userId, error: error.message });
+    res.status(500).json({ message: '의견을 전달하지 못했습니다' });
   }
-
-  // 실제 DB 쿼리
-  const sql = `INSERT INTO users (email, password, name, department, student_number, birth)
-               VALUES (?, ?, ?, ?, ?, ?)`;
-
-  const values = [email, hashPassword(password), name, department, studentId, birth];
-
-  db.query(sql, values, (err, result) => {
-    if (err) {
-      console.error('회원가입 오류:', err);
-      if (err.code === 'ER_DUP_ENTRY') {
-        return res.status(400).json({
-          success: false,
-          message: '이미 존재하는 이메일입니다.'
-        });
-      }
-      return res.status(500).json({
-        success: false,
-        message: '서버 오류'
-      });
-    }
-    
-    console.log('회원가입 성공:', email);
-    return res.status(200).json({
-      success: true,
-      message: '회원가입 성공'
-    });
-  });
 });
 
 // ===== 활동 관련 API =====
 
 // 활동 목록 조회 API
-app.get('/api/activities', (req, res) => {
+app.get('/api/activities', async (req, res) => {
   const pagination = parsePagination(req.query);
   // 더미 데이터 (DB 연결 전)
   if (!db || db.state === 'disconnected') {
@@ -1027,7 +1220,14 @@ app.get('/api/activities', (req, res) => {
     return res.status(200).json(dummyActivities);
   }
 
-  const cached = activityCache.get('activities:all');
+  try {
+  await matchingSchemaReady;
+  const profile = await getMatchingUserProfile(portfolioDb, getRequestUserId(req));
+  const schoolDomain = profile?.email_verified && profile?.account_type === 'STUDENT'
+    ? profile.school_domain
+    : null;
+  const cacheKey = `activities:all:${schoolDomain || 'nationwide'}`;
+  const cached = activityCache.get(cacheKey);
   if (cached) return sendActivityList(res, cached, pagination);
 
   // 실제 DB 쿼리
@@ -1040,31 +1240,40 @@ app.get('/api/activities', (req, res) => {
       SELECT activity_id, COUNT(*) AS open_recruitment_count
       FROM team_recruitments
       WHERE status = 'OPEN' AND deleted_at IS NULL AND activity_id IS NOT NULL
+        AND (
+          COALESCE(recruitment_scope, 'NATIONWIDE') = 'NATIONWIDE'
+          OR (recruitment_scope = 'SCHOOL' AND school_domain = ?)
+        )
       GROUP BY activity_id
     ) rc ON rc.activity_id = a.activity_id
     WHERE COALESCE(a.is_hidden, 0) = 0
     ORDER BY a.created_at DESC
   `;
 
-  db.query(sql, (err, results) => {
-    if (err) {
-      console.error('활동 조회 오류:', err);
-      return res.status(500).json({ message: '서버 오류' });
-    }
-
+    const [results] = await portfolioDb.query(sql, [schoolDomain]);
     const activities = results || [];
-    activityCache.set('activities:all', activities);
+    activityCache.set(cacheKey, activities);
     sendActivityList(res, activities, pagination);
-  });
+  } catch (error) {
+    console.error('활동 조회 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
 });
 
-app.get('/api/activities/open', (req, res) => {
+app.get('/api/activities/open', async (req, res) => {
   if (!db || db.state === 'disconnected') {
     return res.json([]);
   }
 
   const pagination = parsePagination(req.query);
-  const cached = activityCache.get('activities:open');
+  try {
+  await matchingSchemaReady;
+  const profile = await getMatchingUserProfile(portfolioDb, getRequestUserId(req));
+  const schoolDomain = profile?.email_verified && profile?.account_type === 'STUDENT'
+    ? profile.school_domain
+    : null;
+  const cacheKey = `activities:open:${schoolDomain || 'nationwide'}`;
+  const cached = activityCache.get(cacheKey);
   if (cached) return sendActivityList(res, cached, pagination);
 
   const sql = `
@@ -1076,6 +1285,10 @@ app.get('/api/activities/open', (req, res) => {
       SELECT activity_id, COUNT(*) AS open_recruitment_count
       FROM team_recruitments
       WHERE status = 'OPEN' AND deleted_at IS NULL AND activity_id IS NOT NULL
+        AND (
+          COALESCE(recruitment_scope, 'NATIONWIDE') = 'NATIONWIDE'
+          OR (recruitment_scope = 'SCHOOL' AND school_domain = ?)
+        )
       GROUP BY activity_id
     ) rc ON rc.activity_id = a.activity_id
     WHERE COALESCE(a.is_hidden, 0) = 0
@@ -1084,20 +1297,18 @@ app.get('/api/activities/open', (req, res) => {
     ORDER BY a.application_period_end ASC, a.created_at DESC
   `;
 
-  db.query(sql, (err, results) => {
-    if (err) {
-      console.error('모집 중 활동 조회 오류:', err);
-      return res.status(500).json({ message: '서버 오류' });
-    }
-
+    const [results] = await portfolioDb.query(sql, [schoolDomain]);
     const activities = results || [];
-    activityCache.set('activities:open', activities);
+    activityCache.set(cacheKey, activities);
     sendActivityList(res, activities, pagination);
-  });
+  } catch (error) {
+    console.error('모집 중 활동 조회 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
 });
 
 // 활동 상세 조회 API
-app.get('/api/activities/:id', (req, res) => {
+app.get('/api/activities/:id', async (req, res) => {
   const activityId = req.params.id;
 
   // 더미 데이터 (DB 연결 전)
@@ -1116,6 +1327,12 @@ app.get('/api/activities/:id', (req, res) => {
     return res.status(200).json(dummyActivity);
   }
 
+  try {
+  await matchingSchemaReady;
+  const profile = await getMatchingUserProfile(portfolioDb, getRequestUserId(req));
+  const schoolDomain = profile?.email_verified && profile?.account_type === 'STUDENT'
+    ? profile.school_domain
+    : null;
   // 실제 DB 쿼리
   const sql = `
     SELECT
@@ -1124,32 +1341,39 @@ app.get('/api/activities/:id', (req, res) => {
         SELECT COUNT(*)
         FROM team_recruitments tr
         WHERE tr.activity_id = a.activity_id AND tr.status = 'OPEN' AND tr.deleted_at IS NULL
+          AND (
+            COALESCE(tr.recruitment_scope, 'NATIONWIDE') = 'NATIONWIDE'
+            OR (tr.recruitment_scope = 'SCHOOL' AND tr.school_domain = ?)
+          )
       ) AS open_recruitment_count
     FROM activitys a
     WHERE a.activity_id = ? AND COALESCE(a.is_hidden, 0) = 0
   `;
-  db.query(sql, [activityId], (err, results) => {
-    if (err) {
-      console.error('활동 상세 조회 오류:', err);
-      return res.status(500).json({ message: '서버 오류' });
-    }
-
+    const [results] = await portfolioDb.query(sql, [schoolDomain, activityId]);
     if (results.length === 0) {
       return res.status(404).json({ message: '활동을 찾을 수 없습니다.' });
     }
 
     res.status(200).json(normalizeActivity(results[0]));
-  });
+  } catch (error) {
+    console.error('활동 상세 조회 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
 });
 
-app.get('/api/activities/:id/recruitments', (req, res) => {
+app.get('/api/activities/:id/recruitments', async (req, res) => {
   const activityId = Number(req.params.id);
+  const userId = getRequestUserId(req);
 
   if (!Number.isInteger(activityId) || activityId <= 0) {
     return res.status(400).json({ message: '올바른 활동 ID가 필요합니다' });
   }
 
-  const sql = `
+  try {
+    await matchingSchemaReady;
+    const profile = await getMatchingUserProfile(portfolioDb, userId);
+    const canSeeSchool = Boolean(profile?.email_verified && profile?.account_type === 'STUDENT');
+    const sql = `
     SELECT
       recruitment_id,
       owner_user_id,
@@ -1164,22 +1388,29 @@ app.get('/api/activities/:id/recruitments', (req, res) => {
       activity_end_date,
       activity_period,
       meeting_type,
+      recruitment_scope,
+      school_domain,
       memo,
       status,
       created_at
     FROM team_recruitments
     WHERE activity_id = ? AND status = 'OPEN' AND deleted_at IS NULL
+      AND (
+        COALESCE(recruitment_scope, 'NATIONWIDE') = 'NATIONWIDE'
+        OR (? = 1 AND recruitment_scope = 'SCHOOL' AND school_domain = ?)
+      )
     ORDER BY created_at DESC, recruitment_id DESC
   `;
-
-  db.query(sql, [activityId], (err, results) => {
-    if (err) {
-      console.error('활동별 모집글 조회 오류:', err);
-      return res.status(500).json({ message: '서버 오류' });
-    }
-
+    const [results] = await portfolioDb.query(sql, [
+      activityId,
+      canSeeSchool ? 1 : 0,
+      profile?.school_domain || null,
+    ]);
     res.json(results || []);
-  });
+  } catch (error) {
+    console.error('활동별 모집글 조회 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
 });
 
 app.get('/api/favorite-activities', (req, res) => {
@@ -1424,12 +1655,19 @@ app.delete('/api/application-templates/:templateId', async (req, res) => {
   }
 });
 
-app.get('/api/team-recruitments', (req, res) => {
+app.get('/api/team-recruitments', async (req, res) => {
   if (!db || db.state === 'disconnected') {
     return res.json([]);
   }
 
-  const sql = `
+  const userId = getRequestUserId(req);
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+
+  try {
+    await matchingSchemaReady;
+    const profile = await getMatchingUserProfile(portfolioDb, userId);
+    const canSeeSchool = Boolean(profile?.email_verified && profile?.account_type === 'STUDENT');
+    const sql = `
     SELECT
       recruitment_id,
       owner_user_id,
@@ -1448,23 +1686,29 @@ app.get('/api/team-recruitments', (req, res) => {
       DATE_FORMAT(tr.activity_end_date, '%Y-%m-%d') AS activity_end_date,
       tr.activity_period,
       tr.meeting_type,
+      tr.recruitment_scope,
+      tr.school_domain,
       tr.memo,
       tr.status,
       tr.created_at
     FROM team_recruitments tr
     LEFT JOIN activitys a ON a.activity_id = tr.activity_id
     WHERE tr.status = 'OPEN' AND tr.deleted_at IS NULL
+      AND (
+        COALESCE(tr.recruitment_scope, 'NATIONWIDE') = 'NATIONWIDE'
+        OR (? = 1 AND tr.recruitment_scope = 'SCHOOL' AND tr.school_domain = ?)
+      )
     ORDER BY tr.created_at DESC, tr.recruitment_id DESC
   `;
-
-  db.query(sql, (err, results) => {
-    if (err) {
-      console.error('팀 모집글 조회 오류:', err);
-      return res.status(500).json({ message: '서버 오류' });
-    }
-
+    const [results] = await portfolioDb.query(sql, [
+      canSeeSchool ? 1 : 0,
+      profile?.school_domain || null,
+    ]);
     res.json(results || []);
-  });
+  } catch (error) {
+    console.error('팀 모집글 조회 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
 });
 
 app.post('/api/team-recruitments', async (req, res) => {
@@ -1477,6 +1721,7 @@ app.post('/api/team-recruitments', async (req, res) => {
   const startDate = String(req.body?.activity_start_date || '').slice(0, 10);
   const endDate = String(req.body?.activity_end_date || '').slice(0, 10);
   const meetingType = String(req.body?.meeting_type || '대면');
+  const recruitmentScope = String(req.body?.recruitment_scope || 'NATIONWIDE').toUpperCase();
   const memo = String(req.body?.memo || '').trim();
 
   if (!ownerUserId) {
@@ -1500,8 +1745,19 @@ app.post('/api/team-recruitments', async (req, res) => {
   if (!['대면', '비대면', '혼합'].includes(meetingType)) {
     return res.status(400).json({ message: '올바른 모임 방식을 선택해주세요' });
   }
+  if (!['NATIONWIDE', 'SCHOOL'].includes(recruitmentScope)) {
+    return res.status(400).json({ message: '올바른 모집 범위를 선택해주세요' });
+  }
 
   try {
+    await matchingSchemaReady;
+    const ownerProfile = await getMatchingUserProfile(portfolioDb, ownerUserId);
+    if (recruitmentScope === 'SCHOOL' && !canAccessRecruitment(ownerProfile, {
+      recruitment_scope: 'SCHOOL',
+      school_domain: ownerProfile?.school_domain,
+    })) {
+      return res.status(403).json({ message: '인증된 학교 계정만 본교 모집을 만들 수 있습니다' });
+    }
     const [activities] = await portfolioDb.query(
       `SELECT activity_id, title, category, topic_category
        FROM activitys
@@ -1533,9 +1789,11 @@ app.post('/api/team-recruitments', async (req, res) => {
         activity_end_date,
         activity_period,
         meeting_type,
+        recruitment_scope,
+        school_domain,
         memo,
         status
-      ) VALUES (?, NULL, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, 'OPEN')`,
+      ) VALUES (?, NULL, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN')`,
       [
         ownerUserId,
         activityId,
@@ -1548,6 +1806,8 @@ app.post('/api/team-recruitments', async (req, res) => {
         endDate,
         activityPeriod,
         meetingType,
+        recruitmentScope,
+        recruitmentScope === 'SCHOOL' ? ownerProfile.school_domain : null,
         memo,
       ]
     );
@@ -1624,6 +1884,7 @@ app.put('/api/team-recruitments/:id', async (req, res) => {
   const startDate = String(req.body?.activity_start_date || '').slice(0, 10);
   const endDate = String(req.body?.activity_end_date || '').slice(0, 10);
   const meetingType = String(req.body?.meeting_type || '대면');
+  const recruitmentScope = String(req.body?.recruitment_scope || 'NATIONWIDE').toUpperCase();
   const memo = String(req.body?.memo || '').trim();
 
   if (!ownerUserId) {
@@ -1650,8 +1911,19 @@ app.put('/api/team-recruitments/:id', async (req, res) => {
   if (!['대면', '비대면', '혼합'].includes(meetingType)) {
     return res.status(400).json({ message: '올바른 모임 방식을 선택해주세요' });
   }
+  if (!['NATIONWIDE', 'SCHOOL'].includes(recruitmentScope)) {
+    return res.status(400).json({ message: '올바른 모집 범위를 선택해주세요' });
+  }
 
   try {
+    await matchingSchemaReady;
+    const ownerProfile = await getMatchingUserProfile(portfolioDb, ownerUserId);
+    if (recruitmentScope === 'SCHOOL' && !canAccessRecruitment(ownerProfile, {
+      recruitment_scope: 'SCHOOL',
+      school_domain: ownerProfile?.school_domain,
+    })) {
+      return res.status(403).json({ message: '인증된 학교 계정만 본교 모집을 선택할 수 있습니다' });
+    }
     const [recruitments] = await portfolioDb.query(
       `SELECT
         tr.recruitment_id,
@@ -1703,6 +1975,8 @@ app.put('/api/team-recruitments/:id', async (req, res) => {
            activity_end_date = ?,
            activity_period = ?,
            meeting_type = ?,
+           recruitment_scope = ?,
+           school_domain = ?,
            memo = ?
        WHERE recruitment_id = ? AND owner_user_id = ? AND deleted_at IS NULL`,
       [
@@ -1716,6 +1990,8 @@ app.put('/api/team-recruitments/:id', async (req, res) => {
         endDate,
         `${startDate} ~ ${endDate}`,
         meetingType,
+        recruitmentScope,
+        recruitmentScope === 'SCHOOL' ? ownerProfile.school_domain : null,
         memo,
         recruitmentId,
         ownerUserId,
@@ -1763,12 +2039,15 @@ app.delete('/api/team-recruitments/:id', (req, res) => {
   );
 });
 
-app.get('/api/team-recruitments/:id', (req, res) => {
+app.get('/api/team-recruitments/:id', async (req, res) => {
   const recruitmentId = Number(req.params.id);
+  const userId = getRequestUserId(req);
 
   if (!Number.isInteger(recruitmentId) || recruitmentId <= 0) {
     return res.status(400).json({ message: '올바른 모집글 ID가 필요합니다' });
   }
+
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
 
   const sql = `
     SELECT
@@ -1785,16 +2064,21 @@ app.get('/api/team-recruitments/:id', (req, res) => {
     WHERE tr.recruitment_id = ? AND tr.deleted_at IS NULL
   `;
 
-  db.query(sql, [recruitmentId], (err, results) => {
-    if (err) {
-      console.error('팀 모집글 상세 조회 오류:', err);
-      return res.status(500).json({ message: '서버 오류' });
-    }
+  try {
+    await matchingSchemaReady;
+    const [results] = await portfolioDb.query(sql, [recruitmentId]);
     if (!results.length) {
       return res.status(404).json({ message: '모집글을 찾을 수 없습니다' });
     }
+    const profile = await getMatchingUserProfile(portfolioDb, userId);
+    if (Number(results[0].owner_user_id) !== userId && !canAccessRecruitment(profile, results[0])) {
+      return res.status(403).json({ message: '이 모집글은 같은 학교의 인증된 사용자만 볼 수 있습니다' });
+    }
     res.json(results[0]);
-  });
+  } catch (error) {
+    console.error('팀 모집글 상세 조회 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
 });
 
 app.get('/api/team-recruitments/:id/applications', async (req, res) => {
@@ -1848,6 +2132,20 @@ app.post('/api/applications', async (req, res) => {
   try {
     await matchingSchemaReady;
     await connection.beginTransaction();
+    const [[recruitment]] = await connection.query(
+      `SELECT recruitment_id, owner_user_id, recruitment_scope, school_domain, status, deleted_at
+       FROM team_recruitments WHERE recruitment_id = ? FOR UPDATE`,
+      [recruitmentId],
+    );
+    if (!recruitment || recruitment.deleted_at || recruitment.status !== 'OPEN') {
+      await connection.rollback();
+      return res.status(409).json({ message: '현재 지원할 수 없는 모집글입니다' });
+    }
+    const applicantProfile = await getMatchingUserProfile(connection, applicantId);
+    if (!canAccessRecruitment(applicantProfile, recruitment)) {
+      await connection.rollback();
+      return res.status(403).json({ message: '본교 모집에는 같은 학교의 인증된 계정만 지원할 수 있습니다' });
+    }
     if (templateId) {
       const [[template]] = await connection.query(
         'SELECT template_id FROM application_templates WHERE template_id = ? AND user_id = ?',
@@ -3472,7 +3770,9 @@ app.get('/api/user/:id', (req, res) => {
   }
   
   // 실제 DB 쿼리
-  const userQuery = 'SELECT id AS user_id, email, name, department, student_number, birth AS birth_date, profile_picture, self_intro, is_admin FROM users WHERE id = ?';
+  const userQuery = `SELECT id AS user_id, email, name, department, student_number,
+    birth AS birth_date, profile_picture, self_intro, is_admin, email_verified,
+    account_type, school_domain, school_name FROM users WHERE id = ?`;
   
   db.query(userQuery, [userId], (err, results) => {
     if (err) {

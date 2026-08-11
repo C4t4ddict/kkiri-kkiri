@@ -9,6 +9,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import AppHeader from '../components/AppHeader';
 import NotificationBell from '../components/NotificationBell';
 import AppRefreshControl from '../components/AppRefreshControl';
+import { useAuth } from '../context/AuthContext';
 import ScreenState from '../components/ScreenState';
 import { getActivityCategory, getVisibleActivityCategories } from '../constants/activityCategories';
 
@@ -32,6 +33,7 @@ const BASE_URL =
 
 export default function HomeScreen() {
   const navigation = useNavigation();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -39,7 +41,9 @@ export default function HomeScreen() {
 
   const fetchActivities = useCallback(async (showError = true) => {
     try {
-      const res = await axios.get<Activity[]>(`${BASE_URL}/api/activities`);
+      const res = await axios.get<Activity[]>(`${BASE_URL}/api/activities`, {
+        headers: user?.id ? { 'x-user-id': String(user.id) } : undefined,
+      });
       setActivities(Array.isArray(res.data) ? res.data : []);
       setError(false);
     } catch (requestError) {
@@ -47,7 +51,7 @@ export default function HomeScreen() {
       setError(true);
       if (showError) Alert.alert('오류', '활동 목록을 불러오지 못했습니다.');
     }
-  }, []);
+  }, [user?.id]);
 
   useFocusEffect(
     useCallback(() => {

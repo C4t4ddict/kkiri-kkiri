@@ -6,6 +6,7 @@ import { AuthProvider } from './src/context/AuthContext';
 
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
+import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
 import colors from './src/config/colors';
 
 import BottomTabNavigator from './src/navigation/BottomTabNavigator';
@@ -28,6 +29,7 @@ import MyApplicationsScreen from './src/screens/MyApplicationsScreen';
 import ApplicationDetailScreen from './src/screens/ApplicationDetailScreen';
 import ApplicationTemplatesScreen from './src/screens/ApplicationTemplatesScreen';
 import AwardsScreen from './src/screens/AwardsScreen';
+import DeveloperFeedbackScreen from './src/screens/DeveloperFeedbackScreen';
 
 // MyPage 관련 스크린 import 추가
 import MyPage2 from './src/screens/mypage2';
@@ -58,6 +60,11 @@ export default function App() {
           }}
         >
           <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
+          <Stack.Screen
+            name="ForgotPassword"
+            component={ForgotPasswordScreen}
+            options={{ title: '비밀번호 찾기', headerBackTitle: '', headerTitleAlign: 'center' }}
+          />
           <Stack.Screen
             name="Register"
             component={RegisterScreen}
@@ -141,6 +148,11 @@ export default function App() {
             name="Awards"
             component={AwardsScreen}
             options={{ title: '수상내역', headerBackTitle: '', headerTitleAlign: 'center' }}
+          />
+          <Stack.Screen
+            name="DeveloperFeedback"
+            component={DeveloperFeedbackScreen}
+            options={{ title: '개발자에게 한마디', headerBackTitle: '', headerTitleAlign: 'center' }}
           />
           <Stack.Screen
             name="ApplicationDetail"

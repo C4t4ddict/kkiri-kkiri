@@ -33,6 +33,7 @@
     "express": "^5.1.0",
     "multer": "^2.0.2",
     "mysql2": "^3.14.3",
+    "nodemailer": "^7.0.13",
     "react": "19.1.0",
     "react-native": "0.80.1",
     "react-native-blob-util": "^0.24.10",

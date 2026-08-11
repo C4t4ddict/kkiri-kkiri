@@ -18,8 +18,9 @@ import {
 import axios from 'axios';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../context/AuthContext';
-import { useNavigation } from '@react-navigation/native';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import MiniCalendarModal from '../components/MiniCalendarModal';
+import { RootStackParamList } from '../types';
 
 const API_BASE_URL =
   Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
@@ -128,6 +129,8 @@ const periodOf = (scope: Scope, anchor: Date): Period => {
 
 export default function TodoScreen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<RouteProp<RootStackParamList, 'TodoScreen'>>();
+  const activityEditHandled = useRef(false);
   const { user } = useAuth();
   const authHeader = useMemo(
     () => user ? { 'x-user-id': String(user.id) } : undefined,
@@ -188,11 +191,14 @@ export default function TodoScreen() {
       .then((res) => {
         const data = res.data ?? [];
         setTeams(data);
-        if (data.length) setSelected(data[0]);
+        if (data.length) {
+          const requestedTeamId = Number(route.params?.teamId || 0);
+          setSelected(data.find((team) => Number(team.team_id) === requestedTeamId) || data[0]);
+        }
       })
       .catch((err) => console.error('팀 목록 불러오기 실패:', err))
       .finally(() => setLoadingTeams(false));
-  }, [authHeader, user]);
+  }, [authHeader, route.params?.teamId, user]);
 
   // 기간별 데이터 로딩
   const fetchRange = async (scope: Scope) => {
@@ -368,6 +374,14 @@ export default function TodoScreen() {
     setPartInput(selected.part ?? '');
     setPartModalVisible(true);
   };
+
+  useEffect(() => {
+    if (!route.params?.openActivityEdit || !selected || activityEditHandled.current) return;
+    activityEditHandled.current = true;
+    setNameInput(selected.team_name ?? '');
+    setPartInput(selected.part ?? '');
+    setPartModalVisible(true);
+  }, [route.params?.openActivityEdit, selected]);
 
   const notifyError = (title: string, msg: string) => {
     if (Platform.OS === 'android') {

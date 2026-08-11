@@ -455,10 +455,21 @@ export default function ActivityScreen() {
             )}
           </View>
 
-          {selected?.part ? (
-            <Text style={styles.partText} numberOfLines={1} ellipsizeMode="tail">
-              {humanizePart(selected.part)}
-            </Text>
+          {selected ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="활동명과 역할명 수정"
+              style={({ pressed }) => [styles.partEditButton, pressed && styles.iconButtonPressed]}
+              onPress={() => navigation.navigate('TodoScreen', {
+                openActivityEdit: true,
+                teamId: selected.teamId,
+              })}
+            >
+              <Text style={styles.partText} numberOfLines={1} ellipsizeMode="tail">
+                {humanizePart(selected.part || '역할 미정')}
+              </Text>
+              <Icon name="pencil-outline" size={15} color={PURPLE} />
+            </Pressable>
           ) : null}
         </View>
         {/* 스크롤 컨테이너 */}
@@ -554,7 +565,7 @@ const styles = StyleSheet.create({
   iconRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
   },
   iconButton: {
     width: 44,
@@ -582,6 +593,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     zIndex: 20,
   },
+  partEditButton: { maxWidth: '38%', minHeight: 40, paddingHorizontal: 8, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 5 },
   dropdown: {
     flex: 1,
     marginRight: 12,

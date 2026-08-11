@@ -61,7 +61,9 @@ const InfoScreen = () => {
 
   const fetchActivities = useCallback(async () => {
     try {
-      const res = await axios.get(`${BASE_URL}/api/activities`);
+      const res = await axios.get(`${BASE_URL}/api/activities`, {
+        headers: user?.id ? { 'x-user-id': String(user.id) } : undefined,
+      });
       setActivities(Array.isArray(res.data) ? res.data : []);
       setLoadError(false);
     } catch (error) {
@@ -70,7 +72,7 @@ const InfoScreen = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   const fetchFavoriteIds = useCallback(async () => {
     if (!user?.id) {
