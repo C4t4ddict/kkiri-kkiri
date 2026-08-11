@@ -786,7 +786,9 @@ app.post('/auth/email-verification/request', async (req, res) => {
       message: '인증 코드를 전송했습니다',
       account_type: identity.accountType,
       school_domain: identity.schoolDomain,
-      ...(result.developmentCode ? { development_code: result.developmentCode } : {}),
+      ...(process.env.NODE_ENV === 'development' && result.developmentCode
+        ? { development_code: result.developmentCode }
+        : {}),
     });
   } catch (error) {
     handleAuthError(res, error, '인증 코드를 전송하지 못했습니다');
@@ -828,7 +830,9 @@ app.post('/auth/password-reset/request', async (req, res) => {
     }
     res.json({
       ...genericResponse,
-      ...(result.developmentCode ? { development_code: result.developmentCode } : {}),
+      ...(process.env.NODE_ENV === 'development' && result.developmentCode
+        ? { development_code: result.developmentCode }
+        : {}),
     });
   } catch (error) {
     handleAuthError(res, error, '비밀번호 재설정 메일을 전송하지 못했습니다');
