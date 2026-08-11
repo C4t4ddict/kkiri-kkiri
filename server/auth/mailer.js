@@ -2,6 +2,8 @@ const nodemailer = require('nodemailer');
 
 let transporter;
 
+const isDevelopmentEnvironment = () => process.env.NODE_ENV === 'development';
+
 const getTransporter = () => {
   if (transporter) return transporter;
   if (!process.env.SMTP_HOST || !process.env.SMTP_FROM) return null;
@@ -16,18 +18,21 @@ const getTransporter = () => {
   return transporter;
 };
 
+const getVerificationSubject = (purpose) => ({
+  SIGNUP: '[끼리끼리] 회원가입 이메일 인증 코드',
+  SCHOOL_LINK: '[끼리끼리] 학교 이메일 인증 코드',
+  PASSWORD_RESET: '[끼리끼리] 비밀번호 재설정 인증 코드',
+}[purpose] || '[끼리끼리] 이메일 인증 코드');
+
 const sendVerificationCode = async ({ email, code, purpose }) => {
-  const subject = purpose === 'SIGNUP'
-    ? '[끼리끼리] 회원가입 이메일 인증 코드'
-    : '[끼리끼리] 비밀번호 재설정 인증 코드';
+  const subject = getVerificationSubject(purpose);
   const mailer = getTransporter();
   if (!mailer) {
-    if (process.env.NODE_ENV === 'production') {
+    if (!isDevelopmentEnvironment()) {
       const error = new Error('이메일 발송 설정이 완료되지 않았습니다');
       error.code = 'EMAIL_NOT_CONFIGURED';
       throw error;
     }
-    console.info(`[email-verification] ${purpose} ${email}: ${code}`);
     return { deliveryMode: 'development', developmentCode: code };
   }
 
@@ -41,4 +46,4 @@ const sendVerificationCode = async ({ email, code, purpose }) => {
   return { deliveryMode: 'smtp' };
 };
 
-module.exports = { sendVerificationCode };
+module.exports = { getVerificationSubject, sendVerificationCode };

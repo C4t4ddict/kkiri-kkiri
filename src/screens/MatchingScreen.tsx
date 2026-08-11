@@ -67,6 +67,7 @@ const MatchingScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [scope, setScope] = useState<'SCHOOL' | 'NATIONWIDE'>('NATIONWIDE');
 
   const { user } = useAuth();
 
@@ -79,7 +80,7 @@ const MatchingScreen = () => {
         })
         : Promise.resolve({ data: [] });
       const [recruitmentResult, applicationResult] = await Promise.allSettled([
-        axios.get(`${BASE_URL}/api/team-recruitments`, {
+        axios.get(`${BASE_URL}/api/team-recruitments?scope=${scope}`, {
           headers: user?.id ? { 'x-user-id': String(user.id) } : undefined,
         }),
         applicationRequest,
@@ -98,7 +99,7 @@ const MatchingScreen = () => {
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [scope, user?.id]);
 
   // 화면에 다시 포커스될 때마다 새로고침
   useFocusEffect(
@@ -172,6 +173,33 @@ const MatchingScreen = () => {
       <AppHeader actions={
         <NotificationBell />
       } />
+
+      <View style={styles.scopeTabs}>
+        {([
+          ['SCHOOL', '학교'],
+          ['NATIONWIDE', '전국'],
+        ] as const).map(([value, label]) => {
+          const selected = scope === value;
+          return (
+            <TouchableOpacity
+              key={value}
+              style={[styles.scopeTab, selected && styles.scopeTabSelected]}
+              onPress={() => {
+                if (value === 'SCHOOL' && !user?.schoolEmailVerified && !user?.school_email_verified) {
+                  navigation.navigate('SchoolEmailVerification');
+                  return;
+                }
+                setScope(value);
+              }}
+            >
+              <Text style={[styles.scopeTabText, selected && styles.scopeTabTextSelected]}>{label}</Text>
+              {value === 'SCHOOL' && (user?.schoolEmailVerified || user?.school_email_verified) ? (
+                <Icon name="checkmark-circle" size={14} color="#7A5AF8" />
+              ) : null}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
       {/* 검색창 */}
       <View style={styles.searchContainer}>
@@ -306,6 +334,33 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     marginHorizontal: 16,
   },
+  scopeTabs: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 4,
+    borderRadius: 14,
+    backgroundColor: '#F2F4F7',
+  },
+  scopeTab: {
+    flex: 1,
+    minHeight: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    borderRadius: 11,
+  },
+  scopeTabSelected: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#101828',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 5,
+    elevation: 2,
+  },
+  scopeTabText: { color: '#667085', fontSize: 14, fontWeight: '700' },
+  scopeTabTextSelected: { color: '#6941C6', fontWeight: '900' },
   searchInput: {
     fontSize: 16,
     color: '#101828',

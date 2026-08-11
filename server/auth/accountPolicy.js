@@ -24,8 +24,7 @@ const getAccountIdentity = (email) => {
 const canAccessRecruitment = (user, recruitment) => {
   if (String(recruitment?.recruitment_scope || 'NATIONWIDE') !== 'SCHOOL') return true;
   return Boolean(
-    user?.email_verified
-    && user?.account_type === 'STUDENT'
+    user?.school_email_verified
     && user?.school_domain
     && user.school_domain === recruitment.school_domain,
   );

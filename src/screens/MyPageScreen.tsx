@@ -1,14 +1,20 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   Image,
+  LayoutAnimation,
+  Modal,
+  PanResponder,
   Platform,
+  Pressable,
   SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
+  UIManager,
   View,
 } from 'react-native';
 import { CommonActions, useNavigation } from '@react-navigation/native';
@@ -28,6 +34,55 @@ type ImageAsset = {
 };
 
 const API_BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
+const MENU_ROW_HEIGHT = 62;
+
+type MenuItem = {
+  key: string;
+  label: string;
+  icon: string;
+  onPress: () => void;
+};
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+function DraggableMenuRow({ item, index, total, onDrop }: {
+  item: MenuItem;
+  index: number;
+  total: number;
+  onDrop: (key: string, targetIndex: number) => void;
+}) {
+  const translateY = useRef(new Animated.Value(0)).current;
+  const [dragging, setDragging] = useState(false);
+  const responder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: () => { translateY.setValue(0); setDragging(true); },
+    onPanResponderMove: Animated.event([null, { dy: translateY }], { useNativeDriver: false }),
+    onPanResponderRelease: (_, gesture) => {
+      const targetIndex = clamp(index + Math.round(gesture.dy / MENU_ROW_HEIGHT), 0, total - 1);
+      onDrop(item.key, targetIndex);
+      Animated.spring(translateY, { toValue: 0, damping: 19, stiffness: 180, useNativeDriver: true })
+        .start(() => setDragging(false));
+    },
+    onPanResponderTerminate: () => {
+      Animated.spring(translateY, { toValue: 0, useNativeDriver: true }).start(() => setDragging(false));
+    },
+  }), [index, item.key, onDrop, total, translateY]);
+
+  return (
+    <Animated.View style={[styles.editRow, dragging && styles.editRowDragging, { transform: [{ translateY }] }]}>
+      <View style={styles.editIcon}><Icon name={item.icon} size={19} color={colors.primary} /></View>
+      <Text style={styles.editLabel}>{item.label}</Text>
+      <Animated.View style={[styles.dragHandle, dragging && styles.dragHandleActive]} {...responder.panHandlers}>
+        <Icon name="reorder-three-outline" size={25} color={dragging ? '#FFFFFF' : colors.textSub} />
+      </Animated.View>
+    </Animated.View>
+  );
+}
 
 const getCorrectImageUrl = (imageUrl?: string | null) => {
   if (!imageUrl) return null;
@@ -52,6 +107,13 @@ const normalizeUser = (raw: any): User => ({
   schoolDomain: raw.school_domain ?? raw.schoolDomain ?? null,
   school_name: raw.school_name ?? raw.schoolName ?? null,
   schoolName: raw.school_name ?? raw.schoolName ?? null,
+  school_email: raw.school_email ?? raw.schoolEmail ?? null,
+  schoolEmail: raw.school_email ?? raw.schoolEmail ?? null,
+  school_email_verified: Boolean(raw.school_email_verified ?? raw.schoolEmailVerified),
+  schoolEmailVerified: Boolean(raw.school_email_verified ?? raw.schoolEmailVerified),
+  school_verified_at: raw.school_verified_at ?? null,
+  friend_code: raw.friend_code ?? raw.friendCode ?? null,
+  friendCode: raw.friend_code ?? raw.friendCode ?? null,
 });
 
 export default function MyPageScreen() {
@@ -59,6 +121,22 @@ export default function MyPageScreen() {
   const { user, setUser } = useAuth();
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [menuOrder, setMenuOrder] = useState<string[]>([]);
+  const [editingMenus, setEditingMenus] = useState<MenuItem[] | null>(null);
+  const [savingMenuOrder, setSavingMenuOrder] = useState(false);
+
+  const fetchMenuOrder = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/menu-preferences`, {
+        headers: { 'x-user-id': String(user.id) },
+      });
+      const data = await response.json();
+      if (response.ok && Array.isArray(data.order)) setMenuOrder(data.order);
+    } catch (error) {
+      console.warn('메뉴 순서 조회 오류:', error);
+    }
+  }, [user?.id]);
 
   const fetchUserData = useCallback(async () => {
     if (!user?.id) return;
@@ -80,7 +158,8 @@ export default function MyPageScreen() {
 
   useEffect(() => {
     fetchUserData();
-  }, [fetchUserData]);
+    fetchMenuOrder();
+  }, [fetchMenuOrder, fetchUserData]);
 
   useEffect(() => {
     setProfileImage(getCorrectImageUrl(user?.profile_picture));
@@ -90,10 +169,11 @@ export default function MyPageScreen() {
     setRefreshing(true);
     try {
       await fetchUserData();
+      await fetchMenuOrder();
     } finally {
       setRefreshing(false);
     }
-  }, [fetchUserData]);
+  }, [fetchMenuOrder, fetchUserData]);
 
   const uploadProfilePicture = async (image: ImageAsset) => {
     if (!user?.id) return;
@@ -183,51 +263,115 @@ export default function MyPageScreen() {
 
   const menuItems = [
     {
+      key: 'my_evaluation',
       label: '나의 평가',
       icon: 'stats-chart-outline',
       onPress: () => navigation.navigate('MyPage4', { user }),
     },
     {
+      key: 'team_evaluation',
       label: '팀원평가',
       icon: 'people-outline',
       onPress: () => navigation.navigate('MyPage2', { user }),
     },
     {
+      key: 'settings',
       label: '설정',
       icon: 'settings-outline',
       onPress: () => navigation.navigate('Settings', { user }),
     },
     {
+      key: 'favorites',
       label: '관심 활동',
       icon: 'heart-outline',
       onPress: () => navigation.navigate('FavoriteActivities'),
     },
     {
+      key: 'my_recruitments',
       label: '나의 모집',
       icon: 'megaphone-outline',
       onPress: () => navigation.navigate('MyRecruitments'),
     },
     {
+      key: 'my_applications',
       label: '나의 지원',
       icon: 'paper-plane-outline',
       onPress: () => navigation.navigate('MyApplications'),
     },
     {
+      key: 'awards',
       label: '수상내역',
       icon: 'trophy-outline',
       onPress: () => navigation.navigate('Awards'),
     },
     {
+      key: 'friends',
+      label: '친구',
+      icon: 'people-circle-outline',
+      onPress: () => navigation.navigate('Friends'),
+    },
+    {
+      key: 'school_verification',
+      label: '학교 인증',
+      icon: user.school_email_verified || user.schoolEmailVerified ? 'school' : 'school-outline',
+      onPress: () => navigation.navigate('SchoolEmailVerification'),
+    },
+    {
+      key: 'developer_feedback',
       label: '개발자에게 한마디',
       icon: 'chatbubble-ellipses-outline',
       onPress: () => navigation.navigate('DeveloperFeedback'),
     },
     ...(user.is_admin ? [{
+      key: 'admin',
       label: '운영 관리',
       icon: 'shield-checkmark-outline',
       onPress: () => navigation.navigate('AdminScreen'),
     }] : []),
-  ];
+  ] as MenuItem[];
+
+  const orderedMenuItems = [...menuItems].sort((first, second) => {
+    const firstOrder = menuOrder.indexOf(first.key);
+    const secondOrder = menuOrder.indexOf(second.key);
+    if (firstOrder < 0 && secondOrder < 0) return 0;
+    if (firstOrder < 0) return 1;
+    if (secondOrder < 0) return -1;
+    return firstOrder - secondOrder;
+  });
+
+  const moveMenu = (key: string, targetIndex: number) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setEditingMenus((current) => {
+      if (!current) return current;
+      const fromIndex = current.findIndex((item) => item.key === key);
+      if (fromIndex < 0 || fromIndex === targetIndex) return current;
+      const next = [...current];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+  };
+
+  const saveMenuOrder = async () => {
+    if (!editingMenus || !user.id || savingMenuOrder) return;
+    setSavingMenuOrder(true);
+    try {
+      const order = editingMenus.map((item) => item.key);
+      const response = await fetch(`${API_BASE_URL}/api/menu-preferences`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-user-id': String(user.id) },
+        body: JSON.stringify({ order }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || '메뉴 순서를 저장하지 못했습니다');
+      setMenuOrder(order);
+      setEditingMenus(null);
+    } catch (error) {
+      Alert.alert('저장 실패', error instanceof Error ? error.message : '메뉴 순서를 저장하지 못했습니다');
+    } finally {
+      setSavingMenuOrder(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -251,11 +395,33 @@ export default function MyPageScreen() {
             </TouchableOpacity>
           </View>
           <Text style={styles.userEmail}>{user.email}</Text>
+          <TouchableOpacity style={styles.schoolStatus} onPress={() => navigation.navigate('SchoolEmailVerification')}>
+            <Icon
+              name={user.school_email_verified || user.schoolEmailVerified ? 'checkmark-circle' : 'school-outline'}
+              size={14}
+              color={user.school_email_verified || user.schoolEmailVerified ? '#12B76A' : colors.textSub}
+            />
+            <Text style={[
+              styles.schoolStatusText,
+              (user.school_email_verified || user.schoolEmailVerified) && styles.schoolStatusVerified,
+            ]}>
+              {user.school_email_verified || user.schoolEmailVerified
+                ? `${user.school_name || '학교'} 인증됨`
+                : '학교 이메일 추가'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
+        <View style={styles.menuHeading}>
+          <Text style={styles.menuHeadingTitle}>내 메뉴</Text>
+          <TouchableOpacity style={styles.menuEditButton} onPress={() => setEditingMenus(orderedMenuItems)}>
+            <Icon name="options-outline" size={15} color={colors.primary} />
+            <Text style={styles.menuEditText}>편집</Text>
+          </TouchableOpacity>
+        </View>
         <View style={styles.menuGrid}>
-          {menuItems.map((item) => (
-            <TouchableOpacity key={item.label} style={styles.menuCard} onPress={item.onPress} activeOpacity={0.72}>
+          {orderedMenuItems.map((item) => (
+            <TouchableOpacity key={item.key} style={styles.menuCard} onPress={item.onPress} activeOpacity={0.72}>
               <View style={styles.menuIconContainer}>
                 <Icon name={item.icon || 'ellipse-outline'} size={28} color={colors.primary} />
               </View>
@@ -270,6 +436,27 @@ export default function MyPageScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+      <Modal visible={Boolean(editingMenus)} transparent animationType="slide" onRequestClose={() => setEditingMenus(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.menuEditor}>
+            <View style={styles.editorHeader}>
+              <View>
+                <Text style={styles.editorTitle}>메뉴 순서 편집</Text>
+                <Text style={styles.editorDescription}>오른쪽 버튼을 누른 채 위아래로 이동하세요.</Text>
+              </View>
+              <Pressable onPress={() => setEditingMenus(null)}><Icon name="close" size={24} color={colors.textMain} /></Pressable>
+            </View>
+            <ScrollView style={styles.editorList}>
+              {(editingMenus || []).map((item, index) => (
+                <DraggableMenuRow key={item.key} item={item} index={index} total={editingMenus?.length || 0} onDrop={moveMenu} />
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.editorSave} disabled={savingMenuOrder} onPress={saveMenuOrder}>
+              <Text style={styles.editorSaveText}>{savingMenuOrder ? '저장 중...' : '순서 저장'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -293,8 +480,15 @@ const styles = StyleSheet.create({
   nameContainer: { flexDirection: 'row', alignItems: 'center' },
   userName: { color: colors.textMain, fontSize: 21, fontWeight: '800' },
   userEmail: { marginTop: 5, color: colors.textSub, fontSize: 13 },
+  schoolStatus: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, backgroundColor: '#F2F4F7' },
+  schoolStatusText: { color: colors.textSub, fontSize: 10, fontWeight: '800' },
+  schoolStatusVerified: { color: '#067647' },
   imageEditButton: { padding: 6 },
   pencilIcon: { width: 17, height: 17, resizeMode: 'contain' },
+  menuHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, marginBottom: 18 },
+  menuHeadingTitle: { color: colors.textMain, fontSize: 17, fontWeight: '900' },
+  menuEditButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, backgroundColor: colors.primarySurface },
+  menuEditText: { color: colors.primary, fontSize: 11, fontWeight: '900' },
   menuGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -326,4 +520,18 @@ const styles = StyleSheet.create({
   logoutButtonWrapper: { alignItems: 'flex-end', paddingHorizontal: 24, paddingTop: 14 },
   logoutButton: { paddingVertical: 10, paddingHorizontal: 4 },
   logoutText: { color: '#98A2B3', fontSize: 12, fontWeight: '600', textDecorationLine: 'underline' },
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(16,24,40,0.45)' },
+  menuEditor: { maxHeight: '82%', padding: 21, paddingBottom: 32, borderTopLeftRadius: 27, borderTopRightRadius: 27, backgroundColor: '#FFFFFF' },
+  editorHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 15 },
+  editorTitle: { color: colors.textMain, fontSize: 19, fontWeight: '900' },
+  editorDescription: { marginTop: 5, color: colors.textSub, fontSize: 11 },
+  editorList: { maxHeight: 490 },
+  editRow: { height: MENU_ROW_HEIGHT - 6, flexDirection: 'row', alignItems: 'center', marginBottom: 6, paddingHorizontal: 11, borderWidth: 1, borderColor: '#EAECF0', borderRadius: 14, backgroundColor: '#FFFFFF' },
+  editRowDragging: { zIndex: 20, borderColor: colors.primaryLight, shadowColor: colors.primaryDark, shadowOpacity: 0.2, shadowOffset: { width: 0, height: 7 }, shadowRadius: 11, elevation: 8 },
+  editIcon: { width: 35, height: 35, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySurface },
+  editLabel: { flex: 1, marginLeft: 11, color: colors.textMain, fontSize: 13, fontWeight: '800' },
+  dragHandle: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F2F4F7' },
+  dragHandleActive: { backgroundColor: colors.primary },
+  editorSave: { height: 50, marginTop: 13, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: colors.primary },
+  editorSaveText: { color: '#FFFFFF', fontSize: 14, fontWeight: '900' },
 });

@@ -25,15 +25,18 @@ test('학교 이메일과 일반 이메일의 계정 유형을 구분한다', ()
 test('본교 모집은 인증된 같은 학교 사용자만 접근한다', () => {
   const recruitment = { recruitment_scope: 'SCHOOL', school_domain: 'school.ac.kr' };
   assert.equal(canAccessRecruitment({
-    email_verified: true,
-    account_type: 'STUDENT',
+    school_email_verified: true,
     school_domain: 'school.ac.kr',
   }, recruitment), true);
   assert.equal(canAccessRecruitment({
-    email_verified: true,
-    account_type: 'STUDENT',
+    school_email_verified: true,
     school_domain: 'other.ac.kr',
   }, recruitment), false);
-  assert.equal(canAccessRecruitment({ account_type: 'GENERAL' }, recruitment), false);
+  assert.equal(canAccessRecruitment({ school_email_verified: false }, recruitment), false);
+  assert.equal(canAccessRecruitment({
+    account_type: 'GENERAL',
+    school_email_verified: true,
+    school_domain: 'school.ac.kr',
+  }, recruitment), true);
   assert.equal(canAccessRecruitment({}, { recruitment_scope: 'NATIONWIDE' }), true);
 });

@@ -30,6 +30,10 @@ import ApplicationDetailScreen from './src/screens/ApplicationDetailScreen';
 import ApplicationTemplatesScreen from './src/screens/ApplicationTemplatesScreen';
 import AwardsScreen from './src/screens/AwardsScreen';
 import DeveloperFeedbackScreen from './src/screens/DeveloperFeedbackScreen';
+import SchoolEmailVerificationScreen from './src/screens/SchoolEmailVerificationScreen';
+import FriendsScreen from './src/screens/FriendsScreen';
+import FriendAddScreen from './src/screens/FriendAddScreen';
+import MessageThreadScreen from './src/screens/MessageThreadScreen';
 
 // MyPage 관련 스크린 import 추가
 import MyPage2 from './src/screens/mypage2';
@@ -153,6 +157,26 @@ export default function App() {
             name="DeveloperFeedback"
             component={DeveloperFeedbackScreen}
             options={{ title: '개발자에게 한마디', headerBackTitle: '', headerTitleAlign: 'center' }}
+          />
+          <Stack.Screen
+            name="SchoolEmailVerification"
+            component={SchoolEmailVerificationScreen}
+            options={{ title: '학교 인증', headerBackTitle: '', headerTitleAlign: 'center' }}
+          />
+          <Stack.Screen
+            name="Friends"
+            component={FriendsScreen}
+            options={{ title: '친구', headerBackTitle: '', headerTitleAlign: 'center' }}
+          />
+          <Stack.Screen
+            name="FriendAdd"
+            component={FriendAddScreen}
+            options={{ title: '친구 추가', headerBackTitle: '', headerTitleAlign: 'center' }}
+          />
+          <Stack.Screen
+            name="MessageThread"
+            component={MessageThreadScreen}
+            options={({ route }) => ({ title: route.params.friendName, headerBackTitle: '', headerTitleAlign: 'center' })}
           />
           <Stack.Screen
             name="ApplicationDetail"

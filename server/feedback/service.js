@@ -12,6 +12,15 @@ const ensureDeveloperFeedbackSchema = async (db) => {
     INDEX idx_developer_feedback_user (user_id, created_at),
     INDEX idx_developer_feedback_status (status, created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  await db.query(`CREATE TABLE IF NOT EXISTS developer_feedback_replies (
+    reply_id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    feedback_id BIGINT NOT NULL,
+    admin_user_id INT NOT NULL,
+    content TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_feedback_replies_feedback (feedback_id, created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 };
 
 const normalizeFeedback = ({ category, content, platform }) => ({

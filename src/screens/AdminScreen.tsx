@@ -41,6 +41,19 @@ type Overview = {
   crawlerRunning: boolean;
 };
 
+type DeveloperFeedback = {
+  feedback_id: number;
+  user_id: number;
+  user_name: string;
+  user_email: string;
+  category: string;
+  content: string;
+  status: string;
+  platform?: string | null;
+  reply_count: number;
+  created_at: string;
+};
+
 const filters = [
   ['all', '전체'],
   ['missing_image', '이미지 누락'],
@@ -58,6 +71,16 @@ export default function AdminScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<Activity | null>(null);
+  const [section, setSection] = useState<'activities' | 'feedback'>('activities');
+  const [feedbacks, setFeedbacks] = useState<DeveloperFeedback[]>([]);
+  const [selectedFeedback, setSelectedFeedback] = useState<DeveloperFeedback | null>(null);
+  const [reply, setReply] = useState('');
+  const [replying, setReplying] = useState(false);
+
+  const closeReplyModal = () => {
+    setReply('');
+    setSelectedFeedback(null);
+  };
 
   const request = useCallback(async (path: string, init?: RequestInit) => {
     const response = await fetch(`${API_BASE_URL}${path}`, init);
@@ -72,12 +95,14 @@ export default function AdminScreen() {
     setError('');
     try {
       const query = new URLSearchParams({ quality, search: search.trim() }).toString();
-      const [overviewData, activityData] = await Promise.all([
+      const [overviewData, activityData, feedbackData] = await Promise.all([
         request('/api/admin/overview'),
         request(`/api/admin/activities?${query}`),
+        request('/api/admin/developer-feedback'),
       ]);
       setOverview(overviewData);
       setActivities(activityData);
+      setFeedbacks(Array.isArray(feedbackData) ? feedbackData : []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : '운영 정보를 불러오지 못했습니다');
     } finally {
@@ -115,6 +140,25 @@ export default function AdminScreen() {
     }
   };
 
+  const sendReply = async () => {
+    if (!selectedFeedback || !reply.trim() || replying) return;
+    setReplying(true);
+    try {
+      await request(`/api/admin/developer-feedback/${selectedFeedback.feedback_id}/replies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: reply }),
+      });
+      closeReplyModal();
+      await load(true);
+      Alert.alert('전송 완료', '사용자의 공지 알림으로 답장을 보냈습니다.');
+    } catch (replyError) {
+      Alert.alert('전송 실패', replyError instanceof Error ? replyError.message : '답장을 보내지 못했습니다');
+    } finally {
+      setReplying(false);
+    }
+  };
+
   if (!user?.is_admin) {
     return <ScreenState kind="error" title="운영자 권한이 필요합니다" description="관리자로 지정된 계정만 이 화면을 사용할 수 있습니다." />;
   }
@@ -146,6 +190,41 @@ export default function AdminScreen() {
           </Pressable>
         </View>
 
+        <View style={styles.sectionTabs}>
+          <Pressable style={[styles.sectionTab, section === 'activities' && styles.sectionTabActive]} onPress={() => setSection('activities')}>
+            <Text style={[styles.sectionTabText, section === 'activities' && styles.sectionTabTextActive]}>활동 운영</Text>
+          </Pressable>
+          <Pressable style={[styles.sectionTab, section === 'feedback' && styles.sectionTabActive]} onPress={() => setSection('feedback')}>
+            <Text style={[styles.sectionTabText, section === 'feedback' && styles.sectionTabTextActive]}>사용자 의견</Text>
+            {feedbacks.filter((item) => !Number(item.reply_count)).length ? (
+              <View style={styles.feedbackCount}><Text style={styles.feedbackCountText}>{feedbacks.filter((item) => !Number(item.reply_count)).length}</Text></View>
+            ) : null}
+          </Pressable>
+        </View>
+
+        {section === 'feedback' ? (
+          <View>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>개발자에게 한마디</Text>
+              <Text style={styles.sectionCount}>{feedbacks.length}건</Text>
+            </View>
+            {feedbacks.map((feedback) => (
+              <Pressable key={feedback.feedback_id} style={styles.feedbackCard} onPress={() => setSelectedFeedback(feedback)}>
+                <View style={styles.feedbackTop}>
+                  <Text style={styles.feedbackAuthor}>{feedback.user_name} · {feedback.user_email}</Text>
+                  <Text style={[styles.feedbackStatus, Number(feedback.reply_count) > 0 && styles.feedbackStatusDone]}>
+                    {Number(feedback.reply_count) > 0 ? '답장 완료' : '답장 필요'}
+                  </Text>
+                </View>
+                <Text style={styles.feedbackContent} numberOfLines={3}>{feedback.content}</Text>
+                <Text style={styles.feedbackMeta}>{feedback.category} · {feedback.platform || 'unknown'} · {String(feedback.created_at).slice(0, 10)}</Text>
+              </Pressable>
+            ))}
+            {!feedbacks.length ? <ScreenState kind="empty" title="전달된 사용자 의견이 없습니다" /> : null}
+          </View>
+        ) : null}
+
+        <View style={section !== 'activities' ? styles.hidden : undefined}>
         <View style={styles.countGrid}>
           {countCards.map(([label, value, icon]) => (
             <View key={String(label)} style={styles.countCard}>
@@ -231,6 +310,7 @@ export default function AdminScreen() {
           </View>
         ))}
         {!overview?.crawlerErrors?.length ? <Text style={styles.noErrors}>최근 수집 오류가 없습니다.</Text> : null}
+        </View>
       </ScrollView>
 
       <EditActivityModal
@@ -241,6 +321,31 @@ export default function AdminScreen() {
           setEditing(null);
         }}
       />
+      <Modal visible={Boolean(selectedFeedback)} transparent animationType="slide" onRequestClose={closeReplyModal}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>사용자 의견 답장</Text>
+              <Pressable onPress={closeReplyModal}><Icon name="close" size={24} color="#344054" /></Pressable>
+            </View>
+            <Text style={styles.replyAuthor}>{selectedFeedback?.user_name} · {selectedFeedback?.user_email}</Text>
+            <Text style={styles.replyOriginal}>{selectedFeedback?.content}</Text>
+            <TextInput
+              value={reply}
+              onChangeText={(value) => setReply(value.slice(0, 2000))}
+              placeholder="확인 내용과 답변을 입력하세요"
+              placeholderTextColor="#98A2B3"
+              multiline
+              textAlignVertical="top"
+              style={styles.replyInput}
+            />
+            <Text style={styles.replyCount}>{reply.length}/2000</Text>
+            <Pressable disabled={!reply.trim() || replying} onPress={sendReply} style={[styles.modalSave, (!reply.trim() || replying) && styles.replyDisabled]}>
+              <Text style={styles.modalSaveText}>{replying ? '전송 중...' : '공지 알림으로 답장'}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -313,6 +418,14 @@ const styles = StyleSheet.create({
   heroSubtitle: { marginTop: 7, color: '#D9D1FF', fontSize: 12 },
   crawlerButton: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 18, paddingHorizontal: 13, paddingVertical: 9, borderRadius: 11, backgroundColor: colors.primary },
   crawlerButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
+  sectionTabs: { flexDirection: 'row', marginTop: 16, padding: 4, borderRadius: 14, backgroundColor: '#EAECF0' },
+  sectionTab: { flex: 1, minHeight: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 11 },
+  sectionTabActive: { backgroundColor: '#FFFFFF' },
+  sectionTabText: { color: '#667085', fontSize: 13, fontWeight: '800' },
+  sectionTabTextActive: { color: colors.primary, fontWeight: '900' },
+  feedbackCount: { minWidth: 18, height: 18, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center', borderRadius: 9, backgroundColor: colors.primary },
+  feedbackCountText: { color: '#FFFFFF', fontSize: 9, fontWeight: '900' },
+  hidden: { display: 'none' },
   countGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginVertical: 18 },
   countCard: { width: '48.5%', padding: 16, borderWidth: 1, borderColor: '#E4E7EC', borderRadius: 18, backgroundColor: '#FFFFFF' },
   countValue: { marginTop: 12, color: '#101828', fontSize: 22, fontWeight: '900' },
@@ -348,6 +461,13 @@ const styles = StyleSheet.create({
   errorTitle: { color: '#344054', fontSize: 11, fontWeight: '900' },
   errorMessage: { marginTop: 5, color: '#667085', fontSize: 10, lineHeight: 15 },
   noErrors: { color: '#667085', fontSize: 12 },
+  feedbackCard: { marginBottom: 9, padding: 15, borderWidth: 1, borderColor: '#E4E7EC', borderRadius: 16, backgroundColor: '#FFFFFF' },
+  feedbackTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  feedbackAuthor: { flex: 1, color: '#344054', fontSize: 11, fontWeight: '800' },
+  feedbackStatus: { paddingHorizontal: 7, paddingVertical: 4, borderRadius: 8, overflow: 'hidden', color: '#B54708', backgroundColor: '#FFFAEB', fontSize: 9, fontWeight: '900' },
+  feedbackStatusDone: { color: '#067647', backgroundColor: '#ECFDF3' },
+  feedbackContent: { marginTop: 10, color: '#101828', fontSize: 13, lineHeight: 19 },
+  feedbackMeta: { marginTop: 9, color: '#98A2B3', fontSize: 10 },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(16,24,40,0.45)' },
   modalCard: { padding: 22, paddingBottom: 34, borderTopLeftRadius: 26, borderTopRightRadius: 26, backgroundColor: '#FFFFFF' },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
@@ -357,4 +477,9 @@ const styles = StyleSheet.create({
   modalInput: { height: 46, paddingHorizontal: 13, borderWidth: 1, borderColor: '#D0D5DD', borderRadius: 12, color: '#101828' },
   modalSave: { height: 50, marginTop: 7, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: colors.primary },
   modalSaveText: { color: '#FFFFFF', fontSize: 14, fontWeight: '900' },
+  replyAuthor: { color: colors.primary, fontSize: 11, fontWeight: '900' },
+  replyOriginal: { marginTop: 10, padding: 13, borderRadius: 12, color: '#344054', fontSize: 12, lineHeight: 18, backgroundColor: '#F2F4F7' },
+  replyInput: { height: 150, marginTop: 14, padding: 14, borderWidth: 1, borderColor: '#D0D5DD', borderRadius: 13, color: '#101828', fontSize: 13, lineHeight: 19 },
+  replyCount: { marginTop: 5, textAlign: 'right', color: '#98A2B3', fontSize: 9 },
+  replyDisabled: { opacity: 0.45 },
 });
