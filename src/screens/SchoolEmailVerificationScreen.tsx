@@ -8,7 +8,7 @@ const API_BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http:
 
 export default function SchoolEmailVerificationScreen() {
   const { user, setUser } = useAuth();
-  const [email, setEmail] = useState(user?.school_email || '');
+  const [email, setEmail] = useState(user?.school_email || user?.schoolEmail || '');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -28,7 +28,7 @@ export default function SchoolEmailVerificationScreen() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || '인증 코드를 보내지 못했습니다');
       setCodeSent(true);
-      if (data.development_code) setCode(String(data.development_code));
+      if (__DEV__ && data.development_code) setCode(String(data.development_code));
       setMessage(data.message);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '인증 코드를 보내지 못했습니다');

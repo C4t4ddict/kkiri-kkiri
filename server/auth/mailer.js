@@ -2,6 +2,8 @@ const nodemailer = require('nodemailer');
 
 let transporter;
 
+const isDevelopmentEnvironment = () => process.env.NODE_ENV === 'development';
+
 const getTransporter = () => {
   if (transporter) return transporter;
   if (!process.env.SMTP_HOST || !process.env.SMTP_FROM) return null;
@@ -26,12 +28,11 @@ const sendVerificationCode = async ({ email, code, purpose }) => {
   const subject = getVerificationSubject(purpose);
   const mailer = getTransporter();
   if (!mailer) {
-    if (process.env.NODE_ENV === 'production') {
+    if (!isDevelopmentEnvironment()) {
       const error = new Error('이메일 발송 설정이 완료되지 않았습니다');
       error.code = 'EMAIL_NOT_CONFIGURED';
       throw error;
     }
-    console.info(`[email-verification] ${purpose} ${email}: ${code}`);
     return { deliveryMode: 'development', developmentCode: code };
   }
 

@@ -7,9 +7,13 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const email = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 const password = String(process.env.ADMIN_PASSWORD || '');
+const adminEmails = String(process.env.ADMIN_EMAILS || '')
+  .split(',')
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
 
-if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8) {
-  console.error('ADMIN_EMAIL과 8자 이상의 ADMIN_PASSWORD가 필요합니다.');
+if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8 || !adminEmails.includes(email)) {
+  console.error('ADMIN_EMAIL, ADMIN_PASSWORD와 ADMIN_EMAILS의 동일한 운영자 이메일이 필요합니다.');
   process.exit(1);
 }
 
@@ -34,7 +38,7 @@ const run = async () => {
     );
     const [[admin]] = await connection.query('SELECT id FROM users WHERE email = ? LIMIT 1', [email]);
     await ensureUserFriendCode(connection, admin.id);
-    console.log(`운영자 계정 준비 완료: ${email}`);
+    console.log('운영자 계정 준비 완료');
   } finally {
     await connection.end();
   }

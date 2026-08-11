@@ -77,6 +77,11 @@ export default function AdminScreen() {
   const [reply, setReply] = useState('');
   const [replying, setReplying] = useState(false);
 
+  const closeReplyModal = () => {
+    setReply('');
+    setSelectedFeedback(null);
+  };
+
   const request = useCallback(async (path: string, init?: RequestInit) => {
     const response = await fetch(`${API_BASE_URL}${path}`, init);
     const data = await response.json();
@@ -144,8 +149,7 @@ export default function AdminScreen() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: reply }),
       });
-      setReply('');
-      setSelectedFeedback(null);
+      closeReplyModal();
       await load(true);
       Alert.alert('전송 완료', '사용자의 공지 알림으로 답장을 보냈습니다.');
     } catch (replyError) {
@@ -317,12 +321,12 @@ export default function AdminScreen() {
           setEditing(null);
         }}
       />
-      <Modal visible={Boolean(selectedFeedback)} transparent animationType="slide" onRequestClose={() => setSelectedFeedback(null)}>
+      <Modal visible={Boolean(selectedFeedback)} transparent animationType="slide" onRequestClose={closeReplyModal}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>사용자 의견 답장</Text>
-              <Pressable onPress={() => setSelectedFeedback(null)}><Icon name="close" size={24} color="#344054" /></Pressable>
+              <Pressable onPress={closeReplyModal}><Icon name="close" size={24} color="#344054" /></Pressable>
             </View>
             <Text style={styles.replyAuthor}>{selectedFeedback?.user_name} · {selectedFeedback?.user_email}</Text>
             <Text style={styles.replyOriginal}>{selectedFeedback?.content}</Text>

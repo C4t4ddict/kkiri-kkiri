@@ -248,7 +248,7 @@ const normalizeTodo = (todo, fallbackScope, fallbackStart, fallbackEnd) => ({
   scope_end_date: fallbackEnd || formatDateOnly(todo.scope_end_date),
 });
 
-const getConfiguredAdminEmails = () => String(process.env.ADMIN_EMAILS || 'useradmin@admin.com')
+const getConfiguredAdminEmails = () => String(process.env.ADMIN_EMAILS || '')
   .split(',')
   .map((email) => email.trim().toLowerCase())
   .filter(Boolean);
@@ -809,7 +809,9 @@ app.post('/auth/email-verification/request', async (req, res) => {
       message: '인증 코드를 전송했습니다',
       account_type: identity.accountType,
       school_domain: identity.schoolDomain,
-      ...(result.developmentCode ? { development_code: result.developmentCode } : {}),
+      ...(process.env.NODE_ENV === 'development' && result.developmentCode
+        ? { development_code: result.developmentCode }
+        : {}),
     });
   } catch (error) {
     handleAuthError(res, error, '인증 코드를 전송하지 못했습니다');
@@ -864,7 +866,9 @@ app.post('/auth/school-email/request', async (req, res) => {
       success: true,
       message: '학교 이메일로 인증 코드를 전송했습니다',
       school_name: school.school_name,
-      ...(result.developmentCode ? { development_code: result.developmentCode } : {}),
+      ...(process.env.NODE_ENV === 'development' && result.developmentCode
+        ? { development_code: result.developmentCode }
+        : {}),
     });
   } catch (error) {
     return handleAuthError(res, error, '학교 인증 코드를 전송하지 못했습니다');
@@ -910,6 +914,9 @@ app.post('/auth/school-email/verify', async (req, res) => {
     );
     return res.json({ success: true, message: '학교 인증이 완료되었습니다', user: toClientUser(rows[0]) });
   } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ message: '이미 다른 계정에서 사용 중인 학교 이메일입니다' });
+    }
     return handleAuthError(res, error, '학교 이메일 인증을 완료하지 못했습니다');
   }
 });
@@ -933,7 +940,9 @@ app.post('/auth/password-reset/request', async (req, res) => {
     }
     res.json({
       ...genericResponse,
-      ...(result.developmentCode ? { development_code: result.developmentCode } : {}),
+      ...(process.env.NODE_ENV === 'development' && result.developmentCode
+        ? { development_code: result.developmentCode }
+        : {}),
     });
   } catch (error) {
     handleAuthError(res, error, '비밀번호 재설정 메일을 전송하지 못했습니다');
@@ -1498,6 +1507,10 @@ app.post('/api/friends/requests', async (req, res) => {
     if (existing?.status === 'PENDING') {
       await connection.rollback();
       return res.status(409).json({ message: '이미 처리 중인 친구 요청이 있습니다' });
+    }
+    if (existing?.status === 'REJECTED') {
+      await connection.rollback();
+      return res.status(409).json({ message: '이전에 거절된 친구 요청입니다' });
     }
     let friendshipId;
     if (existing) {

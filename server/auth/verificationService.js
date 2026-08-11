@@ -117,6 +117,29 @@ const ensureAuthVerificationSchema = async (db) => {
         school_verified_at = CASE WHEN email_verified = 1 THEN COALESCE(school_verified_at, NOW()) ELSE school_verified_at END
     WHERE LOWER(SUBSTRING_INDEX(email, '@', -1)) REGEXP '(^|\\.)ac\\.kr$'
       AND (school_email IS NULL OR school_email = '')`);
+
+  const [schoolEmailIndexes] = await db.query(
+    "SHOW INDEX FROM users WHERE Key_name = 'uq_users_school_email'",
+  );
+  if (!schoolEmailIndexes.length) {
+    const [duplicates] = await db.query(
+      `SELECT LOWER(school_email) AS school_email
+       FROM users
+       WHERE school_email IS NOT NULL AND school_email <> ''
+       GROUP BY LOWER(school_email)
+       HAVING COUNT(*) > 1
+       LIMIT 1`,
+    );
+    if (duplicates.length) {
+      const error = new Error('학교 이메일 중복 데이터를 정리해야 합니다');
+      error.code = 'SCHOOL_EMAIL_DUPLICATE_DATA';
+      throw error;
+    }
+    await queryWithLockRetry(
+      db,
+      'ALTER TABLE users ADD UNIQUE INDEX uq_users_school_email (school_email)',
+    );
+  }
 };
 
 const getRegisteredSchool = async (db, email) => {
