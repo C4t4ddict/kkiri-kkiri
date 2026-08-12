@@ -46,8 +46,10 @@ const { startCrawlerScheduler } = require('./crawler/scheduler');
 const {
   canAccessRecruitment,
   getAccountIdentity,
+  hasVerifiedSchool,
   isValidEmail,
   normalizeEmail,
+  normalizeSchoolDomain,
 } = require('./auth/accountPolicy');
 const {
   consumeSignupVerification,
@@ -282,6 +284,8 @@ const toClientUser = (user) => ({
   schoolEmail: user.school_email || null,
   school_email_verified: Boolean(user.school_email_verified),
   schoolEmailVerified: Boolean(user.school_email_verified),
+  school_access_enabled: hasVerifiedSchool(user),
+  schoolAccessEnabled: hasVerifiedSchool(user),
   school_verified_at: user.school_verified_at || null,
   friend_code: user.friend_code || null,
   friendCode: user.friend_code || null,
@@ -524,6 +528,22 @@ const getMatchingUserProfile = async (database, userId) => {
     [userId],
   );
   return rows[0] || null;
+};
+
+const getIneligibleSchoolApplicantCount = async (database, recruitmentId, schoolDomain) => {
+  const [[result]] = await database.query(
+    `SELECT COUNT(*) AS ineligible_count
+     FROM applications ap
+     JOIN users applicant ON applicant.id = ap.applicant_id
+     WHERE ap.recruitment_id = ?
+       AND ap.status IN ('PENDING', 'APPROVED')
+       AND (
+         COALESCE(applicant.school_email_verified, 0) <> 1
+         OR LOWER(COALESCE(applicant.school_domain, '')) <> ?
+       )`,
+    [recruitmentId, normalizeSchoolDomain(schoolDomain)],
+  );
+  return Number(result?.ineligible_count || 0);
 };
 
 const ensureMatchingInvitationSchema = async () => {
@@ -896,6 +916,15 @@ app.post('/auth/school-email/verify', async (req, res) => {
     });
     if (!verification.verified) {
       return res.status(400).json({ message: '인증 코드가 올바르지 않거나 만료되었습니다' });
+    }
+    const [existing] = await portfolioDb.query(
+      `SELECT id FROM users
+       WHERE id <> ? AND (LOWER(email) = ? OR LOWER(school_email) = ?)
+       LIMIT 1`,
+      [userId, email, email],
+    );
+    if (existing.length) {
+      return res.status(409).json({ message: '이미 다른 계정에서 사용 중인 학교 이메일입니다' });
     }
     await portfolioDb.query(
       `UPDATE users
@@ -1868,11 +1897,12 @@ app.get('/api/activities/:id/recruitments', async (req, res) => {
   if (!Number.isInteger(activityId) || activityId <= 0) {
     return res.status(400).json({ message: '올바른 활동 ID가 필요합니다' });
   }
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
 
   try {
     await matchingSchemaReady;
     const profile = await getMatchingUserProfile(portfolioDb, userId);
-    const canSeeSchool = Boolean(profile?.school_email_verified && profile?.school_domain);
+    const canSeeSchool = hasVerifiedSchool(profile);
     const sql = `
     SELECT
       recruitment_id,
@@ -2166,7 +2196,7 @@ app.get('/api/team-recruitments', async (req, res) => {
   try {
     await matchingSchemaReady;
     const profile = await getMatchingUserProfile(portfolioDb, userId);
-    const canSeeSchool = Boolean(profile?.school_email_verified && profile?.school_domain);
+    const canSeeSchool = hasVerifiedSchool(profile);
     const requestedScope = String(req.query.scope || 'ALL').toUpperCase();
     if (!['ALL', 'SCHOOL', 'NATIONWIDE'].includes(requestedScope)) {
       return res.status(400).json({ message: '올바른 모집 범위를 선택해주세요' });
@@ -2207,7 +2237,13 @@ app.get('/api/team-recruitments', async (req, res) => {
       tr.school_domain,
       tr.memo,
       tr.status,
-      tr.created_at
+      tr.created_at,
+      (
+        SELECT COUNT(*)
+        FROM applications ap
+        WHERE ap.recruitment_id = tr.recruitment_id
+          AND ap.status IN ('PENDING', 'APPROVED')
+      ) AS application_count
     FROM team_recruitments tr
     LEFT JOIN activitys a ON a.activity_id = tr.activity_id
     WHERE tr.status = 'OPEN' AND tr.deleted_at IS NULL
@@ -2441,6 +2477,8 @@ app.put('/api/team-recruitments/:id', async (req, res) => {
         tr.owner_user_id,
         tr.status,
         tr.deleted_at,
+        tr.recruitment_scope,
+        tr.school_domain,
         a.application_period_end
        FROM team_recruitments tr
        LEFT JOIN activitys a ON a.activity_id = tr.activity_id
@@ -2459,6 +2497,23 @@ app.put('/api/team-recruitments/:id', async (req, res) => {
     }
     if (recruitments[0].application_period_end && new Date(recruitments[0].application_period_end) < new Date()) {
       return res.status(409).json({ message: '접수 마감이 지난 모집글은 수정할 수 없습니다' });
+    }
+
+    const changesSchoolAudience = recruitmentScope === 'SCHOOL' && (
+      recruitments[0].recruitment_scope !== 'SCHOOL'
+      || normalizeSchoolDomain(recruitments[0].school_domain) !== normalizeSchoolDomain(ownerProfile.school_domain)
+    );
+    if (changesSchoolAudience) {
+      const ineligibleCount = await getIneligibleSchoolApplicantCount(
+        portfolioDb,
+        recruitmentId,
+        ownerProfile.school_domain,
+      );
+      if (ineligibleCount > 0) {
+        return res.status(409).json({
+          message: `다른 학교 또는 미인증 지원 ${ineligibleCount}건을 먼저 처리한 뒤 본교 모집으로 변경해주세요`,
+        });
+      }
     }
 
     const [activities] = await portfolioDb.query(
@@ -2724,6 +2779,8 @@ app.post('/api/team-recruitments/:recruitmentId/applications/:applicationId/invi
         tr.activity_name,
         tr.activity_end_date,
         tr.required_members,
+        tr.recruitment_scope,
+        tr.school_domain,
         tr.status AS recruitment_status,
         tr.deleted_at,
         offer.offer_id,
@@ -2757,6 +2814,14 @@ app.post('/api/team-recruitments/:recruitmentId/applications/:applicationId/invi
       await connection.rollback();
       return res.status(409).json({
         message: application.offer_status === 'PENDING' ? '이미 합류 제안을 보냈습니다' : '처리된 합류 제안입니다',
+      });
+    }
+
+    const applicantProfile = await getMatchingUserProfile(connection, application.applicant_id);
+    if (!canAccessRecruitment(applicantProfile, application)) {
+      await connection.rollback();
+      return res.status(409).json({
+        message: '지원자의 학교 인증 상태가 현재 모집 범위와 일치하지 않아 합류 제안을 보낼 수 없습니다',
       });
     }
 
@@ -2999,6 +3064,8 @@ app.put('/api/team-join-offers/:id/respond', async (req, res) => {
         offer.status AS offer_status,
         ap.status AS application_status,
         tr.status AS recruitment_status,
+        tr.recruitment_scope,
+        tr.school_domain,
         tr.deleted_at
        FROM team_join_offers offer
        JOIN applications ap ON ap.application_id = offer.application_id
@@ -3024,6 +3091,16 @@ app.put('/api/team-join-offers/:id/respond', async (req, res) => {
     if (offer.recruitment_status !== 'OPEN') {
       await connection.rollback();
       return res.status(409).json({ message: '마감된 모집글에는 합류할 수 없습니다' });
+    }
+
+    if (decision === 'ACCEPTED') {
+      const inviteeProfile = await getMatchingUserProfile(connection, userId);
+      if (!canAccessRecruitment(inviteeProfile, offer)) {
+        await connection.rollback();
+        return res.status(403).json({
+          message: '현재 학교 인증 상태로는 이 팀에 합류할 수 없습니다',
+        });
+      }
     }
 
     if (decision === 'ACCEPTED') {
@@ -3062,7 +3139,7 @@ app.put('/api/team-join-offers/:id/respond', async (req, res) => {
   }
 });
 
-app.get('/api/applications', (req, res) => {
+app.get('/api/applications', requireAdmin, (req, res) => {
   if (!db || db.state === 'disconnected') {
     return res.json([]);
   }

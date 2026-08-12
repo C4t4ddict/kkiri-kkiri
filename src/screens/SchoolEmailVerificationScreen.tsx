@@ -3,6 +3,7 @@ import { Platform, SafeAreaView, StyleSheet, Text, TextInput, TouchableOpacity, 
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../context/AuthContext';
 import colors from '../config/colors';
+import { hasSchoolAccess } from '../utils/accountPolicy';
 
 const API_BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 
@@ -13,7 +14,7 @@ export default function SchoolEmailVerificationScreen() {
   const [codeSent, setCodeSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
-  const verified = Boolean(user?.school_email_verified || user?.schoolEmailVerified);
+  const verified = hasSchoolAccess(user);
 
   const requestCode = async () => {
     if (!user?.id || busy) return;
