@@ -2,7 +2,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { generateCode, hashSecret } = require('../../auth/verificationService');
 const { getVerificationSubject, resetMailerForTests, sendVerificationCode } = require('../../auth/mailer');
-const { normalizeFeedback } = require('../../feedback/service');
+const {
+  attachReplies,
+  createReplyNotificationPreview,
+  normalizeFeedback,
+  normalizeFeedbackReply,
+} = require('../../feedback/service');
 
 test('이메일 인증 코드는 항상 6자리 숫자로 생성된다', () => {
   for (let index = 0; index < 20; index += 1) {
@@ -61,4 +66,22 @@ test('개발자 피드백 입력을 허용된 범위로 정규화한다', () => 
     platform: 'ios',
   });
   assert.equal(normalizeFeedback({ category: 'unknown' }).category, 'OTHER');
+});
+
+test('개발자 답장을 공백과 유니코드 경계에 맞춰 정규화한다', () => {
+  assert.equal(normalizeFeedbackReply('  확인했습니다.  '), '확인했습니다.');
+  assert.equal(Array.from(normalizeFeedbackReply('😀'.repeat(2001))).length, 2000);
+  assert.equal(Array.from(createReplyNotificationPreview('😀'.repeat(300))).length, 255);
+});
+
+test('사용자 피드백에 해당 답장만 시간 순서대로 연결한다', () => {
+  const feedbacks = [{ feedback_id: 1 }, { feedback_id: 2 }];
+  const replies = [
+    { reply_id: 10, feedback_id: 1, content: '첫 답장' },
+    { reply_id: 11, feedback_id: 1, content: '추가 답장' },
+  ];
+  assert.deepEqual(attachReplies(feedbacks, replies), [
+    { feedback_id: 1, replies },
+    { feedback_id: 2, replies: [] },
+  ]);
 });
