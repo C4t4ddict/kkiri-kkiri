@@ -1110,7 +1110,7 @@ const registerUser = async (req, res) => {
       return res.status(400).json({ success: false, message: '등록되지 않은 학교 이메일 도메인입니다' });
     }
 
-    await portfolioDb.query(
+    const [registrationResult] = await portfolioDb.query(
       `INSERT INTO users
         (email, email_verified, account_type, school_domain, school_name, password, name, department, student_number, birth)
        VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1127,7 +1127,11 @@ const registerUser = async (req, res) => {
       ],
     );
     await consumeSignupVerification(portfolioDb, verificationId);
-    return res.status(201).json({ success: true, message: '회원가입 성공' });
+    return res.status(201).json({
+      success: true,
+      message: '회원가입 성공',
+      user_id: registrationResult.insertId,
+    });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ success: false, message: '이미 존재하는 이메일입니다' });

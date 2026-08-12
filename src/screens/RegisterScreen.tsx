@@ -5,6 +5,8 @@ import colors from '../config/colors';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App.tsx'; // 실제 경로로 수정
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getTutorialPendingStorageKey } from '../onboarding/tutorial';
 
 type RegisterScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Register'>;
 
@@ -112,6 +114,12 @@ export default function RegisterScreen() {
       const result = await response.json();
 
       if (response.ok) {
+        if (result.user_id) {
+          await AsyncStorage.setItem(
+            getTutorialPendingStorageKey(result.user_id),
+            'pending',
+          ).catch(() => undefined);
+        }
         Alert.alert(
         '회원가입 성공',
         '이제 로그인할 수 있습니다.',
@@ -133,7 +141,7 @@ export default function RegisterScreen() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
+    <SafeAreaView style={styles.safeArea}>
         <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.logo}>끼리끼리</Text>
 
@@ -200,6 +208,7 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: 'white' },
   container: { padding: 24 },
   logo: {
     fontSize: 28,
