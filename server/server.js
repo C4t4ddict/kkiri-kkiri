@@ -21,6 +21,7 @@ const { createSecureImageUpload } = require('./lib/secureImageUpload');
 const { createTtlCache } = require('./lib/ttlCache');
 const { extractPrizeDetails, extractPrizeSummary } = require('./lib/activityPrize');
 const { buildMonthTodoCalendar, findPeriodGoalCapacityConflict } = require('./lib/todoCalendar');
+const { buildLearningRoadmap } = require('./lib/learningRoadmap');
 const {
   ensureAwardsSchema,
   listAwards,
@@ -3188,6 +3189,56 @@ app.get('/teams/:teamId/progress', (req, res) => {
       });
     });
   });
+});
+
+app.get('/teams/:teamId/learning-roadmap', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const teamId = Number(req.params.teamId);
+
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    return res.status(400).json({ message: '활동 정보가 올바르지 않습니다' });
+  }
+
+  try {
+    const [teams] = await portfolioDb.query(
+      `SELECT t.team_id, t.team_name, t.created_at, t.due_date
+       FROM teams t
+       JOIN team_members tm ON tm.team_id = t.team_id
+       WHERE t.team_id = ?
+         AND tm.user_id = ?
+         AND t.activity_status = 'IN_PROGRESS'
+         AND t.status <> 'ARCHIVED'
+       LIMIT 1`,
+      [teamId, userId],
+    );
+
+    if (!teams.length) {
+      return res.status(404).json({ message: '진행 중인 활동을 찾을 수 없습니다' });
+    }
+
+    const [todos] = await portfolioDb.query(
+      `SELECT todo_id, title, status, scope_type, scope_start_date, scope_end_date
+       FROM todos
+       WHERE team_id = ?
+         AND assigned_user_id = ?
+       ORDER BY scope_start_date ASC, todo_id ASC
+       LIMIT 5000`,
+      [teamId, userId],
+    );
+    const team = teams[0];
+
+    res.json(buildLearningRoadmap({
+      teamId,
+      teamName: team.team_name,
+      activityStartDate: team.created_at,
+      activityEndDate: team.due_date,
+      todos,
+    }));
+  } catch (error) {
+    console.error('학습 로드맵 조회 오류:', error);
+    res.status(500).json({ message: '학습 로드맵을 불러오지 못했습니다' });
+  }
 });
 
 app.get('/teams/:teamId/daily-todos', (req, res) => {
