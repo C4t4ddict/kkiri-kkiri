@@ -132,7 +132,7 @@ export default function LearningRoadmap({ teamId, refreshKey }: Props) {
     <View style={styles.wrap}>
       <View style={styles.headingRow}>
         <View>
-          <Text style={styles.eyebrow}>STUDY PILOT LOGIC</Text>
+          <Text style={styles.eyebrow}>기존 목표 기반</Text>
           <Text style={styles.heading}>학습 로드맵</Text>
         </View>
         <View style={styles.autoBadge}>
