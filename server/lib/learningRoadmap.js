@@ -113,6 +113,15 @@ const getWeekRange = (dateKey) => {
   };
 };
 
+const getWeekOfMonthTitle = (dateKey) => {
+  if (!dateKey) return '기간 미정 목표';
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+  const mondayOffset = (firstWeekday + 6) % 7;
+  const weekOfMonth = Math.ceil((day + mondayOffset) / 7);
+  return `${month}월 ${weekOfMonth}주차`;
+};
+
 const rangesOverlap = (first, second) => (
   Boolean(first.start_date && first.end_date && second.scope_start_date && second.scope_end_date)
   && first.start_date <= second.scope_end_date
@@ -203,9 +212,7 @@ const finalizeSegments = (segments, today) => segments
   .map((segment) => {
     const todos = [...segment.todos].sort(compareTodos);
     const anchorTitles = segment.anchor_todos.map((todo) => todo.title);
-    const fallbackDate = segment.start_date
-      ? `${Number(segment.start_date.slice(5, 7))}월 ${Number(segment.start_date.slice(8, 10))}일 주차`
-      : '기간 미정 목표';
+    const fallbackDate = getWeekOfMonthTitle(segment.start_date);
     const title = anchorTitles.length > 1
       ? `${anchorTitles[0]} 외 ${anchorTitles.length - 1}개`
       : anchorTitles[0] || fallbackDate;

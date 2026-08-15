@@ -92,10 +92,40 @@ test('주간과 월간 목표가 없으면 일일 목표를 주차별로 묶는�
   });
 
   assert.equal(roadmap.segments.length, 2);
+  assert.equal(roadmap.segments[0].title, '8월 3주차');
   assert.equal(roadmap.segments[0].start_date, '2026-08-10');
   assert.equal(roadmap.segments[0].end_date, '2026-08-16');
+  assert.equal(roadmap.segments[1].title, '8월 4주차');
   assert.equal(roadmap.segments[1].start_date, '2026-08-17');
   assert.equal(roadmap.current_segment_id, 'derived:2026-08-17:2026-08-23');
+});
+
+test('사용자가 설정한 구간명과 기간을 기본 주차명보다 우선한다', () => {
+  const roadmap = buildLearningRoadmap({
+    today: '2026-08-12',
+    todos: [
+      {
+        todo_id: 15,
+        title: '핵심 기능 설계 기간',
+        status: '진행중',
+        scope_type: '주간',
+        scope_start_date: '2026-08-11',
+        scope_end_date: '2026-08-20',
+      },
+      {
+        todo_id: 16,
+        title: '화면 흐름 정리',
+        status: '미진행',
+        scope_type: '일일',
+        scope_start_date: '2026-08-13',
+        scope_end_date: '2026-08-13',
+      },
+    ],
+  });
+
+  assert.equal(roadmap.segments[0].title, '핵심 기능 설계 기간');
+  assert.equal(roadmap.segments[0].start_date, '2026-08-11');
+  assert.equal(roadmap.segments[0].end_date, '2026-08-20');
 });
 
 test('같은 기간의 주간 목표는 하나의 구간으로 합친다', () => {
