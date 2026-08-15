@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -81,13 +82,6 @@ function formatDateRange(startDate: string | null, endDate: string | null) {
   return `${compact(startDate)} - ${compact(endDate)}`;
 }
 
-function getVisibleSegments(data: LearningRoadmapData) {
-  if (data.segments.length <= 3) return data.segments;
-  const currentIndex = data.segments.findIndex((segment) => segment.id === data.current_segment_id);
-  const startIndex = Math.min(Math.max(currentIndex - 1, 0), data.segments.length - 3);
-  return data.segments.slice(startIndex, startIndex + 3);
-}
-
 export default function LearningRoadmap({ teamId, refreshKey }: Props) {
   const { user } = useAuth();
   const navigation = useNavigation<Navigation>();
@@ -123,23 +117,11 @@ export default function LearningRoadmap({ teamId, refreshKey }: Props) {
     fetchRoadmap();
   }, [fetchRoadmap, refreshKey]);
 
-  const visibleSegments = useMemo(() => data ? getVisibleSegments(data) : [], [data]);
-  const hiddenSegmentCount = data ? Math.max(data.segments.length - visibleSegments.length, 0) : 0;
-
   if (!teamId) return null;
 
   return (
     <View style={styles.wrap}>
-      <View style={styles.headingRow}>
-        <View>
-          <Text style={styles.eyebrow}>기존 목표 기반</Text>
-          <Text style={styles.heading}>학습 로드맵</Text>
-        </View>
-        <View style={styles.autoBadge}>
-          <Icon name="sparkles" size={13} color={colors.primaryDark} />
-          <Text style={styles.autoBadgeText}>자동 구성</Text>
-        </View>
-      </View>
+      <Text style={styles.heading}>학습 로드맵</Text>
 
       <View style={styles.card}>
         {loading && !data ? (
@@ -201,8 +183,15 @@ export default function LearningRoadmap({ teamId, refreshKey }: Props) {
               <View style={[styles.progressFill, { width: `${data.summary.percent}%` }]} />
             </View>
 
-            <View style={styles.timeline}>
-              {visibleSegments.map((segment, index) => {
+            <ScrollView
+              accessibilityLabel="학습 로드맵 구간 목록"
+              style={styles.timelineViewport}
+              contentContainerStyle={styles.timeline}
+              nestedScrollEnabled
+              persistentScrollbar
+              showsVerticalScrollIndicator
+            >
+              {data.segments.map((segment, index) => {
                 const isCurrent = segment.id === data.current_segment_id;
                 const palette = statusColors[segment.status];
                 return (
@@ -219,11 +208,11 @@ export default function LearningRoadmap({ teamId, refreshKey }: Props) {
                           <View style={styles.timelineDotCenter} />
                         ) : null}
                       </View>
-                      {index < visibleSegments.length - 1 && <View style={styles.timelineLine} />}
+                      {index < data.segments.length - 1 && <View style={styles.timelineLine} />}
                     </View>
                     <View style={[styles.segmentCard, isCurrent && styles.segmentCardCurrent]}>
                       <View style={styles.segmentHeader}>
-                        <Text style={[styles.segmentTitle, isCurrent && styles.segmentTitleCurrent]} numberOfLines={1}>
+                        <Text style={[styles.segmentTitle, isCurrent && styles.segmentTitleCurrent]} numberOfLines={2}>
                           {segment.title}
                         </Text>
                         <View style={[styles.statusBadge, { backgroundColor: palette.background }]}>
@@ -243,11 +232,7 @@ export default function LearningRoadmap({ teamId, refreshKey }: Props) {
                   </View>
                 );
               })}
-            </View>
-
-            {hiddenSegmentCount > 0 && (
-              <Text style={styles.moreSegments}>전체 {data.segments.length}개 구간 중 현재 주변 구간을 표시했어요.</Text>
-            )}
+            </ScrollView>
 
             <Pressable
               accessibilityRole="button"
@@ -269,37 +254,11 @@ const styles = StyleSheet.create({
   wrap: {
     marginBottom: 28,
   },
-  headingRow: {
-    marginBottom: 12,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-  },
-  eyebrow: {
-    marginBottom: 3,
-    color: colors.primary,
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-  },
   heading: {
+    marginBottom: 12,
     color: colors.textMain,
     fontSize: 24,
     fontWeight: '900',
-  },
-  autoBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 999,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: colors.primarySurface,
-  },
-  autoBadgeText: {
-    color: colors.primaryDark,
-    fontSize: 11,
-    fontWeight: '800',
   },
   card: {
     padding: 18,
@@ -414,8 +373,13 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: colors.primary,
   },
-  timeline: {
+  timelineViewport: {
     marginTop: 20,
+    maxHeight: 286,
+  },
+  timeline: {
+    paddingRight: 4,
+    paddingBottom: 2,
   },
   segmentRow: {
     flexDirection: 'row',
@@ -508,13 +472,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 11,
     fontWeight: '900',
-  },
-  moreSegments: {
-    marginTop: 2,
-    color: colors.textSub,
-    fontSize: 11,
-    lineHeight: 16,
-    textAlign: 'center',
   },
   manageButton: {
     marginTop: 12,
