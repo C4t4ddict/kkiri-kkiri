@@ -49,6 +49,7 @@ const normalizeAward = (row) => {
   const taxApplied = Boolean(row.tax_applied);
   return {
     ...row,
+    is_recorded: Boolean(row.award_id),
     is_awarded: Boolean(row.is_awarded),
     has_prize: Boolean(row.has_prize),
     prize_amount: prizeAmount,
@@ -100,14 +101,6 @@ const upsertAward = async (db, userId, portfolioId, input) => {
   if (!portfolios.length) return null;
 
   const award = sanitizeAwardInput(input);
-  if (!award.isAwarded) {
-    await db.query(
-      'DELETE FROM user_awards WHERE user_id = ? AND portfolio_id = ?',
-      [userId, portfolioId],
-    );
-    return listAwards(db, userId);
-  }
-
   await db.query(
     `INSERT INTO user_awards (
       user_id, portfolio_id, is_awarded, award_title, has_prize, prize_amount, tax_applied
@@ -136,6 +129,7 @@ module.exports = {
   calculateNetPrize,
   ensureAwardsSchema,
   listAwards,
+  normalizeAward,
   normalizePrizeAmount,
   sanitizeAwardInput,
   upsertAward,

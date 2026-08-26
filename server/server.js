@@ -59,7 +59,14 @@ const {
   resetPasswordWithToken,
   verifyEmailCode,
 } = require('./auth/verificationService');
-const { ensureDeveloperFeedbackSchema, normalizeFeedback } = require('./feedback/service');
+const { createRequireAdmin } = require('./auth/adminAuthorization');
+const {
+  attachReplies,
+  createFeedbackReply,
+  ensureDeveloperFeedbackSchema,
+  normalizeFeedback,
+  normalizeFeedbackReply,
+} = require('./feedback/service');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -353,7 +360,7 @@ const ensureActivityTables = () => {
     `CREATE TABLE IF NOT EXISTS user_notifications (
       notification_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
       user_id INT NOT NULL,
-      team_id INT NOT NULL,
+      team_id INT NULL,
       notice_id INT NULL,
       type VARCHAR(32) NOT NULL,
       title VARCHAR(160) NOT NULL,
@@ -520,7 +527,7 @@ const ensureMatchingInvitationSchema = async () => {
   await portfolioDb.query(`CREATE TABLE IF NOT EXISTS user_notifications (
     notification_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
-    team_id INT NOT NULL,
+    team_id INT NULL,
     notice_id INT NULL,
     offer_id INT NULL,
     type VARCHAR(32) NOT NULL,
@@ -536,6 +543,10 @@ const ensureMatchingInvitationSchema = async () => {
   const existingColumns = new Set(notificationColumns.map((column) => column.Field));
   if (!existingColumns.has('offer_id')) {
     await portfolioDb.query('ALTER TABLE user_notifications ADD COLUMN offer_id INT NULL AFTER notice_id');
+  }
+  const teamIdColumn = notificationColumns.find((column) => column.Field === 'team_id');
+  if (teamIdColumn?.Null === 'NO') {
+    await portfolioDb.query('ALTER TABLE user_notifications MODIFY COLUMN team_id INT NULL');
   }
 
   const [notificationIndexes] = await portfolioDb.query(
@@ -577,20 +588,11 @@ const ensureAdminSchema = async () => {
   }
 };
 
-const requireAdmin = async (req, res, next) => {
-  const userId = getRequestUserId(req);
-  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
-  try {
-    await adminSchemaReady;
-    const [rows] = await portfolioDb.query('SELECT is_admin FROM users WHERE id = ?', [userId]);
-    if (!rows.length || !rows[0].is_admin) {
-      return res.status(403).json({ message: '운영자 권한이 필요합니다' });
-    }
-    next();
-  } catch (error) {
-    next(error);
-  }
-};
+const requireAdmin = createRequireAdmin({
+  database: portfolioDb,
+  getRequestUserId,
+  getSchemaReady: () => adminSchemaReady,
+});
 
 const ensureRecruitmentTeam = async (connection, recruitment) => {
   let teamId = Number(recruitment.team_id || 0);
@@ -786,7 +788,9 @@ app.post('/auth/email-verification/request', async (req, res) => {
       message: '인증 코드를 전송했습니다',
       account_type: identity.accountType,
       school_domain: identity.schoolDomain,
-      ...(result.developmentCode ? { development_code: result.developmentCode } : {}),
+      ...(process.env.NODE_ENV === 'development' && result.developmentCode
+        ? { development_code: result.developmentCode }
+        : {}),
     });
   } catch (error) {
     handleAuthError(res, error, '인증 코드를 전송하지 못했습니다');
@@ -828,7 +832,9 @@ app.post('/auth/password-reset/request', async (req, res) => {
     }
     res.json({
       ...genericResponse,
-      ...(result.developmentCode ? { development_code: result.developmentCode } : {}),
+      ...(process.env.NODE_ENV === 'development' && result.developmentCode
+        ? { development_code: result.developmentCode }
+        : {}),
     });
   } catch (error) {
     handleAuthError(res, error, '비밀번호 재설정 메일을 전송하지 못했습니다');
@@ -1106,7 +1112,7 @@ const registerUser = async (req, res) => {
       return res.status(400).json({ success: false, message: '등록되지 않은 학교 이메일 도메인입니다' });
     }
 
-    await portfolioDb.query(
+    const [registrationResult] = await portfolioDb.query(
       `INSERT INTO users
         (email, email_verified, account_type, school_domain, school_name, password, name, department, student_number, birth)
        VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1123,7 +1129,11 @@ const registerUser = async (req, res) => {
       ],
     );
     await consumeSignupVerification(portfolioDb, verificationId);
-    return res.status(201).json({ success: true, message: '회원가입 성공' });
+    return res.status(201).json({
+      success: true,
+      message: '회원가입 성공',
+      user_id: registrationResult.insertId,
+    });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ success: false, message: '이미 존재하는 이메일입니다' });
@@ -1147,10 +1157,92 @@ app.get('/api/developer-feedback/mine', async (req, res) => {
        LIMIT 20`,
       [userId],
     );
-    res.json(rows);
+    if (!rows.length) return res.json([]);
+    const [replies] = await portfolioDb.query(
+      `SELECT reply_id, feedback_id, content, created_at
+       FROM developer_feedback_replies
+       WHERE feedback_id IN (${rows.map(() => '?').join(', ')})
+       ORDER BY created_at ASC, reply_id ASC`,
+      rows.map((row) => row.feedback_id),
+    );
+    res.json(attachReplies(rows, replies));
   } catch (error) {
     logger.error('developer_feedback_list_failed', { userId, error: error.message });
     res.status(500).json({ message: '전달 내역을 불러오지 못했습니다' });
+  }
+});
+
+app.get('/api/admin/developer-feedback', requireAdmin, async (req, res) => {
+  try {
+    await feedbackSchemaReady;
+    const [rows] = await portfolioDb.query(
+      `SELECT feedback.feedback_id, feedback.user_id, feedback.category, feedback.content,
+              feedback.platform, feedback.status, feedback.created_at,
+              users.name AS user_name, users.email AS user_email,
+              (SELECT COUNT(*) FROM developer_feedback_replies reply
+               WHERE reply.feedback_id = feedback.feedback_id) AS reply_count
+       FROM developer_feedback feedback
+       JOIN users ON users.id = feedback.user_id
+       ORDER BY feedback.created_at DESC, feedback.feedback_id DESC
+       LIMIT 100`,
+    );
+    res.json(rows || []);
+  } catch (error) {
+    logger.error('admin_feedback_list_failed', { error: error.message });
+    res.status(500).json({ message: '사용자 의견을 불러오지 못했습니다' });
+  }
+});
+
+app.get('/api/admin/developer-feedback/:feedbackId', requireAdmin, async (req, res) => {
+  const feedbackId = Number(req.params.feedbackId);
+  if (!Number.isInteger(feedbackId) || feedbackId <= 0) {
+    return res.status(400).json({ message: '올바른 의견 번호가 필요합니다' });
+  }
+  try {
+    await feedbackSchemaReady;
+    const [[feedback]] = await portfolioDb.query(
+      `SELECT feedback.feedback_id, feedback.user_id, feedback.category, feedback.content,
+              feedback.platform, feedback.status, feedback.created_at,
+              users.name AS user_name, users.email AS user_email
+       FROM developer_feedback feedback
+       JOIN users ON users.id = feedback.user_id
+       WHERE feedback.feedback_id = ?`,
+      [feedbackId],
+    );
+    if (!feedback) return res.status(404).json({ message: '전달된 의견을 찾을 수 없습니다' });
+    const [replies] = await portfolioDb.query(
+      `SELECT reply_id, content, created_at
+       FROM developer_feedback_replies
+       WHERE feedback_id = ?
+       ORDER BY created_at ASC, reply_id ASC`,
+      [feedbackId],
+    );
+    res.json({ ...feedback, replies });
+  } catch (error) {
+    logger.error('admin_feedback_detail_failed', { feedbackId, error: error.message });
+    res.status(500).json({ message: '사용자 의견을 불러오지 못했습니다' });
+  }
+});
+
+app.post('/api/admin/developer-feedback/:feedbackId/replies', requireAdmin, async (req, res) => {
+  const adminUserId = getRequestUserId(req);
+  const feedbackId = Number(req.params.feedbackId);
+  const rawContent = String(req.body?.content || '').trim();
+  const content = normalizeFeedbackReply(rawContent);
+  if (!Number.isInteger(feedbackId) || feedbackId <= 0 || !content || Array.from(rawContent).length > 2000) {
+    return res.status(400).json({ message: '답장 내용을 1자 이상 2,000자 이하로 입력해주세요' });
+  }
+
+  await Promise.all([feedbackSchemaReady, matchingSchemaReady]);
+  try {
+    const result = await createFeedbackReply(portfolioDb, { feedbackId, adminUserId, content });
+    if (!result) {
+      return res.status(404).json({ message: '전달된 의견을 찾을 수 없습니다' });
+    }
+    res.status(201).json({ success: true, reply_id: result.replyId });
+  } catch (error) {
+    logger.error('admin_feedback_reply_failed', { feedbackId, error: error.message });
+    res.status(500).json({ message: '답장을 전송하지 못했습니다' });
   }
 });
 

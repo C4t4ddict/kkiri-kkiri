@@ -180,6 +180,7 @@ export default function TodoScreen() {
   const [periodGoalColor, setPeriodGoalColor] = useState(PURPLE);
   const [periodCalendarTarget, setPeriodCalendarTarget] = useState<'start' | 'end' | null>(null);
   const [periodGoalSaving, setPeriodGoalSaving] = useState(false);
+  const [periodGoalLimitMessage, setPeriodGoalLimitMessage] = useState<string | null>(null);
 
   // 팀 목록 로딩
   useEffect(() => {
@@ -472,7 +473,14 @@ export default function TodoScreen() {
       await fetchRange('일일');
       Alert.alert('기간 목표 추가 완료', `${data.created_count || 0}일의 일일 목표가 추가되었습니다.`);
     } catch (error: any) {
-      notifyError('기간 목표 추가 실패', error?.response?.data?.message || '기간 목표를 저장하지 못했습니다.');
+      if (error?.response?.status === 409) {
+        setPeriodGoalLimitMessage(
+          error?.response?.data?.message
+          || '같은 날짜에는 진행 중인 기간 목표를 최대 3개까지 추가할 수 있습니다.',
+        );
+      } else {
+        notifyError('기간 목표 추가 실패', error?.response?.data?.message || '기간 목표를 저장하지 못했습니다.');
+      }
     } finally {
       setPeriodGoalSaving(false);
     }
@@ -774,6 +782,31 @@ export default function TodoScreen() {
         </View>
       </Modal>
 
+      <Modal
+        visible={periodGoalLimitMessage !== null}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setPeriodGoalLimitMessage(null)}
+      >
+        <View style={styles.limitPopupBackdrop}>
+          <View style={styles.limitPopupCard}>
+            <View style={styles.limitPopupIcon}>
+              <Icon name="layers-outline" size={25} color={PURPLE} />
+            </View>
+            <Text style={styles.limitPopupTitle}>기간 목표를 더 추가할 수 없어요</Text>
+            <Text style={styles.limitPopupMessage}>{periodGoalLimitMessage}</Text>
+            <TouchableOpacity
+              style={styles.limitPopupButton}
+              activeOpacity={0.78}
+              onPress={() => setPeriodGoalLimitMessage(null)}
+            >
+              <Text style={styles.limitPopupButtonText}>확인</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <MiniCalendarModal
         visible={periodCalendarTarget !== null}
         title={periodCalendarTarget === 'start' ? '기간 목표 시작일' : '기간 목표 종료일'}
@@ -975,6 +1008,48 @@ const styles = StyleSheet.create({
   modalSaveButton: { backgroundColor: PURPLE },
   modalCancelText: { color: '#374151' },
   modalSaveText: { color: '#FFFFFF' },
+  limitPopupBackdrop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    backgroundColor: 'rgba(16,24,40,0.45)',
+  },
+  limitPopupCard: {
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 18,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#101828',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  limitPopupIcon: {
+    width: 50,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 17,
+    backgroundColor: LILAC,
+  },
+  limitPopupTitle: { marginTop: 15, color: TEXT_MAIN, fontSize: 17, fontWeight: '800', textAlign: 'center' },
+  limitPopupMessage: { marginTop: 8, color: TEXT_HINT, fontSize: 13, lineHeight: 20, textAlign: 'center' },
+  limitPopupButton: {
+    width: '100%',
+    minHeight: 46,
+    marginTop: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    backgroundColor: PURPLE,
+  },
+  limitPopupButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
 
   teamBtn: {
   backgroundColor: '#EFEAFF',

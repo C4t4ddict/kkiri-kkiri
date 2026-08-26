@@ -5,6 +5,8 @@ import colors from '../config/colors';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App.tsx'; // 실제 경로로 수정
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getTutorialPendingStorageKey } from '../onboarding/tutorial';
 
 type RegisterScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Register'>;
 
@@ -45,11 +47,12 @@ export default function RegisterScreen() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || '인증 코드를 전송하지 못했습니다.');
       setCodeSent(true);
-      if (result.development_code) setVerificationCode(String(result.development_code));
+      const developmentCode = __DEV__ ? result.development_code : undefined;
+      if (developmentCode) setVerificationCode(String(developmentCode));
       Alert.alert(
         '인증 코드 전송',
-        result.development_code
-          ? `개발 환경 인증 코드 ${result.development_code}가 입력되었습니다.`
+        developmentCode
+          ? `개발 환경 인증 코드 ${developmentCode}가 입력되었습니다.`
           : '이메일로 전송된 6자리 코드를 입력해주세요.',
       );
     } catch (error) {
@@ -111,6 +114,12 @@ export default function RegisterScreen() {
       const result = await response.json();
 
       if (response.ok) {
+        if (result.user_id) {
+          await AsyncStorage.setItem(
+            getTutorialPendingStorageKey(result.user_id),
+            'pending',
+          ).catch(() => undefined);
+        }
         Alert.alert(
         '회원가입 성공',
         '이제 로그인할 수 있습니다.',
@@ -132,7 +141,7 @@ export default function RegisterScreen() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
+    <SafeAreaView style={styles.safeArea}>
         <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.logo}>끼리끼리</Text>
 
@@ -199,6 +208,7 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: 'white' },
   container: { padding: 24 },
   logo: {
     fontSize: 28,
