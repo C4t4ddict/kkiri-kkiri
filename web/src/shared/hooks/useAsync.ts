@@ -1,15 +1,18 @@
-import { DependencyList, useCallback, useEffect, useState } from 'react';
+import { DependencyList, useCallback, useEffect, useRef, useState } from 'react';
 
 export function useAsync<T>(loader: () => Promise<T>, dependencies: DependencyList = []) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const loaderRef = useRef(loader);
+  loaderRef.current = loader;
+  const dependencyKey = JSON.stringify(dependencies);
 
   const reload = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const value = await loader();
+      const value = await loaderRef.current();
       setData(value);
       return value;
     } catch (reason) {
@@ -18,11 +21,11 @@ export function useAsync<T>(loader: () => Promise<T>, dependencies: DependencyLi
     } finally {
       setLoading(false);
     }
-  }, dependencies);
+  }, []);
 
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    reload();
+  }, [dependencyKey, reload]);
 
   return { data, error, loading, reload };
 }

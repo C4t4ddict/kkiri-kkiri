@@ -36,6 +36,9 @@ type ActivityOption = {
   teamName: string;
   part: string;
   isLeader?: boolean | number;
+  sourceType?: 'COMPETITION' | 'ENTERPRISE_CURRICULUM' | 'USER_CREATED';
+  participationMode?: 'PERSONAL' | 'TEAM';
+  visibility?: 'PRIVATE' | 'RECRUITING' | 'CLOSED';
 };
 
 const PURPLE = colors.primary;
@@ -383,6 +386,19 @@ export default function ActivityScreen() {
         <View style={styles.selectRow}>
           <View style={styles.dropdown}>
             <Pressable style={styles.dropdownBtn} onPress={() => setOpen(v => !v)}>
+              {selected ? (
+                <View style={[
+                  styles.sourceBadge,
+                  selected.sourceType === 'ENTERPRISE_CURRICULUM' && styles.sourceBadgeCurriculum,
+                ]}>
+                  <Text style={[
+                    styles.sourceBadgeText,
+                    selected.sourceType === 'ENTERPRISE_CURRICULUM' && styles.sourceBadgeTextCurriculum,
+                  ]}>
+                    {activitySourceLabel(selected)}
+                  </Text>
+                </View>
+              ) : null}
               <Text style={styles.dropdownText} numberOfLines={1} ellipsizeMode="tail">
                 {selected
                   ? selected.teamName
@@ -407,9 +423,12 @@ export default function ActivityScreen() {
                         }}
                         style={({ pressed }) => [styles.dropdownItem, pressed && { opacity: 0.6 }]}
                       >
-                        <Text style={styles.dropdownItemText} numberOfLines={1} ellipsizeMode="tail">
-                          {item.teamName}
-                        </Text>
+                        <View style={styles.dropdownItemCopy}>
+                          <Text style={styles.dropdownItemMeta}>{activitySourceLabel(item)}</Text>
+                          <Text style={styles.dropdownItemText} numberOfLines={1} ellipsizeMode="tail">
+                            {item.teamName}
+                          </Text>
+                        </View>
                       </Pressable>
                     )}
                   />
@@ -484,7 +503,9 @@ export default function ActivityScreen() {
           <View style={styles.progressCard}>
             <View style={styles.progressHeader}>
               <View>
-                <Text style={styles.progressEyebrow}>목표 진행 현황</Text>
+                <Text style={styles.progressEyebrow}>
+                  {selected?.sourceType === 'ENTERPRISE_CURRICULUM' ? '기업 커리큘럼 진행 현황' : '목표 진행 현황'}
+                </Text>
                 <Text style={styles.progressTitle}>이번 달 {overallPercent}% 완료</Text>
               </View>
               <View style={styles.progressBadge}>
@@ -548,6 +569,13 @@ function humanizePart(part: string) {
   return part;
 }
 
+function activitySourceLabel(activity: ActivityOption) {
+  if (activity.sourceType === 'ENTERPRISE_CURRICULUM') {
+    return activity.participationMode === 'PERSONAL' ? '기업 · 개인' : '기업 · 팀';
+  }
+  return activity.participationMode === 'PERSONAL' ? '개인 활동' : '공모전 · 팀';
+}
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -607,6 +635,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  sourceBadge: {
+    marginRight: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 7,
+    backgroundColor: '#E7F0FF',
+  },
+  sourceBadgeCurriculum: { backgroundColor: '#EDE9FE' },
+  sourceBadgeText: { color: '#175CD3', fontSize: 8, fontWeight: '900' },
+  sourceBadgeTextCurriculum: { color: '#6941C6' },
   dropdownText: {
     flex: 1,
     color: TEXT_MAIN,
@@ -636,6 +674,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
+  dropdownItemCopy: { flex: 1 },
+  dropdownItemMeta: { marginBottom: 3, color: colors.primary, fontSize: 8, fontWeight: '900' },
   dropdownItemText: {
     flex: 1,
     fontSize: 15,

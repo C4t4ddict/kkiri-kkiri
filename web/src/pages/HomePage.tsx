@@ -3,9 +3,10 @@ import { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../app/AuthContext';
 import { ActivityCard } from '../features/activities/ActivityCard';
+import { CurriculumCard } from '../features/curricula/CurriculumCard';
 import { api } from '../shared/api/client';
 import { useAsync } from '../shared/hooks/useAsync';
-import type { ActivityItem, Application } from '../shared/types/domain';
+import type { ActivityItem, Application, Curriculum } from '../shared/types/domain';
 import { PageState } from '../shared/ui/PageState';
 import { SectionHead } from '../shared/ui/SectionHead';
 
@@ -17,11 +18,12 @@ export function HomePage() {
   const { user } = useAuth();
   const activities = useAsync(() => api<{ items: ActivityItem[] }>('/api/activities/open?page=1&limit=6'), []);
   const applications = useAsync(() => api<Application[]>('/api/my-applications'), []);
+  const curricula = useAsync(() => api<Curriculum[]>('/api/curricula'), []);
   const items = activities.data?.items || [];
 
   return <>
     <section className="hero-banner">
-      <div><span className="eyebrow">WELCOME BACK</span><h1>{user?.name}님, 다음 성장을<br />함께 시작해볼까요?</h1><p>새로운 공모전과 팀 모집 현황을 한 곳에서 확인하세요.</p><Link className="hero-cta" to="/info">활동 둘러보기 <ChevronRight size={18} /></Link></div>
+      <div><span className="eyebrow">WELCOME BACK</span><h1>{user?.name}님, 오늘의 실행이<br />원하는 커리어에 닿도록.</h1><p>기업 커리큘럼부터 공모전, 팀 목표까지 한 곳에서 이어가세요.</p><Link className="hero-cta" to="/curricula">기업 커리큘럼 보기 <ChevronRight size={18} /></Link></div>
       <div className="hero-visual"><span className="orbit one" /><span className="orbit two" /><Target size={68} /></div>
     </section>
     <section className="metrics-grid">
@@ -30,6 +32,10 @@ export function HomePage() {
       <Metric icon={<UsersRound />} label="모집 중인 팀" value="탐색" />
       <Metric icon={<FileHeart />} label="성장 기록" value="관리" />
     </section>
+    <SectionHead title="기업이 제안한 성장 로드맵" link="/curricula" />
+    {curricula.loading || curricula.error
+      ? <PageState loading={curricula.loading} error={curricula.error} />
+      : <div className="curriculum-grid home">{(curricula.data || []).slice(0, 3).map((item) => <CurriculumCard curriculum={item} key={item.curriculum_id} />)}</div>}
     <SectionHead title="지금 지원할 수 있는 활동" link="/info" />
     {activities.loading || activities.error
       ? <PageState loading={activities.loading} error={activities.error} />
