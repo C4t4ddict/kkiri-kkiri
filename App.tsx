@@ -30,6 +30,8 @@ import ApplicationDetailScreen from './src/screens/ApplicationDetailScreen';
 import ApplicationTemplatesScreen from './src/screens/ApplicationTemplatesScreen';
 import AwardsScreen from './src/screens/AwardsScreen';
 import DeveloperFeedbackScreen from './src/screens/DeveloperFeedbackScreen';
+import CurriculumListScreen from './src/screens/CurriculumListScreen';
+import CurriculumDetailScreen from './src/screens/CurriculumDetailScreen';
 
 // MyPage 관련 스크린 import 추가
 import MyPage2 from './src/screens/mypage2';
@@ -91,6 +93,16 @@ export default function App() {
                 paddingLeft: 10,
               },
             }}
+          />
+          <Stack.Screen
+            name="CurriculumList"
+            component={CurriculumListScreen}
+            options={{ title: '기업 커리큘럼', headerBackTitle: '', headerTitleAlign: 'center' }}
+          />
+          <Stack.Screen
+            name="CurriculumDetail"
+            component={CurriculumDetailScreen}
+            options={{ title: '커리큘럼 상세', headerBackTitle: '', headerTitleAlign: 'center' }}
           />
           <Stack.Screen
            name="Settings"

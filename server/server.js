@@ -67,6 +67,16 @@ const {
   normalizeFeedback,
   normalizeFeedbackReply,
 } = require('./feedback/service');
+const {
+  createCurriculum,
+  ensureCurriculumSchema,
+  enrollCurriculum,
+  getCurriculum,
+  getEnrollment,
+  listCurricula,
+  previewCurriculum,
+  provisionCurriculumGoalsForMember,
+} = require('./curricula/service');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -276,7 +286,7 @@ app.use(bodyParser.json());
 app.use(attachAuth);
 app.use(requestLogger);
 
-const privateApiPattern = /^(?:\/api\/(?:user(?:\/|$)|delete-user(?:\/|$)|upload(?:\/|$)|favorite-activities(?:\/|$)|application-templates(?:\/|$)|developer-feedback(?:\/|$)|my-(?:recruitments|applications)(?:\/|$)|applications(?:\/|$)|reviews(?:\/|$)|participations(?:\/|$)|team-join-offers(?:\/|$))|\/(?:users|teams|todos|notifications)(?:\/|$))/;
+const privateApiPattern = /^(?:\/api\/(?:user(?:\/|$)|delete-user(?:\/|$)|upload(?:\/|$)|favorite-activities(?:\/|$)|application-templates(?:\/|$)|developer-feedback(?:\/|$)|my-(?:recruitments|applications)(?:\/|$)|applications(?:\/|$)|reviews(?:\/|$)|participations(?:\/|$)|team-join-offers(?:\/|$)|curriculum-enrollments(?:\/|$))|\/(?:users|teams|todos|notifications)(?:\/|$))/;
 app.use((req, res, next) => {
   if (!privateApiPattern.test(req.path)) return next();
   if (!getRequestUserId(req)) return res.status(401).json({ message: '로그인이 필요합니다' });
@@ -317,6 +327,7 @@ let awardSchemaReady = Promise.resolve();
 let todoCalendarSchemaReady = Promise.resolve();
 let authSchemaReady = Promise.resolve();
 let feedbackSchemaReady = Promise.resolve();
+let curriculumSchemaReady = Promise.resolve();
 let crawlerScheduler = null;
 
 const queuePortfolioJob = (job) => {
@@ -643,12 +654,14 @@ db.getConnection((err, connection) => {
     authSchemaReady = ensureAuthVerificationSchema(portfolioDb);
     feedbackSchemaReady = ensureDeveloperFeedbackSchema(portfolioDb);
     crawlerScheduler = startCrawlerScheduler();
-    matchingSchemaReady = Promise.all([
+    curriculumSchemaReady = Promise.all([
       ensureRecruitmentActivityColumns(),
       ensureActivityPrizeSchema(),
       todoCalendarSchemaReady,
       authSchemaReady,
     ])
+      .then(() => ensureCurriculumSchema(portfolioDb));
+    matchingSchemaReady = curriculumSchemaReady
       .then(() => ensureMatchingInvitationSchema())
       .then(() => ensureApplicationSchema(portfolioDb));
     adminSchemaReady = ensureAdminSchema();
@@ -716,6 +729,92 @@ app.get('/api/db-health', (req, res) => {
       });
     }
   });
+});
+
+app.get('/api/curricula', async (req, res) => {
+  if (!db || db.state === 'disconnected') return res.json([]);
+  try {
+    await curriculumSchemaReady;
+    const curricula = await listCurricula(portfolioDb, {
+      search: req.query.search,
+      difficulty: req.query.difficulty,
+    });
+    res.json(curricula);
+  } catch (error) {
+    logger.error('curriculum_list_failed', { error: error.message });
+    res.status(500).json({ message: '기업 커리큘럼을 불러오지 못했습니다' });
+  }
+});
+
+app.get('/api/curricula/:id', async (req, res) => {
+  const curriculumId = Number(req.params.id);
+  if (!Number.isInteger(curriculumId) || curriculumId <= 0) {
+    return res.status(400).json({ message: '올바른 커리큘럼 ID가 필요합니다' });
+  }
+  try {
+    await curriculumSchemaReady;
+    const curriculum = await getCurriculum(portfolioDb, curriculumId);
+    if (!curriculum) return res.status(404).json({ message: '커리큘럼을 찾을 수 없습니다' });
+    res.json(curriculum);
+  } catch (error) {
+    logger.error('curriculum_detail_failed', { curriculumId, error: error.message });
+    res.status(500).json({ message: '커리큘럼을 불러오지 못했습니다' });
+  }
+});
+
+app.post('/api/curricula/:id/preview', async (req, res) => {
+  const curriculumId = Number(req.params.id);
+  if (!Number.isInteger(curriculumId) || curriculumId <= 0) {
+    return res.status(400).json({ message: '올바른 커리큘럼 ID가 필요합니다' });
+  }
+  try {
+    await curriculumSchemaReady;
+    const preview = await previewCurriculum(portfolioDb, curriculumId, req.body);
+    if (!preview) return res.status(404).json({ message: '커리큘럼을 찾을 수 없습니다' });
+    res.json(preview);
+  } catch (error) {
+    logger.warn('curriculum_preview_failed', { curriculumId, error: error.message });
+    res.status(error.code === 'INVALID_START_DATE' ? 400 : 500).json({
+      message: error.code === 'INVALID_START_DATE' ? error.message : '개인 일정을 만들지 못했습니다',
+    });
+  }
+});
+
+app.post('/api/curricula/:id/enroll', async (req, res) => {
+  const curriculumId = Number(req.params.id);
+  const userId = getRequestUserId(req);
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!Number.isInteger(curriculumId) || curriculumId <= 0) {
+    return res.status(400).json({ message: '올바른 커리큘럼 ID가 필요합니다' });
+  }
+  try {
+    await curriculumSchemaReady;
+    const enrollment = await enrollCurriculum(portfolioDb, userId, curriculumId, req.body);
+    if (!enrollment) return res.status(404).json({ message: '커리큘럼을 찾을 수 없습니다' });
+    activityCache.clear();
+    res.status(201).json(enrollment);
+  } catch (error) {
+    logger.error('curriculum_enroll_failed', { curriculumId, userId, error: error.message });
+    res.status(error.statusCode || 500).json({ message: error.message || '활동에 커리큘럼을 추가하지 못했습니다' });
+  }
+});
+
+app.get('/api/curriculum-enrollments/:id', async (req, res) => {
+  const enrollmentId = Number(req.params.id);
+  const userId = getRequestUserId(req);
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!Number.isInteger(enrollmentId) || enrollmentId <= 0) {
+    return res.status(400).json({ message: '올바른 학습 활동 ID가 필요합니다' });
+  }
+  try {
+    await curriculumSchemaReady;
+    const enrollment = await getEnrollment(portfolioDb, enrollmentId, userId);
+    if (!enrollment) return res.status(404).json({ message: '학습 활동을 찾을 수 없습니다' });
+    res.json(enrollment);
+  } catch (error) {
+    logger.error('curriculum_enrollment_detail_failed', { enrollmentId, userId, error: error.message });
+    res.status(500).json({ message: '학습 활동을 불러오지 못했습니다' });
+  }
 });
 
 const requireOpsToken = (req, res, next) => {
@@ -1765,11 +1864,13 @@ app.get('/api/team-recruitments', async (req, res) => {
       owner_user_id,
       tr.team_id,
       tr.activity_id,
+      tr.curriculum_id,
       tr.post_name,
-      COALESCE(a.title, tr.activity_name) AS activity_name,
+      COALESCE(a.title, c.title, tr.activity_name) AS activity_name,
       tr.activity_type,
-      a.category AS activity_category,
-      a.topic_category AS activity_topic_category,
+      COALESCE(a.category, CASE WHEN c.curriculum_id IS NOT NULL THEN '기업 커리큘럼' END) AS activity_category,
+      COALESCE(a.topic_category, c.role_title) AS activity_topic_category,
+      COALESCE(a.organizer, o.name) AS activity_organizer,
       qualification_department,
       qualification_student_number,
       qualification_age,
@@ -1785,6 +1886,8 @@ app.get('/api/team-recruitments', async (req, res) => {
       tr.created_at
     FROM team_recruitments tr
     LEFT JOIN activitys a ON a.activity_id = tr.activity_id
+    LEFT JOIN enterprise_curricula c ON c.curriculum_id = tr.curriculum_id
+    LEFT JOIN enterprise_organizations o ON o.organization_id = c.organization_id
     WHERE tr.status = 'OPEN' AND tr.deleted_at IS NULL
       AND (
         COALESCE(tr.recruitment_scope, 'NATIONWIDE') = 'NATIONWIDE'
@@ -2144,15 +2247,17 @@ app.get('/api/team-recruitments/:id', async (req, res) => {
   const sql = `
     SELECT
       tr.*,
-      COALESCE(a.title, tr.activity_name) AS activity_name,
-      a.category AS activity_category,
-      a.topic_category AS activity_topic_category,
-      a.organizer AS activity_organizer,
+      COALESCE(a.title, c.title, tr.activity_name) AS activity_name,
+      COALESCE(a.category, CASE WHEN c.curriculum_id IS NOT NULL THEN '기업 커리큘럼' END) AS activity_category,
+      COALESCE(a.topic_category, c.role_title) AS activity_topic_category,
+      COALESCE(a.organizer, o.name) AS activity_organizer,
       DATE_FORMAT(a.application_period_end, '%Y-%m-%d') AS activity_application_period_end,
       DATE_FORMAT(tr.activity_start_date, '%Y-%m-%d') AS activity_start_date,
       DATE_FORMAT(tr.activity_end_date, '%Y-%m-%d') AS activity_end_date
     FROM team_recruitments tr
     LEFT JOIN activitys a ON a.activity_id = tr.activity_id
+    LEFT JOIN enterprise_curricula c ON c.curriculum_id = tr.curriculum_id
+    LEFT JOIN enterprise_organizations o ON o.organization_id = c.organization_id
     WHERE tr.recruitment_id = ? AND tr.deleted_at IS NULL
   `;
 
@@ -2614,6 +2719,7 @@ app.put('/api/team-join-offers/:id/respond', async (req, res) => {
          ON DUPLICATE KEY UPDATE role = role`,
         [offer.team_id, userId],
       );
+      await provisionCurriculumGoalsForMember(connection, offer.team_id, userId);
     }
 
     await connection.query(
@@ -2672,7 +2778,8 @@ app.get('/my-teams', (req, res) => {
   }
 
   const sql = `
-    SELECT t.team_id, t.team_name, tm.part, t.leader_user_id, t.due_date, t.activity_status
+    SELECT t.team_id, t.team_name, tm.part, t.leader_user_id, t.due_date, t.activity_status,
+           t.source_type, t.source_id, t.source_version_id, t.participation_mode, t.visibility
     FROM team_members tm
     JOIN teams t ON t.team_id = tm.team_id
     WHERE tm.user_id = ?
@@ -2706,6 +2813,11 @@ app.get('/users/:userId/teams', (req, res) => {
       t.leader_user_id AS leaderUserId,
       t.due_date AS dueDate,
       t.activity_status AS activityStatus,
+      t.source_type AS sourceType,
+      t.source_id AS sourceId,
+      t.source_version_id AS sourceVersionId,
+      t.participation_mode AS participationMode,
+      t.visibility,
       (t.leader_user_id = ?) AS isLeader
     FROM team_members tm
     JOIN teams t ON t.team_id = tm.team_id
@@ -4519,6 +4631,20 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
       error_message, created_at FROM crawler_errors ORDER BY created_at DESC LIMIT 20`),
   ]);
   res.json({ counts: countRows[0] || {}, crawlerRuns, crawlerErrors, crawlerRunning: Boolean(crawlerScheduler?.isRunning()) });
+});
+
+app.post('/api/admin/curricula', requireAdmin, async (req, res) => {
+  try {
+    await curriculumSchemaReady;
+    const curriculum = await createCurriculum(portfolioDb, getRequestUserId(req), req.body);
+    res.status(201).json(curriculum);
+  } catch (error) {
+    logger.error('admin_curriculum_create_failed', {
+      adminUserId: getRequestUserId(req),
+      error: error.message,
+    });
+    res.status(error.statusCode || 500).json({ message: error.message || '커리큘럼을 등록하지 못했습니다' });
+  }
 });
 
 app.get('/api/admin/activities', requireAdmin, async (req, res) => {

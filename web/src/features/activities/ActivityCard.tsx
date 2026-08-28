@@ -1,4 +1,5 @@
 import { Sparkles } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import type { ActivityItem } from '../../shared/types/domain';
 
 function Dday({ end }: { end?: string }) {
@@ -8,7 +9,7 @@ function Dday({ end }: { end?: string }) {
 }
 
 export function ActivityCard({ item }: { item: ActivityItem }) {
-  return <article className="activity-card">
+  return <Link className="activity-card" to={`/info/${item.activity_id}`}>
     {item.main_image_url
       ? <img src={item.main_image_url.replace('10.0.2.2', 'localhost')} alt="" />
       : <div className="poster-fallback"><Sparkles /></div>}
@@ -21,5 +22,5 @@ export function ActivityCard({ item }: { item: ActivityItem }) {
       <p>{item.organizer || '주최기관 확인 필요'}</p>
       {Number(item.open_recruitment_count) > 0 && <div className="recruit-count">모집글 +{item.open_recruitment_count}</div>}
     </div>
-  </article>;
+  </Link>;
 }

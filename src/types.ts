@@ -26,6 +26,8 @@ export type RootStackParamList = {
   ForgotPassword: undefined;
   MainTabs: { screen?: string; params?: any };
   InfoDetail: { id: number };
+  CurriculumList: undefined;
+  CurriculumDetail: { id: number };
   Settings: { user: User };
   PersonalInfo: undefined;
   FavoriteActivities: undefined;
