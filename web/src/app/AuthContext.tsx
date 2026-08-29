@@ -5,6 +5,7 @@ import type { User } from '../shared/types/domain';
 type AuthContextValue = {
   user: User | null;
   login: (token: string, user: User) => void;
+  updateUser: (user: User) => void;
   logout: () => void;
 };
 
@@ -16,6 +17,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     login: (token: string, nextUser: User) => {
       setStoredSession(token, nextUser);
+      setUser(nextUser);
+    },
+    updateUser: (nextUser: User) => {
+      const token = localStorage.getItem('kkiri_token');
+      if (token) setStoredSession(token, nextUser);
       setUser(nextUser);
     },
     logout: () => {

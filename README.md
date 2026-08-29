@@ -12,6 +12,22 @@ This is a new [**React Native**](https://reactnative.dev) project, bootstrapped 
 
 ## React 웹 실행
 
+### Windows 로컬 DB 최초 설정
+
+기존 PC의 MySQL과 충돌하지 않도록 개발용 인스턴스를 `127.0.0.1:3307`에 별도로 실행합니다. 데이터는 `%LOCALAPPDATA%\kkiri-kkiri\mysql-data`에 저장됩니다.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-local-mysql.ps1
+npm --prefix server run db:bootstrap
+npm --prefix server run seed:curricula
+```
+
+`server/.env`는 `server/.env.example`을 복사해 준비하고, 로컬 인스턴스를 사용할 때는 `DB_HOST=127.0.0.1`, `DB_PORT=3307`, `DB_NAME=kkiri_local`, `DB_USER=kkiri_app`으로 설정합니다. `db:bootstrap`은 관리자 계정과 앱 계정을 분리하고 반복 실행해도 같은 예시 데이터를 갱신합니다.
+
+개발용 로그인 계정은 `test@test.com` / `test123`입니다.
+
+### API와 웹 실행
+
 API 서버를 먼저 실행합니다.
 
 ```sh

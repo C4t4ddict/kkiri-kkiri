@@ -45,6 +45,7 @@ export function LoginPage() {
         <label>비밀번호<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="비밀번호" required /></label>
         {error && <div className="form-error">{error}</div>}
         <button className="primary-button" disabled={loading}>{loading ? '로그인 중…' : '로그인'}</button>
+        <div className="auth-links"><Link to="/register">회원가입</Link><Link to="/forgot-password">비밀번호 찾기</Link></div>
       </form>
     </section>
   </main>;

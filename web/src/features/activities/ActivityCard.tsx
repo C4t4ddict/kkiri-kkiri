@@ -1,5 +1,6 @@
 import { Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { resolveApiMediaUrl } from '../../shared/api/media';
 import type { ActivityItem } from '../../shared/types/domain';
 
 function Dday({ end }: { end?: string }) {
@@ -11,7 +12,7 @@ function Dday({ end }: { end?: string }) {
 export function ActivityCard({ item }: { item: ActivityItem }) {
   return <Link className="activity-card" to={`/info/${item.activity_id}`}>
     {item.main_image_url
-      ? <img src={item.main_image_url.replace('10.0.2.2', 'localhost')} alt="" />
+      ? <img src={resolveApiMediaUrl(item.main_image_url)} alt="" />
       : <div className="poster-fallback"><Sparkles /></div>}
     <div className="activity-card-body">
       <div className="card-tags">

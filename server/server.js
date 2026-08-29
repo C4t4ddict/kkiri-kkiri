@@ -328,6 +328,7 @@ let todoCalendarSchemaReady = Promise.resolve();
 let authSchemaReady = Promise.resolve();
 let feedbackSchemaReady = Promise.resolve();
 let curriculumSchemaReady = Promise.resolve();
+let activityDiscoverySchemaReady = Promise.resolve();
 let crawlerScheduler = null;
 
 const queuePortfolioJob = (job) => {
@@ -402,6 +403,19 @@ const ensureActivityTables = () => {
   };
 
   createNext(0);
+};
+
+const ensureActivityDiscoverySchema = async () => {
+  await portfolioDb.query(`CREATE TABLE IF NOT EXISTS activity_view_events (
+    activity_id INT NOT NULL,
+    user_id INT NOT NULL,
+    view_date DATE NOT NULL,
+    view_count INT NOT NULL DEFAULT 1,
+    first_viewed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_viewed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (activity_id, user_id, view_date),
+    INDEX idx_activity_views_recent (view_date, activity_id)
+  )`);
 };
 
 const ensureTodoCompletionColumn = () => {
@@ -643,7 +657,7 @@ db.getConnection((err, connection) => {
   if (err) {
     db.state = 'disconnected';
     console.error('❌ MySQL 연결 실패:', err.message);
-    console.log('MySQL 없이 서버 계속 실행...');
+    console.log('DB가 복구될 때까지 데이터 API는 503을 반환합니다.');
   } else {
     connection.release();
     db.state = 'connected';
@@ -653,6 +667,7 @@ db.getConnection((err, connection) => {
     todoCalendarSchemaReady = ensureTodoCalendarSchema();
     authSchemaReady = ensureAuthVerificationSchema(portfolioDb);
     feedbackSchemaReady = ensureDeveloperFeedbackSchema(portfolioDb);
+    activityDiscoverySchemaReady = ensureActivityDiscoverySchema();
     crawlerScheduler = startCrawlerScheduler();
     curriculumSchemaReady = Promise.all([
       ensureRecruitmentActivityColumns(),
@@ -681,7 +696,9 @@ db.getConnection((err, connection) => {
 });
 
 const portfolioArchiveTimer = setInterval(() => {
-  runArchiveMaintenance().catch((error) => console.error('지난 활동 정기 아카이브 오류:', error));
+  if (db.state === 'connected') {
+    runArchiveMaintenance().catch((error) => console.error('지난 활동 정기 아카이브 오류:', error));
+  }
 }, 60 * 60 * 1000);
 portfolioArchiveTimer.unref();
 
@@ -706,28 +723,105 @@ app.get('/api/health', (req, res) => {
 });
 
 // 데이터베이스 연결 상태 확인
-app.get('/api/db-health', (req, res) => {
-  if (db.state !== 'connected') {
-    return res.status(500).json({
+app.get('/api/db-health', async (req, res) => {
+  const databaseName = process.env.DB_NAME || 'myappdb';
+  const requiredTables = ['users', 'activitys', 'teams', 'team_members', 'todos'];
+  try {
+    const [[connection]] = await portfolioDb.query(
+      'SELECT DATABASE() AS database_name, @@port AS port, CURRENT_USER() AS account',
+    );
+    const [tableRows] = await portfolioDb.query(
+      `SELECT table_name
+       FROM information_schema.tables
+       WHERE table_schema = ? AND table_name IN (${requiredTables.map(() => '?').join(', ')})`,
+      [databaseName, ...requiredTables],
+    );
+    const existingTables = new Set(tableRows.map((row) => row.TABLE_NAME || row.table_name));
+    const missingTables = requiredTables.filter((table) => !existingTables.has(table));
+    const [[stats]] = await portfolioDb.query(`
+      SELECT
+        COUNT(*) AS activities,
+        SUM(CASE WHEN source_name IN ('위비티', '씽굿') THEN 1 ELSE 0 END) AS sourced_activities,
+        SUM(CASE WHEN source_name IN ('위비티', '씽굿')
+          AND main_image_url IS NOT NULL AND TRIM(main_image_url) <> '' THEN 1 ELSE 0 END) AS sourced_activities_with_images,
+        SUM(CASE WHEN source_name = 'local-demo' THEN 1 ELSE 0 END) AS fixture_activities,
+        SUM(CASE WHEN source_name = 'local-demo' AND COALESCE(is_hidden, 0) = 1 THEN 1 ELSE 0 END) AS hidden_fixture_activities,
+        SUM(CASE WHEN main_image_url IS NOT NULL AND TRIM(main_image_url) <> '' THEN 1 ELSE 0 END) AS activities_with_images,
+        SUM(CASE WHEN COALESCE(is_hidden, 0) = 0
+          AND (application_period_end IS NULL OR application_period_end >= CURDATE()) THEN 1 ELSE 0 END) AS open_activities
+      FROM activitys
+    `);
+    const [[teamStats]] = await portfolioDb.query(`
+      SELECT
+        SUM(CASE WHEN activity_status = 'IN_PROGRESS' AND status <> 'ARCHIVED' THEN 1 ELSE 0 END) AS active_teams,
+        (SELECT COUNT(*) FROM team_members) AS memberships,
+        (SELECT COUNT(*) FROM team_members tm LEFT JOIN teams t ON t.team_id = tm.team_id WHERE t.team_id IS NULL) AS orphan_memberships
+      FROM teams
+    `);
+    const [[crawlerTable]] = await portfolioDb.query(
+      `SELECT COUNT(*) AS table_count FROM information_schema.tables
+       WHERE table_schema = ? AND table_name = 'crawler_runs'`,
+      [databaseName],
+    );
+    let crawler = null;
+    if (Number(crawlerTable.table_count) > 0) {
+      const [runs] = await portfolioDb.query(
+        `SELECT run_id, source_name, status, discovered_count, saved_count, error_count,
+                started_at, finished_at
+         FROM crawler_runs ORDER BY run_id DESC LIMIT 1`,
+      );
+      crawler = runs[0] || null;
+    }
+    const schemaOk = missingTables.length === 0;
+    const sourcedActivities = Number(stats.sourced_activities || 0);
+    const dataOk = sourcedActivities > 0
+      && Number(stats.sourced_activities_with_images || 0) === sourcedActivities
+      && Number(teamStats.orphan_memberships || 0) === 0
+      && crawler?.status === 'completed'
+      && Number(crawler?.error_count || 0) === 0;
+    const healthy = schemaOk && dataOk;
+    db.state = 'connected';
+    res.status(healthy ? 200 : 503).json({
+      status: healthy ? 'ok' : 'degraded',
+      message: healthy ? '데이터베이스 연결·스키마·수집 데이터 품질을 확인했습니다' : '데이터베이스 검증 항목을 확인해주세요',
+      database: connection.database_name,
+      port: Number(connection.port),
+      account: connection.account,
+      checks: { connection: true, schema: schemaOk, data: dataOk, missing_tables: missingTables },
+      stats: {
+        activities: Number(stats.activities || 0),
+        sourced_activities: sourcedActivities,
+        sourced_activities_with_images: Number(stats.sourced_activities_with_images || 0),
+        fixture_activities: Number(stats.fixture_activities || 0),
+        hidden_fixture_activities: Number(stats.hidden_fixture_activities || 0),
+        activities_with_images: Number(stats.activities_with_images || 0),
+        open_activities: Number(stats.open_activities || 0),
+        active_teams: Number(teamStats.active_teams || 0),
+        memberships: Number(teamStats.memberships || 0),
+        orphan_memberships: Number(teamStats.orphan_memberships || 0),
+      },
+      crawler,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    db.state = 'disconnected';
+    res.status(503).json({
       status: 'error',
-      message: 'Database not connected'
+      message: '데이터베이스 연결 또는 검증 쿼리에 실패했습니다',
+      database: databaseName,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      requestId: res.getHeader('x-request-id'),
     });
   }
+});
 
-  db.query('SELECT 1 as test', (err, results) => {
-    if (err) {
-      res.status(500).json({
-        status: 'error',
-        message: 'Database query failed',
-        requestId: res.getHeader('x-request-id')
-      });
-    } else {
-      res.json({
-        status: 'ok',
-        message: 'Database connected successfully',
-        timestamp: new Date().toISOString()
-      });
-    }
+// DB 장애를 더미 데이터로 감추지 않습니다. 상태 확인을 제외한 모든 데이터 API는
+// 명확한 503 응답을 반환해 웹과 앱이 실제 연결 오류를 표시할 수 있게 합니다.
+app.use((req, res, next) => {
+  if (db.state === 'connected') return next();
+  return res.status(503).json({
+    message: '데이터베이스에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.',
+    database: process.env.DB_NAME || 'myappdb',
   });
 });
 
@@ -1370,47 +1464,6 @@ app.post('/api/developer-feedback', async (req, res) => {
 // 활동 목록 조회 API
 app.get('/api/activities', async (req, res) => {
   const pagination = parsePagination(req.query);
-  // 더미 데이터 (DB 연결 전)
-  if (!db || db.state === 'disconnected') {
-    console.log('더미 활동 데이터 반환 (MySQL 미연결)');
-    const dummyActivities = [
-      {
-        activity_id: 1,
-        title: '2024 프로그래밍 대회',
-        category: '공모전',
-        main_image_url: 'https://picsum.photos/300/200?random=1',
-        application_period_end: '2024-12-31',
-        created_at: '2024-01-01'
-      },
-      {
-        activity_id: 2,
-        title: 'AI 세미나',
-        category: '세미나',
-        main_image_url: 'https://picsum.photos/300/200?random=2',
-        application_period_end: '2024-11-30',
-        created_at: '2024-01-02'
-      },
-      {
-        activity_id: 3,
-        title: '웹 개발 워크숍',
-        category: '워크숍',
-        main_image_url: 'https://picsum.photos/300/200?random=3',
-        application_period_end: '2024-10-15',
-        created_at: '2024-01-03'
-      },
-      {
-        activity_id: 4,
-        title: '영어 튜터링',
-        category: '튜터링',
-        main_image_url: 'https://picsum.photos/300/200?random=4',
-        application_period_end: '2024-09-30',
-        created_at: '2024-01-04'
-      }
-    ];
-    
-    return res.status(200).json(dummyActivities);
-  }
-
   try {
   await matchingSchemaReady;
   const profile = await getMatchingUserProfile(portfolioDb, getRequestUserId(req));
@@ -1438,6 +1491,7 @@ app.get('/api/activities', async (req, res) => {
       GROUP BY activity_id
     ) rc ON rc.activity_id = a.activity_id
     WHERE COALESCE(a.is_hidden, 0) = 0
+      AND COALESCE(a.source_name, '') <> 'local-demo'
     ORDER BY a.created_at DESC
   `;
 
@@ -1452,10 +1506,6 @@ app.get('/api/activities', async (req, res) => {
 });
 
 app.get('/api/activities/open', async (req, res) => {
-  if (!db || db.state === 'disconnected') {
-    return res.json([]);
-  }
-
   const pagination = parsePagination(req.query);
   try {
   await matchingSchemaReady;
@@ -1483,6 +1533,7 @@ app.get('/api/activities/open', async (req, res) => {
       GROUP BY activity_id
     ) rc ON rc.activity_id = a.activity_id
     WHERE COALESCE(a.is_hidden, 0) = 0
+      AND COALESCE(a.source_name, '') <> 'local-demo'
       AND (a.application_period_start IS NULL OR a.application_period_start <= NOW())
       AND (a.application_period_end IS NULL OR a.application_period_end >= CURDATE())
     ORDER BY a.application_period_end ASC, a.created_at DESC
@@ -1498,25 +1549,61 @@ app.get('/api/activities/open', async (req, res) => {
   }
 });
 
+app.get('/api/activities/trending', async (req, res) => {
+  const limit = Math.min(24, Math.max(4, Number.parseInt(req.query.limit, 10) || 12));
+  try {
+    await Promise.all([matchingSchemaReady, activityDiscoverySchemaReady]);
+    const [rows] = await portfolioDb.query(`
+      SELECT
+        a.*,
+        COALESCE(views.view_count, 0) AS recent_view_count,
+        COALESCE(favorites.favorite_count, 0) AS favorite_count,
+        COALESCE(recruitments.open_recruitment_count, 0) AS open_recruitment_count,
+        (
+          COALESCE(views.view_count, 0) * 3
+          + COALESCE(favorites.favorite_count, 0) * 5
+          + COALESCE(recruitments.open_recruitment_count, 0) * 2
+          + CASE WHEN a.last_crawled_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END
+        ) AS popularity_score
+      FROM activitys a
+      LEFT JOIN (
+        SELECT activity_id, SUM(view_count) AS view_count
+        FROM activity_view_events
+        WHERE view_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        GROUP BY activity_id
+      ) views ON views.activity_id = a.activity_id
+      LEFT JOIN (
+        SELECT activity_id, COUNT(*) AS favorite_count
+        FROM user_favorite_activities
+        GROUP BY activity_id
+      ) favorites ON favorites.activity_id = a.activity_id
+      LEFT JOIN (
+        SELECT activity_id, COUNT(*) AS open_recruitment_count
+        FROM team_recruitments
+        WHERE status = 'OPEN' AND deleted_at IS NULL AND activity_id IS NOT NULL
+        GROUP BY activity_id
+      ) recruitments ON recruitments.activity_id = a.activity_id
+      WHERE COALESCE(a.is_hidden, 0) = 0
+        AND a.source_name IN ('위비티', '씽굿')
+        AND a.main_image_url IS NOT NULL
+        AND TRIM(a.main_image_url) <> ''
+        AND (a.application_period_end IS NULL OR a.application_period_end >= CURDATE())
+      ORDER BY popularity_score DESC,
+               COALESCE(a.last_crawled_at, a.updated_at) DESC,
+               a.application_period_end ASC,
+               a.activity_id DESC
+      LIMIT ?
+    `, [limit]);
+    res.json((rows || []).map(normalizeActivity));
+  } catch (error) {
+    logger.error('trending_activities_failed', { error: error.message });
+    res.status(500).json({ message: '주목받는 활동을 불러오지 못했습니다' });
+  }
+});
+
 // 활동 상세 조회 API
 app.get('/api/activities/:id', async (req, res) => {
   const activityId = req.params.id;
-
-  // 더미 데이터 (DB 연결 전)
-  if (!db || db.state === 'disconnected') {
-    console.log(`더미 활동 상세 데이터 반환: ID ${activityId} (MySQL 미연결)`);
-    const dummyActivity = {
-      activity_id: parseInt(activityId),
-      title: `활동 ${activityId}`,
-      category: '공모전',
-      description: '이것은 테스트용 활동입니다.',
-      main_image_url: `https://picsum.photos/300/200?random=${activityId}`,
-      application_period_end: '2024-12-31',
-      created_at: '2024-01-01'
-    };
-    
-    return res.status(200).json(dummyActivity);
-  }
 
   try {
   await matchingSchemaReady;
@@ -1543,6 +1630,17 @@ app.get('/api/activities/:id', async (req, res) => {
     const [results] = await portfolioDb.query(sql, [schoolDomain, activityId]);
     if (results.length === 0) {
       return res.status(404).json({ message: '활동을 찾을 수 없습니다.' });
+    }
+
+    const userId = getRequestUserId(req);
+    if (userId) {
+      await activityDiscoverySchemaReady;
+      await portfolioDb.query(
+        `INSERT INTO activity_view_events (activity_id, user_id, view_date, view_count)
+         VALUES (?, ?, CURDATE(), 1)
+         ON DUPLICATE KEY UPDATE view_count = view_count + 1, last_viewed_at = CURRENT_TIMESTAMP`,
+        [activityId, userId],
+      );
     }
 
     res.status(200).json(normalizeActivity(results[0]));

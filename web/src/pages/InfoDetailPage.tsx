@@ -6,11 +6,15 @@ import {
   CheckCircle2,
   ExternalLink,
   Gift,
+  Heart,
   MapPin,
   UsersRound,
 } from 'lucide-react';
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../shared/api/client';
+import { resolveApiMediaUrl } from '../shared/api/media';
 import { useAsync } from '../shared/hooks/useAsync';
 import type { ActivityItem, Recruitment } from '../shared/types/domain';
 import { PageState } from '../shared/ui/PageState';
@@ -31,17 +35,25 @@ export function InfoDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const result = useAsync(async () => {
-    const [activity, recruitments] = await Promise.all([
+    const [activity, recruitments, favoriteIds] = await Promise.all([
       api<ActivityItem>(`/api/activities/${id}`),
       api<Recruitment[]>(`/api/activities/${id}/recruitments`),
+      api<number[]>('/api/favorite-activities/ids'),
     ]);
-    return { activity, recruitments };
+    return { activity, recruitments, favoriteIds };
   }, [id]);
+  const [favoriteBusy, setFavoriteBusy] = useState(false);
 
   if (result.loading || result.error || !result.data) return <PageState loading={result.loading} error={result.error} />;
-  const { activity, recruitments } = result.data;
+  const { activity, recruitments, favoriteIds } = result.data;
+  const isFavorite = favoriteIds.includes(activity.activity_id);
+  const toggleFavorite = async () => {
+    setFavoriteBusy(true);
+    try { await api(`/api/favorite-activities/${activity.activity_id}`, { method: isFavorite ? 'DELETE' : 'POST' }); await result.reload(); }
+    finally { setFavoriteBusy(false); }
+  };
   const externalUrl = activity.official_url || activity.source_url;
-  const imageUrl = activity.main_image_url?.replace('10.0.2.2', 'localhost');
+  const imageUrl = resolveApiMediaUrl(activity.main_image_url);
   const rawDetails = String(activity.details || '');
   const formattedDetails = formatEditorialCopy(
     rawDetails.startsWith(activity.title) ? rawDetails.slice(activity.title.length) : rawDetails,
@@ -92,11 +104,12 @@ export function InfoDetailPage() {
           <div className="deadline-line"><span>접수 시작</span><strong>{formatDate(activity.application_period_start)}</strong></div>
           <div className="deadline-line"><span>접수 마감</span><strong>{formatDate(activity.application_period_end)}</strong></div>
           {externalUrl && <a className="primary-button" href={externalUrl} target="_blank" rel="noreferrer">지원 페이지 열기 <ArrowUpRight size={16} /></a>}
+          <button className={`favorite-button ${isFavorite ? 'active' : ''}`} disabled={favoriteBusy} onClick={toggleFavorite}><Heart /> {isFavorite ? '관심 활동에서 제거' : '관심 활동에 저장'}</button>
         </section>
 
         <section className="related-recruitments">
           <div className="aside-title"><div><span className="eyebrow">TEAM UP</span><h3>함께 준비할 팀</h3></div><em>{recruitments.length}</em></div>
-          {recruitments.length ? recruitments.slice(0, 5).map((item) => <div className="aside-recruitment" key={item.recruitment_id}><span><UsersRound /></span><div><strong>{item.post_name}</strong><small>{item.meeting_type || '방식 협의'} · {item.required_members || '-'}명 모집</small></div></div>) : <p className="aside-empty">아직 모집 중인 팀이 없습니다.</p>}
+          {recruitments.length ? recruitments.slice(0, 5).map((item) => <Link to={`/matching/${item.recruitment_id}`} className="aside-recruitment" key={item.recruitment_id}><span><UsersRound /></span><div><strong>{item.post_name}</strong><small>{item.meeting_type || '방식 협의'} · {item.required_members || '-'}명 모집</small></div></Link>) : <p className="aside-empty">아직 모집 중인 팀이 없습니다.</p>}
         </section>
 
         <section className="reading-guide"><CheckCircle2 /><div><strong>읽기 전 확인하세요</strong><p>접수 일정과 자격 조건은 주최기관 사정에 따라 바뀔 수 있으니 공식 공고를 함께 확인해주세요.</p></div></section>

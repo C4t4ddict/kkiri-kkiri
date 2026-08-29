@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../app/AuthContext';
 import { api } from '../shared/api/client';
 import { useAsync } from '../shared/hooks/useAsync';
@@ -158,6 +158,11 @@ export function ActivityPage() {
 
   return <>
     <PageTitle eyebrow="MY ACTIVITY" title="나의 활동" description="공모전과 기업 커리큘럼을 같은 방식으로 실행하고 기록하세요." />
+    {active.error && <div className="home-data-error"><div><strong>참여 중인 활동을 불러오지 못했습니다.</strong><span>{active.error}</span></div></div>}
+    {Boolean(active.data?.length) && <section className="active-activity-picker">
+      <div className="active-activity-picker-label"><span><BriefcaseBusiness /></span><div><strong>현재 참여 중인 활동 선택</strong><small>선택하면 목표·진행률·공지가 해당 활동 기준으로 바뀝니다.</small></div></div>
+      <label><span className="sr-only">현재 활동</span><select value={selectedId || ''} onChange={(event) => setSelectedId(Number(event.target.value))}>{active.data?.map((team) => <option value={team.team_id} key={team.team_id}>{team.team_name} · {team.source_type === 'ENTERPRISE_CURRICULUM' ? '기업 커리큘럼' : '공모전'}</option>)}</select></label>
+    </section>}
     {!active.data?.length ? <section className="activity-empty-panel"><Sparkles /><h2>진행 중인 활동이 없습니다</h2><p>공모전 팀에 참여하거나 기업 커리큘럼을 내 활동으로 추가해보세요.</p><a className="primary-button" href="/curricula">기업 커리큘럼 둘러보기</a></section> : <div className="workspace-layout">
       <aside className="workspace-list">
         <div className="workspace-list-head"><span>진행 중인 활동</span><strong>{active.data.length}</strong></div>
@@ -177,6 +182,7 @@ export function ActivityPage() {
             <div><span className={`source-pill ${selected?.source_type === 'ENTERPRISE_CURRICULUM' ? 'enterprise' : ''}`}>{selected?.source_type === 'ENTERPRISE_CURRICULUM' ? '기업 커리큘럼' : '공모전 활동'} · {selected?.participation_mode === 'PERSONAL' ? '개인' : '팀'}</span><h2>{selected?.team_name}</h2><p>{selected?.part || '역할 설정 전'} · {selected?.due_date ? `${new Date(selected.due_date).toLocaleDateString('ko-KR')}까지` : '종료일 미정'}</p></div>
             <div className="workspace-people"><span>{selected?.participation_mode === 'PERSONAL' ? <Target /> : <UsersRound />}</span><div><strong>{selected?.participation_mode === 'PERSONAL' ? '개인 활동' : '팀 활동'}</strong><small>{selected?.visibility === 'RECRUITING' ? '팀원 모집 중' : '실행 중'}</small></div></div>
           </div>
+          <div className="workspace-manage-row"><span>현재 선택된 활동의 팀원 목표와 역할·프로젝트명을 관리할 수 있습니다.</span><Link to={`/activity/${selectedId}/manage`}><UsersRound /> 팀원 목표·활동 설정</Link></div>
           <div className="workspace-progress-grid">
             <div className="dashboard-ring" style={{ '--progress': `${overallProgress * 3.6}deg` } as CSSProperties}><div><strong>{overallProgress}%</strong><span>전체 완료</span></div></div>
             <div className="progress-copy"><span className="eyebrow">THIS MONTH</span><h3>{overallProgress >= 70 ? '완주가 가까워지고 있어요' : overallProgress >= 30 ? '좋은 흐름으로 성장 중이에요' : '오늘의 작은 목표부터 시작해요'}</h3><p>{uniqueGoals.filter((goal) => goal.status === '완료').length}개를 완료했고 {uniqueGoals.filter((goal) => goal.status !== '완료').length}개 목표가 남아 있습니다.</p><div className="mini-progress"><span style={{ width: `${startedProgress}%` }} /><em>{startedProgress}% 실행 시작</em></div></div>

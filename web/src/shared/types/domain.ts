@@ -4,8 +4,13 @@ export type User = {
   name: string;
   department?: string;
   studentId?: string;
+  birth?: string;
+  self_intro?: string;
   profile_picture?: string;
   is_admin?: boolean;
+  email_verified?: boolean;
+  account_type?: 'STUDENT' | 'GENERAL';
+  school_name?: string | null;
 };
 
 export type ActivityItem = {
@@ -27,6 +32,10 @@ export type ActivityItem = {
   prize_details?: string;
   official_url?: string;
   source_url?: string;
+  source_name?: string;
+  recent_view_count?: number;
+  favorite_count?: number;
+  popularity_score?: number;
   open_recruitment_count?: number;
 };
 
@@ -90,6 +99,7 @@ export type CurriculumPlan = {
 export type TeamSummary = {
   team_id: number;
   team_name: string;
+  leader_user_id?: number;
   part?: string;
   role?: string;
   due_date?: string;
@@ -122,12 +132,23 @@ export type TeamNotice = {
 
 export type Recruitment = {
   recruitment_id: number;
+  owner_user_id?: number;
+  activity_id?: number;
   post_name: string;
   activity_name?: string;
   activity_type?: string;
   meeting_type?: string;
   required_members?: number;
   activity_period?: string;
+  activity_start_date?: string;
+  activity_end_date?: string;
+  qualification_department?: string;
+  recruitment_scope?: 'NATIONWIDE' | 'SCHOOL';
+  memo?: string;
+  status?: string;
+  application_count?: number;
+  can_edit?: number | boolean;
+  created_at?: string;
   curriculum_id?: number;
   activity_organizer?: string;
 };
@@ -159,4 +180,55 @@ export type ApplicationTemplate = {
   title: string;
   content: string;
   is_default: number | boolean;
+};
+
+export type NotificationItem = {
+  notification_id: number;
+  type: 'notice' | 'notice_comment' | 'team_invitation' | 'developer_reply';
+  title: string;
+  content: string;
+  is_read: number | boolean;
+  created_at: string;
+  team_id?: number | null;
+  offer_id?: number | null;
+  offer_status?: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'CANCELED' | null;
+};
+
+export type PastActivity = {
+  portfolio_id: number;
+  team_id: number;
+  activity_name: string;
+  activity_type: string;
+  role: string;
+  period: string;
+  completed_task_count: number;
+  archived_at: string;
+};
+
+export type Portfolio = PastActivity & {
+  user_name: string;
+  department?: string;
+  summary: string;
+  member_count: number;
+  achievements?: string[];
+  reflection?: string;
+  image_urls?: string[];
+  links?: Array<{ title?: string; url: string }>;
+  completed_tasks: Record<'monthly' | 'weekly' | 'daily' | 'overall', Todo[]>;
+};
+
+export type AwardItem = {
+  award_id?: number | null;
+  portfolio_id: number;
+  team_id: number;
+  activity_name: string;
+  activity_type: string;
+  period?: string | null;
+  is_recorded: boolean;
+  is_awarded: boolean;
+  award_title?: string | null;
+  has_prize: boolean;
+  prize_amount: number;
+  tax_applied: boolean;
+  net_prize_amount: number;
 };
