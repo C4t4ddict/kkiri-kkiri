@@ -109,6 +109,10 @@ export type TeamSummary = {
   source_version_id?: number;
   participation_mode?: 'PERSONAL' | 'TEAM';
   visibility?: 'PRIVATE' | 'RECRUITING' | 'CLOSED';
+  activity_category?: string;
+  topic_category?: string;
+  activity_image_url?: string;
+  source_name?: string;
 };
 
 export type Todo = {
@@ -124,10 +128,33 @@ export type Todo = {
 
 export type TeamNotice = {
   notice_id: number;
+  author_id: number;
   title: string;
   content: string;
   author_name?: string;
   created_at: string;
+  updated_at?: string;
+};
+
+export type HeatmapDay = {
+  date: string;
+  count: number;
+};
+
+export type TeamIssue = {
+  issue_id: number;
+  team_id: number;
+  reporter_id: number;
+  assignee_id?: number | null;
+  reporter_name?: string;
+  assignee_name?: string;
+  title: string;
+  description?: string;
+  status: 'OPEN' | 'IN_PROGRESS' | 'DONE';
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
+  due_date?: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type Recruitment = {

@@ -6,11 +6,15 @@ import {
   ChevronRight,
   Circle,
   Clock3,
+  Edit3,
   Flame,
   Plus,
+  Save,
   Sparkles,
   Target,
+  Trash2,
   UsersRound,
+  X,
 } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
@@ -18,7 +22,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../app/AuthContext';
 import { api } from '../shared/api/client';
 import { useAsync } from '../shared/hooks/useAsync';
-import type { TeamNotice, TeamSummary, Todo } from '../shared/types/domain';
+import type { HeatmapDay, TeamNotice, TeamSummary, Todo } from '../shared/types/domain';
 import { PageState } from '../shared/ui/PageState';
 import { PageTitle } from '../shared/ui/PageTitle';
 
@@ -63,9 +67,13 @@ export function ActivityPage() {
   const active = useAsync(() => api<TeamSummary[]>('/my-teams'), []);
   const [selectedId, setSelectedId] = useState<number | null>(() => Number(searchParams.get('team')) || null);
   const [scope, setScope] = useState<GoalScope>('일일');
+  const [category, setCategory] = useState('전체');
   const [newGoal, setNewGoal] = useState('');
   const [noticeTitle, setNoticeTitle] = useState('');
   const [noticeContent, setNoticeContent] = useState('');
+  const [editingNoticeId, setEditingNoticeId] = useState<number | null>(null);
+  const [editingNoticeTitle, setEditingNoticeTitle] = useState('');
+  const [editingNoticeContent, setEditingNoticeContent] = useState('');
   const [saving, setSaving] = useState(false);
   const ranges = useMemo(currentRanges, []);
 
@@ -89,8 +97,21 @@ export function ActivityPage() {
     () => selectedId ? api<TeamNotice[]>(`/teams/${selectedId}/notices?limit=6`) : Promise.resolve([]),
     [selectedId],
   );
+  const heatmap = useAsync(
+    () => selectedId
+      ? api<HeatmapDay[]>(`/teams/${selectedId}/heatmap?year=${new Date().getFullYear()}&month=${new Date().getMonth() + 1}`)
+      : Promise.resolve([]),
+    [selectedId],
+  );
 
   const selected = active.data?.find((team) => team.team_id === selectedId) || null;
+  const categories = useMemo(() => ['전체', ...new Set((active.data || []).map((team) => team.activity_category || (team.source_type === 'ENTERPRISE_CURRICULUM' ? '기업 커리큘럼' : '팀 활동')))], [active.data]);
+  const filteredTeams = useMemo(() => (active.data || []).filter((team) => category === '전체' || (team.activity_category || (team.source_type === 'ENTERPRISE_CURRICULUM' ? '기업 커리큘럼' : '팀 활동')) === category), [active.data, category]);
+  useEffect(() => {
+    if (filteredTeams.length && !filteredTeams.some((team) => team.team_id === selectedId)) {
+      setSelectedId(filteredTeams[0].team_id);
+    }
+  }, [filteredTeams, selectedId]);
   const allGoals = useMemo(() => goals.data ? [...goals.data.월간, ...goals.data.주간, ...goals.data.일일] : [], [goals.data]);
   const uniqueGoals = useMemo(() => [...new Map(allGoals.map((goal) => [goal.todo_id, goal])).values()], [allGoals]);
   const overallProgress = progressOf(uniqueGoals);
@@ -146,6 +167,36 @@ export function ActivityPage() {
     }
   };
 
+  const beginEditNotice = (notice: TeamNotice) => {
+    setEditingNoticeId(notice.notice_id);
+    setEditingNoticeTitle(notice.title);
+    setEditingNoticeContent(notice.content);
+  };
+
+  const saveNotice = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selectedId || !editingNoticeId || !editingNoticeTitle.trim() || !editingNoticeContent.trim()) return;
+    setSaving(true);
+    try {
+      await api(`/teams/${selectedId}/notices/${editingNoticeId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ title: editingNoticeTitle.trim(), content: editingNoticeContent.trim() }),
+      });
+      setEditingNoticeId(null);
+      await notices.reload();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteNotice = async (noticeId: number) => {
+    // eslint-disable-next-line no-alert
+    if (!selectedId || !window.confirm(selected?.participation_mode === 'PERSONAL' ? '이 학습 메모를 삭제할까요?' : '이 공지를 삭제할까요?')) return;
+    await api(`/teams/${selectedId}/notices/${noticeId}`, { method: 'DELETE' });
+    if (editingNoticeId === noticeId) setEditingNoticeId(null);
+    await notices.reload();
+  };
+
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => {
     const date = new Date(ranges.weekStart);
     date.setDate(ranges.weekStart.getDate() + index);
@@ -163,10 +214,11 @@ export function ActivityPage() {
       <div className="active-activity-picker-label"><span><BriefcaseBusiness /></span><div><strong>현재 참여 중인 활동 선택</strong><small>선택하면 목표·진행률·공지가 해당 활동 기준으로 바뀝니다.</small></div></div>
       <label><span className="sr-only">현재 활동</span><select value={selectedId || ''} onChange={(event) => setSelectedId(Number(event.target.value))}>{active.data?.map((team) => <option value={team.team_id} key={team.team_id}>{team.team_name} · {team.source_type === 'ENTERPRISE_CURRICULUM' ? '기업 커리큘럼' : '공모전'}</option>)}</select></label>
     </section>}
+    {Boolean(active.data?.length) && <div className="activity-category-tabs" aria-label="활동 카테고리">{categories.map((item) => <button className={category === item ? 'active' : ''} onClick={() => setCategory(item)} key={item}>{item}<span>{item === '전체' ? active.data?.length : active.data?.filter((team) => (team.activity_category || (team.source_type === 'ENTERPRISE_CURRICULUM' ? '기업 커리큘럼' : '팀 활동')) === item).length}</span></button>)}</div>}
     {!active.data?.length ? <section className="activity-empty-panel"><Sparkles /><h2>진행 중인 활동이 없습니다</h2><p>공모전 팀에 참여하거나 기업 커리큘럼을 내 활동으로 추가해보세요.</p><a className="primary-button" href="/curricula">기업 커리큘럼 둘러보기</a></section> : <div className="workspace-layout">
       <aside className="workspace-list">
-        <div className="workspace-list-head"><span>진행 중인 활동</span><strong>{active.data.length}</strong></div>
-        {active.data.map((team) => {
+        <div className="workspace-list-head"><span>{category === '전체' ? '진행 중인 활동' : category}</span><strong>{filteredTeams.length}</strong></div>
+        {filteredTeams.map((team) => {
           const enterprise = team.source_type === 'ENTERPRISE_CURRICULUM';
           return <button className={team.team_id === selectedId ? 'active' : ''} onClick={() => setSelectedId(team.team_id)} key={team.team_id}>
             <span className={`workspace-icon ${enterprise ? 'enterprise' : ''}`}>{enterprise ? <Sparkles /> : <BriefcaseBusiness />}</span>
@@ -195,6 +247,15 @@ export function ActivityPage() {
           <div className="week-bars">{weekDays.map((day) => <div className={day.today ? 'today' : ''} key={day.key}><div className="week-bar-track"><span style={{ height: `${day.items.length ? Math.max(10, day.percent) : 4}%` }} /></div><strong>{day.label}</strong><small>{day.date}</small></div>)}</div>
         </section>
 
+        <section className="activity-heatmap-card">
+          <div className="dashboard-section-head"><div><span className="eyebrow">LEARNING HEATMAP</span><h3>{selected?.source_type === 'ENTERPRISE_CURRICULUM' ? '커리큘럼 학습 히트맵' : '활동 실행 히트맵'}</h3></div><span>{new Date().getFullYear()}년 {new Date().getMonth() + 1}월</span></div>
+          <div className="activity-heatmap-weekdays">{['월', '화', '수', '목', '금', '토', '일'].map((day) => <span key={day}>{day}</span>)}</div>
+          <div className="activity-heatmap-grid">
+            {heatmap.data?.map((day, index) => <span className={`heat-${Math.min(day.count, 4)}`} title={`${day.date} · 완료 ${day.count}개`} key={day.date} style={index === 0 ? { gridColumnStart: (new Date(`${day.date}T00:00:00`).getDay() + 6) % 7 + 1 } : undefined}><em>{Number(day.date.slice(-2))}</em></span>)}
+          </div>
+          <div className="activity-heatmap-legend"><span>적음</span>{[0, 1, 2, 3, 4].map((level) => <i className={`heat-${level}`} key={level} />)}<span>많음</span></div>
+        </section>
+
         <div className="activity-dashboard-grid">
           <section className="goal-board">
             <div className="dashboard-section-head"><div><span className="eyebrow">GOALS</span><h3>목표 관리</h3></div><div className="goal-scope-tabs">{(['일일', '주간', '월간'] as GoalScope[]).map((item) => <button className={scope === item ? 'active' : ''} onClick={() => setScope(item)} key={item}>{item}</button>)}</div></div>
@@ -205,7 +266,7 @@ export function ActivityPage() {
           <section className="notice-board-web">
             <div className="dashboard-section-head"><div><span className="eyebrow">NOTICE & MEMO</span><h3>{selected?.participation_mode === 'PERSONAL' ? '나의 메모' : '팀 공지'}</h3></div><BellRing /></div>
             <form className="notice-quick-form" onSubmit={addNotice}><input value={noticeTitle} onChange={(event) => setNoticeTitle(event.target.value)} placeholder="제목" /><textarea value={noticeContent} onChange={(event) => setNoticeContent(event.target.value)} placeholder={selected?.participation_mode === 'PERSONAL' ? '학습 중 기억할 내용을 남겨보세요.' : '팀원에게 알릴 내용을 남겨보세요.'} rows={3} /><button disabled={saving || !noticeTitle.trim() || !noticeContent.trim()}>등록</button></form>
-            <div className="notice-list-web">{notices.data?.length ? notices.data.map((notice) => <article key={notice.notice_id}><div><strong>{notice.title}</strong><p>{notice.content}</p></div><small>{new Date(notice.created_at).toLocaleDateString('ko-KR')} · {notice.author_name || user?.name}</small></article>) : <div className="notice-empty"><BellRing /><p>아직 작성된 내용이 없습니다.</p></div>}</div>
+            <div className="notice-list-web">{notices.data?.length ? notices.data.map((notice) => <article key={notice.notice_id}>{editingNoticeId === notice.notice_id ? <form className="notice-edit-form" onSubmit={saveNotice}><input value={editingNoticeTitle} onChange={(event) => setEditingNoticeTitle(event.target.value)} aria-label="메모 제목" /><textarea rows={4} value={editingNoticeContent} onChange={(event) => setEditingNoticeContent(event.target.value)} aria-label="메모 내용" /><div><button type="button" onClick={() => setEditingNoticeId(null)}><X /> 취소</button><button disabled={saving}><Save /> 저장</button></div></form> : <><div className="notice-item-head"><strong>{notice.title}</strong>{Number(notice.author_id) === user?.id && <span><button aria-label="수정" onClick={() => beginEditNotice(notice)}><Edit3 /></button><button aria-label="삭제" onClick={() => deleteNotice(notice.notice_id)}><Trash2 /></button></span>}</div><p>{notice.content}</p><small>{new Date(notice.created_at).toLocaleDateString('ko-KR')} · {notice.author_name || user?.name}{notice.updated_at && notice.updated_at !== notice.created_at ? ' · 수정됨' : ''}</small></>}</article>) : <div className="notice-empty"><BellRing /><p>아직 작성된 내용이 없습니다.</p></div>}</div>
           </section>
         </div>
       </div>

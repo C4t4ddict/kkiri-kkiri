@@ -82,7 +82,6 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const BCRYPT_SALT_ROUNDS = 10;
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
-const FALLBACK_UPLOAD_IMAGES = ['info1.png', 'info2.png', 'info3.png', 'info4.png', 'info5.png'];
 
 const isPasswordValid = (inputPassword, savedPassword) => {
   if (!savedPassword) {
@@ -101,7 +100,7 @@ const hashPassword = (password) => bcrypt.hashSync(password, BCRYPT_SALT_ROUNDS)
 const normalizeLocalUrl = (url) =>
   url ? url.replace('http://localhost:3000', 'http://10.0.2.2:3000') : url;
 
-const getActivityImageUrl = (url, activityId) => {
+const getActivityImageUrl = (url) => {
   const normalizedUrl = normalizeLocalUrl(url);
 
   if (!normalizedUrl) {
@@ -121,8 +120,7 @@ const getActivityImageUrl = (url, activityId) => {
     return normalizedUrl;
   }
 
-  const fallbackIndex = Math.abs((Number(activityId) || 1) - 1) % FALLBACK_UPLOAD_IMAGES.length;
-  return `http://10.0.2.2:3000/uploads/${FALLBACK_UPLOAD_IMAGES[fallbackIndex]}`;
+  return null;
 };
 
 const normalizeActivity = (activity) => {
@@ -146,7 +144,7 @@ const normalizeActivity = (activity) => {
   return {
     ...activity,
     source_categories: Array.isArray(sourceCategories) ? sourceCategories : [],
-    main_image_url: getActivityImageUrl(activity.main_image_url, activity.activity_id),
+    main_image_url: getActivityImageUrl(activity.main_image_url),
     prize_details: activity.prize_details || extractPrizeDetails(activity.details),
     prize_summary: extractPrizeSummary(activity.prize_details || activity.details),
   };
@@ -388,6 +386,21 @@ const ensureActivityTables = () => {
       PRIMARY KEY (user_id, activity_id),
       INDEX idx_favorite_activities_user_created (user_id, created_at),
       INDEX idx_favorite_activities_activity (activity_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS team_issues (
+      issue_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      team_id INT NOT NULL,
+      reporter_id INT NOT NULL,
+      assignee_id INT NULL,
+      title VARCHAR(180) NOT NULL,
+      description TEXT NULL,
+      status VARCHAR(24) NOT NULL DEFAULT 'OPEN',
+      priority VARCHAR(16) NOT NULL DEFAULT 'MEDIUM',
+      due_date DATE NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_team_issues_team_status (team_id, status, updated_at),
+      INDEX idx_team_issues_assignee (assignee_id, status)
     )`,
   ];
 
@@ -2877,9 +2890,21 @@ app.get('/my-teams', (req, res) => {
 
   const sql = `
     SELECT t.team_id, t.team_name, tm.part, t.leader_user_id, t.due_date, t.activity_status,
-           t.source_type, t.source_id, t.source_version_id, t.participation_mode, t.visibility
+           t.source_type, t.source_id, t.source_version_id, t.participation_mode, t.visibility,
+           CASE
+             WHEN t.source_type = 'ENTERPRISE_CURRICULUM' THEN '기업 커리큘럼'
+             ELSE COALESCE(a.category, tr.activity_type, '팀 활동')
+           END AS activity_category,
+           COALESCE(a.topic_category, c.role_title) AS topic_category,
+           COALESCE(a.main_image_url, c.cover_image_url) AS activity_image_url,
+           COALESCE(a.source_name, o.name) AS source_name
     FROM team_members tm
     JOIN teams t ON t.team_id = tm.team_id
+    LEFT JOIN team_recruitments tr ON tr.recruitment_id = t.recruitment_id
+    LEFT JOIN activitys a ON t.source_type <> 'ENTERPRISE_CURRICULUM'
+      AND a.activity_id = COALESCE(t.source_id, tr.activity_id)
+    LEFT JOIN enterprise_curricula c ON c.curriculum_id = CASE WHEN t.source_type = 'ENTERPRISE_CURRICULUM' THEN t.source_id ELSE NULL END
+    LEFT JOIN enterprise_organizations o ON o.organization_id = c.organization_id
     WHERE tm.user_id = ?
       AND t.activity_status = 'IN_PROGRESS'
       AND t.status <> 'ARCHIVED'
@@ -3093,7 +3118,8 @@ app.get('/teams/:teamId/members', (req, res) => {
     SELECT
       u.id AS user_id,
       u.name,
-      tm.part
+      tm.part,
+      tm.role
     FROM team_members requester
     JOIN team_members tm ON tm.team_id = requester.team_id
     JOIN users u ON u.id = tm.user_id
@@ -3255,6 +3281,25 @@ app.put('/teams/:teamId/notices/:noticeId', (req, res) => {
       if (!result.affectedRows) return res.status(403).json({ message: '작성자만 공지사항을 수정할 수 있습니다' });
       res.json({ success: true });
     }
+  );
+});
+
+app.delete('/teams/:teamId/notices/:noticeId', (req, res) => {
+  const userId = getRequestUserId(req);
+  const { teamId, noticeId } = req.params;
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+
+  db.query(
+    `DELETE n FROM team_notices n
+     JOIN teams t ON t.team_id = n.team_id
+     WHERE n.notice_id = ? AND n.team_id = ?
+       AND (n.author_id = ? OR t.leader_user_id = ?)`,
+    [noticeId, teamId, userId, userId],
+    (err, result) => {
+      if (err) return res.status(500).json({ message: '서버 오류' });
+      if (!result.affectedRows) return res.status(403).json({ message: '작성자 또는 팀장만 삭제할 수 있습니다' });
+      res.json({ success: true });
+    },
   );
 });
 
@@ -3494,6 +3539,7 @@ app.get('/teams/:teamId/calendar', async (req, res) => {
 });
 
 app.get('/teams/:teamId/heatmap', (req, res) => {
+  const userId = getRequestUserId(req);
   const { teamId } = req.params;
   const requestedYear = Number(req.query.year);
   const requestedMonth = Number(req.query.month);
@@ -3508,6 +3554,8 @@ app.get('/teams/:teamId/heatmap', (req, res) => {
   const nextMonthStart = new Date(year, month, 1);
   const monthStartKey = formatDateOnly(monthStart);
   const nextMonthStartKey = formatDateOnly(nextMonthStart);
+
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
 
   const buildMonthHeatmap = (countByDate = new Map()) => {
     const start = new Date(year, month - 1, 1);
@@ -3534,8 +3582,11 @@ app.get('/teams/:teamId/heatmap', (req, res) => {
     SELECT
       DATE(COALESCE(completed_at, updated_at)) AS activity_date,
       COUNT(*) AS count
-    FROM todos
-    WHERE team_id = ?
+    FROM todos td
+    WHERE td.team_id = ?
+      AND EXISTS (
+        SELECT 1 FROM team_members tm WHERE tm.team_id = td.team_id AND tm.user_id = ?
+      )
       AND status = '완료'
       AND COALESCE(completed_at, updated_at) >= ?
       AND COALESCE(completed_at, updated_at) < ?
@@ -3543,7 +3594,7 @@ app.get('/teams/:teamId/heatmap', (req, res) => {
     ORDER BY activity_date ASC
   `;
 
-  db.query(sql, [teamId, monthStartKey, nextMonthStartKey], (err, results) => {
+  db.query(sql, [teamId, userId, monthStartKey, nextMonthStartKey], (err, results) => {
     if (err) {
       console.error('히트맵 조회 오류:', err);
       return res.status(500).json({ message: '서버 오류' });
@@ -3961,6 +4012,114 @@ app.delete('/todos/:todoId', (req, res) => {
   });
 });
 
+app.get('/teams/:teamId/issues', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const teamId = Number(req.params.teamId);
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!teamId) return res.status(400).json({ message: '활동 정보가 올바르지 않습니다' });
+
+  try {
+    const [rows] = await portfolioDb.query(
+      `SELECT i.issue_id, i.team_id, i.reporter_id, i.assignee_id, i.title, i.description,
+        i.status, i.priority, i.due_date, i.created_at, i.updated_at,
+        reporter.name AS reporter_name, assignee.name AS assignee_name
+       FROM team_issues i
+       JOIN team_members requester ON requester.team_id = i.team_id AND requester.user_id = ?
+       LEFT JOIN users reporter ON reporter.id = i.reporter_id
+       LEFT JOIN users assignee ON assignee.id = i.assignee_id
+       WHERE i.team_id = ?
+       ORDER BY FIELD(i.status, 'OPEN', 'IN_PROGRESS', 'DONE'),
+         FIELD(i.priority, 'HIGH', 'MEDIUM', 'LOW'), i.updated_at DESC`,
+      [userId, teamId],
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error('팀 이슈 조회 오류:', error);
+    res.status(500).json({ message: '이슈를 불러오지 못했습니다' });
+  }
+});
+
+app.post('/teams/:teamId/issues', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const teamId = Number(req.params.teamId);
+  const title = String(req.body?.title || '').trim();
+  const description = String(req.body?.description || '').trim();
+  const assigneeId = Number(req.body?.assignee_id) || null;
+  const priority = ['LOW', 'MEDIUM', 'HIGH'].includes(req.body?.priority) ? req.body.priority : 'MEDIUM';
+  const dueDate = req.body?.due_date || null;
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!teamId || !title) return res.status(400).json({ message: '이슈 제목을 입력해주세요' });
+
+  try {
+    const [members] = await portfolioDb.query(
+      'SELECT user_id FROM team_members WHERE team_id = ? AND user_id IN (?, ?)',
+      [teamId, userId, assigneeId || userId],
+    );
+    const memberIds = new Set(members.map((member) => Number(member.user_id)));
+    if (!memberIds.has(userId) || (assigneeId && !memberIds.has(assigneeId))) {
+      return res.status(403).json({ message: '같은 팀의 팀원에게만 이슈를 할당할 수 있습니다' });
+    }
+    const [result] = await portfolioDb.query(
+      `INSERT INTO team_issues
+        (team_id, reporter_id, assignee_id, title, description, priority, due_date)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [teamId, userId, assigneeId, title.slice(0, 180), description || null, priority, dueDate],
+    );
+    res.status(201).json({ issue_id: result.insertId });
+  } catch (error) {
+    console.error('팀 이슈 생성 오류:', error);
+    res.status(500).json({ message: '이슈를 등록하지 못했습니다' });
+  }
+});
+
+app.put('/teams/:teamId/issues/:issueId', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const teamId = Number(req.params.teamId);
+  const issueId = Number(req.params.issueId);
+  const status = String(req.body?.status || '');
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!['OPEN', 'IN_PROGRESS', 'DONE'].includes(status)) {
+    return res.status(400).json({ message: '올바른 이슈 상태가 필요합니다' });
+  }
+
+  try {
+    const [result] = await portfolioDb.query(
+      `UPDATE team_issues i
+       JOIN team_members tm ON tm.team_id = i.team_id AND tm.user_id = ?
+       SET i.status = ?
+       WHERE i.issue_id = ? AND i.team_id = ?`,
+      [userId, status, issueId, teamId],
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: '이슈를 찾을 수 없습니다' });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('팀 이슈 수정 오류:', error);
+    res.status(500).json({ message: '이슈 상태를 변경하지 못했습니다' });
+  }
+});
+
+app.delete('/teams/:teamId/issues/:issueId', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const teamId = Number(req.params.teamId);
+  const issueId = Number(req.params.issueId);
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+
+  try {
+    const [result] = await portfolioDb.query(
+      `DELETE i FROM team_issues i
+       JOIN teams t ON t.team_id = i.team_id
+       WHERE i.issue_id = ? AND i.team_id = ?
+         AND (i.reporter_id = ? OR t.leader_user_id = ?)`,
+      [issueId, teamId, userId, userId],
+    );
+    if (!result.affectedRows) return res.status(403).json({ message: '작성자 또는 팀장만 삭제할 수 있습니다' });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('팀 이슈 삭제 오류:', error);
+    res.status(500).json({ message: '이슈를 삭제하지 못했습니다' });
+  }
+});
+
 app.put('/team-members/:teamId/part', (req, res) => {
   const userId = getRequestUserId(req);
   const { teamId } = req.params;
@@ -3990,6 +4149,30 @@ app.put('/team-members/:teamId/part', (req, res) => {
       res.json({ success: true, part });
     }
   );
+});
+
+app.put('/teams/:teamId/members/:memberId/part', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const teamId = Number(req.params.teamId);
+  const memberId = Number(req.params.memberId);
+  const part = String(req.body?.part || '').trim();
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!teamId || !memberId || !part) return res.status(400).json({ message: '팀원과 역할을 입력해주세요' });
+
+  try {
+    const [result] = await portfolioDb.query(
+      `UPDATE team_members tm
+       JOIN teams t ON t.team_id = tm.team_id
+       SET tm.part = ?
+       WHERE tm.team_id = ? AND tm.user_id = ? AND t.leader_user_id = ?`,
+      [part.slice(0, 120), teamId, memberId, userId],
+    );
+    if (!result.affectedRows) return res.status(403).json({ message: '팀장만 팀원 역할을 변경할 수 있습니다' });
+    res.json({ success: true, part });
+  } catch (error) {
+    console.error('팀원 역할 분배 오류:', error);
+    res.status(500).json({ message: '팀원 역할을 저장하지 못했습니다' });
+  }
 });
 
 app.put('/teams/:teamId/name', (req, res) => {
@@ -4718,11 +4901,12 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
       (SELECT COUNT(*) FROM (
         SELECT LOWER(TRIM(title)) AS normalized_title
         FROM activitys
-        WHERE COALESCE(title, '') <> ''
+        WHERE COALESCE(title, '') <> '' AND COALESCE(source_name, '') <> 'local-demo'
         GROUP BY LOWER(TRIM(title))
         HAVING COUNT(*) > 1
       ) duplicates) AS duplicate_group_count
-    FROM activitys`),
+    FROM activitys
+    WHERE COALESCE(source_name, '') <> 'local-demo'`),
     portfolioDb.query(`SELECT run_id, source_name, status, discovered_count, saved_count, error_count,
       started_at, finished_at FROM crawler_runs ORDER BY started_at DESC LIMIT 10`),
     portfolioDb.query(`SELECT error_id, run_id, source_name, source_item_id, source_url, stage,
@@ -4750,6 +4934,8 @@ app.get('/api/admin/activities', requireAdmin, async (req, res) => {
   const search = String(req.query.search || '').trim();
   const conditions = [];
   const values = [];
+
+  conditions.push("COALESCE(a.source_name, '') <> 'local-demo'");
 
   if (quality === 'missing_image') conditions.push("COALESCE(a.main_image_url, '') = ''");
   else if (quality === 'hidden') conditions.push('a.is_hidden = 1');

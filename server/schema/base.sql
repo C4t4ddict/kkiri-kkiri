@@ -200,6 +200,22 @@ CREATE TABLE IF NOT EXISTS notice_comments (
   INDEX idx_notice_comments_notice_created (notice_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS team_issues (
+  issue_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  team_id INT NOT NULL,
+  reporter_id INT NOT NULL,
+  assignee_id INT NULL,
+  title VARCHAR(180) NOT NULL,
+  description TEXT NULL,
+  status VARCHAR(24) NOT NULL DEFAULT 'OPEN',
+  priority VARCHAR(16) NOT NULL DEFAULT 'MEDIUM',
+  due_date DATE NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_team_issues_team_status (team_id, status, updated_at),
+  INDEX idx_team_issues_assignee (assignee_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS user_notifications (
   notification_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,

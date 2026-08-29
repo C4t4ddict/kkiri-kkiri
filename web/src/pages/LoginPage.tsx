@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { CalendarCheck2, Sparkles, Target, UsersRound } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../app/AuthContext';
 import { api } from '../shared/api/client';
@@ -34,6 +34,13 @@ export function LoginPage() {
       <div className="brand-mark"><Sparkles size={24} /></div>
       <p>KKIRI KKIRI</p>
       <h1>함께할 사람을 찾고,<br />성장한 기록을 남겨요.</h1>
+      <div className="login-activity-motion" aria-hidden="true">
+        <div className="motion-core"><Sparkles /><span>함께 성장 중</span></div>
+        <div className="motion-orbit orbit-team"><UsersRound /><span>팀 매칭</span></div>
+        <div className="motion-orbit orbit-goal"><Target /><span>목표 달성</span></div>
+        <div className="motion-orbit orbit-calendar"><CalendarCheck2 /><span>활동 기록</span></div>
+        <i className="motion-path path-one" /><i className="motion-path path-two" />
+      </div>
       <div className="login-rings"><span /><span /><span /></div>
     </section>
     <section className="login-panel">

@@ -11,6 +11,8 @@ const requiredTables = [
   'teams',
   'team_members',
   'todos',
+  'team_notices',
+  'team_issues',
 ];
 
 const verifyImage = async (activity) => {
@@ -102,7 +104,16 @@ const run = async () => {
         SUM(activity_status = 'IN_PROGRESS' AND status <> 'ARCHIVED') AS active_teams,
         (SELECT COUNT(*) FROM team_members) AS memberships,
         (SELECT COUNT(*) FROM team_members member LEFT JOIN teams team ON team.team_id = member.team_id WHERE team.team_id IS NULL) AS orphan_memberships,
-        (SELECT COUNT(*) FROM todos todo LEFT JOIN teams team ON team.team_id = todo.team_id WHERE team.team_id IS NULL) AS orphan_todos
+        (SELECT COUNT(*) FROM todos todo LEFT JOIN teams team ON team.team_id = todo.team_id WHERE team.team_id IS NULL) AS orphan_todos,
+        (SELECT COUNT(*) FROM team_issues issue_item LEFT JOIN teams team ON team.team_id = issue_item.team_id WHERE team.team_id IS NULL) AS orphan_issues,
+        (SELECT COUNT(*)
+         FROM teams sourced_team
+         JOIN team_members sourced_member ON sourced_member.team_id = sourced_team.team_id AND sourced_member.user_id = 1
+         JOIN activitys sourced_activity ON sourced_activity.activity_id = sourced_team.source_id
+         WHERE sourced_team.activity_status = 'IN_PROGRESS'
+           AND sourced_team.status <> 'ARCHIVED'
+           AND sourced_team.participation_mode = 'TEAM'
+           AND sourced_activity.source_name IN ('위비티', '씽굿')) AS kim_sourced_teams
       FROM teams
     `);
     const [[crawler]] = await connection.query(`
@@ -127,7 +138,10 @@ const run = async () => {
       fixtures_hidden: Number(activityStats.visible_fixtures || 0) === 0,
       unique_sources: Number(duplicateSources.duplicate_groups || 0) === 0,
       raw_snapshots: Number(missingRawItems.missing_raw_items || 0) === 0,
-      relationships: Number(teamStats.orphan_memberships || 0) === 0 && Number(teamStats.orphan_todos || 0) === 0,
+      relationships: Number(teamStats.orphan_memberships || 0) === 0
+        && Number(teamStats.orphan_todos || 0) === 0
+        && Number(teamStats.orphan_issues || 0) === 0,
+      kim_sourced_team: Number(teamStats.kim_sourced_teams || 0) > 0,
       crawler: crawler?.status === 'completed' && Number(crawler?.error_count || 0) === 0,
       images: failedImages.length === 0 && Number(activityStats.sourced_without_images || 0) === 0,
     };
@@ -149,6 +163,8 @@ const run = async () => {
         memberships: Number(teamStats.memberships || 0),
         orphan_memberships: Number(teamStats.orphan_memberships || 0),
         orphan_todos: Number(teamStats.orphan_todos || 0),
+        orphan_issues: Number(teamStats.orphan_issues || 0),
+        kim_sourced_teams: Number(teamStats.kim_sourced_teams || 0),
       },
       crawler,
       images: { checked: imageResults.length, failed: failedImages },
