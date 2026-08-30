@@ -31,6 +31,63 @@ import { PageState } from '../shared/ui/PageState';
 import { PageTitle } from '../shared/ui/PageTitle';
 
 type GoalScope = '일일' | '주간' | '월간';
+type ActivityToolId = 'weekly' | 'heatmap' | 'goals' | 'notices';
+type ActivityToolSize = 'small' | 'medium' | 'large';
+type ActivityToolSizes = Record<ActivityToolId, ActivityToolSize>;
+
+const DEFAULT_TOOL_SIZES: ActivityToolSizes = {
+  weekly: 'large',
+  heatmap: 'large',
+  goals: 'small',
+  notices: 'small',
+};
+const TOOL_SIZE_OPTIONS: { value: ActivityToolSize; label: string; shortLabel: string }[] = [
+  { value: 'small', label: '작게', shortLabel: 'S' },
+  { value: 'medium', label: '보통', shortLabel: 'M' },
+  { value: 'large', label: '넓게', shortLabel: 'L' },
+];
+
+const loadToolSizes = (userId?: number): ActivityToolSizes => {
+  if (!userId) return DEFAULT_TOOL_SIZES;
+  try {
+    const saved = JSON.parse(localStorage.getItem(`kkiri:activity-tool-sizes:${userId}`) || '{}') as Partial<ActivityToolSizes>;
+    return Object.fromEntries(Object.entries(DEFAULT_TOOL_SIZES).map(([tool, fallback]) => {
+      const value = saved[tool as ActivityToolId];
+      return [tool, TOOL_SIZE_OPTIONS.some((option) => option.value === value) ? value : fallback];
+    })) as ActivityToolSizes;
+  } catch {
+    return DEFAULT_TOOL_SIZES;
+  }
+};
+
+const saveToolSizes = (userId: number, sizes: ActivityToolSizes) => {
+  try {
+    localStorage.setItem(`kkiri:activity-tool-sizes:${userId}`, JSON.stringify(sizes));
+  } catch {
+    // 저장소가 비활성화되어도 현재 화면의 크기 변경은 유지한다.
+  }
+};
+
+function ToolSizeControl({ label, value, onChange }: {
+  label: string;
+  value: ActivityToolSize;
+  onChange: (size: ActivityToolSize) => void;
+}) {
+  return <div className="activity-tool-resize">
+    <span><Settings2 /> 카드 크기</span>
+    <div role="group" aria-label={`${label} 카드 크기`}>
+      {TOOL_SIZE_OPTIONS.map((option) => <button
+        type="button"
+        className={value === option.value ? 'active' : ''}
+        aria-pressed={value === option.value}
+        aria-label={`${label} ${option.label}`}
+        title={option.label}
+        onClick={() => onChange(option.value)}
+        key={option.value}
+      >{option.shortLabel}</button>)}
+    </div>
+  </div>;
+}
 
 const dateKey = (date: Date) => [
   date.getFullYear(),
@@ -90,7 +147,21 @@ export function ActivityPage() {
   const [editingNoticeTitle, setEditingNoticeTitle] = useState('');
   const [editingNoticeContent, setEditingNoticeContent] = useState('');
   const [saving, setSaving] = useState(false);
+  const [toolSizes, setToolSizes] = useState<ActivityToolSizes>(() => loadToolSizes(user?.id));
   const ranges = useMemo(currentRanges, []);
+
+  useEffect(() => {
+    setToolSizes(loadToolSizes(user?.id));
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    saveToolSizes(user.id, toolSizes);
+  }, [toolSizes, user?.id]);
+
+  const setToolSize = (tool: ActivityToolId, size: ActivityToolSize) => {
+    setToolSizes((current) => ({ ...current, [tool]: size }));
+  };
 
   useEffect(() => {
     if (!active.data?.length) return;
@@ -282,12 +353,15 @@ export function ActivityPage() {
           </nav>
         </section>}
 
-        <section className="week-visual-card">
+        <div className="activity-tool-grid">
+        <section className={`week-visual-card activity-tool-card activity-tool-size-${toolSizes.weekly}`}>
+          <ToolSizeControl label="이번 주 실행 흐름" value={toolSizes.weekly} onChange={(size) => setToolSize('weekly', size)} />
           <div className="dashboard-section-head"><div><span className="eyebrow">WEEKLY RHYTHM</span><h3>이번 주 실행 흐름</h3></div><span>{ranges.일일.start} ~ {ranges.일일.end}</span></div>
           <div className="week-bars">{weekDays.map((day) => <div className={day.today ? 'today' : ''} key={day.key}><div className="week-bar-track"><span style={{ height: `${day.items.length ? Math.max(10, day.percent) : 4}%` }} /></div><strong>{day.label}</strong><small>{day.date}</small></div>)}</div>
         </section>
 
-        <section className="activity-heatmap-card">
+        <section className={`activity-heatmap-card activity-tool-card activity-tool-size-${toolSizes.heatmap}`}>
+          <ToolSizeControl label="활동 실행 히트맵" value={toolSizes.heatmap} onChange={(size) => setToolSize('heatmap', size)} />
           <div className="dashboard-section-head"><div><span className="eyebrow">LEARNING HEATMAP</span><h3>{selected?.source_type === 'ENTERPRISE_CURRICULUM' ? '커리큘럼 학습 히트맵' : '활동 실행 히트맵'}</h3></div><span>{new Date().getFullYear()}년 {new Date().getMonth() + 1}월</span></div>
           <div className="activity-heatmap-weekdays">{['월', '화', '수', '목', '금', '토', '일'].map((day) => <span key={day}>{day}</span>)}</div>
           <div className="activity-heatmap-grid">
@@ -296,14 +370,15 @@ export function ActivityPage() {
           <div className="activity-heatmap-legend"><span>적음</span>{[0, 1, 2, 3, 4].map((level) => <i className={`heat-${level}`} key={level} />)}<span>많음</span></div>
         </section>
 
-        <div className="activity-dashboard-grid">
-          <section className="goal-board">
+          <section className={`goal-board activity-tool-card activity-tool-size-${toolSizes.goals}`}>
+            <ToolSizeControl label="목표 관리" value={toolSizes.goals} onChange={(size) => setToolSize('goals', size)} />
             <div className="dashboard-section-head"><div><span className="eyebrow">GOALS</span><h3>목표 관리</h3></div><div className="goal-scope-tabs">{(['일일', '주간', '월간'] as GoalScope[]).map((item) => <button className={scope === item ? 'active' : ''} onClick={() => setScope(item)} key={item}>{item}</button>)}</div></div>
             <form className="quick-goal-form" onSubmit={addGoal}><Plus /><input value={newGoal} onChange={(event) => setNewGoal(event.target.value)} placeholder={`${scope} 목표를 추가하세요`} /><button disabled={saving || !newGoal.trim()}>추가</button></form>
             {goals.loading ? <PageState loading /> : <div className="goal-list">{(goals.data?.[scope] || []).length ? goals.data?.[scope].map((todo) => <button className={`goal-row ${todo.status}`} onClick={() => changeStatus(todo)} key={todo.todo_id}><span>{todo.status === '완료' ? <Check /> : todo.status === '진행중' ? <Clock3 /> : <Circle />}</span><div><strong>{todo.title}</strong><small>{todo.scope_start_date.slice(0, 10)}{todo.scope_start_date !== todo.scope_end_date ? ` ~ ${todo.scope_end_date.slice(0, 10)}` : ''}</small></div><em>{todo.status}</em></button>) : <div className="goal-empty">이 기간에 등록된 목표가 없습니다.</div>}</div>}
           </section>
 
-          <section className="notice-board-web">
+          <section className={`notice-board-web activity-tool-card activity-tool-size-${toolSizes.notices}`}>
+            <ToolSizeControl label={selected?.participation_mode === 'PERSONAL' ? '나의 메모' : '팀 공지'} value={toolSizes.notices} onChange={(size) => setToolSize('notices', size)} />
             <div className="dashboard-section-head"><div><span className="eyebrow">NOTICE & MEMO</span><h3>{selected?.participation_mode === 'PERSONAL' ? '나의 메모' : '팀 공지'}</h3></div><BellRing /></div>
             <form className="notice-quick-form" onSubmit={addNotice}><input value={noticeTitle} onChange={(event) => setNoticeTitle(event.target.value)} placeholder="제목" /><textarea value={noticeContent} onChange={(event) => setNoticeContent(event.target.value)} placeholder={selected?.participation_mode === 'PERSONAL' ? '학습 중 기억할 내용을 남겨보세요.' : '팀원에게 알릴 내용을 남겨보세요.'} rows={3} /><button disabled={saving || !noticeTitle.trim() || !noticeContent.trim()}>등록</button></form>
             <div className="notice-list-web">{notices.data?.length ? notices.data.map((notice) => <article key={notice.notice_id}>{editingNoticeId === notice.notice_id ? <form className="notice-edit-form" onSubmit={saveNotice}><input value={editingNoticeTitle} onChange={(event) => setEditingNoticeTitle(event.target.value)} aria-label="메모 제목" /><textarea rows={4} value={editingNoticeContent} onChange={(event) => setEditingNoticeContent(event.target.value)} aria-label="메모 내용" /><div><button type="button" onClick={() => setEditingNoticeId(null)}><X /> 취소</button><button disabled={saving}><Save /> 저장</button></div></form> : <><div className="notice-item-head"><strong>{notice.title}</strong>{Number(notice.author_id) === user?.id && <span><button aria-label="수정" onClick={() => beginEditNotice(notice)}><Edit3 /></button><button aria-label="삭제" onClick={() => deleteNotice(notice.notice_id)}><Trash2 /></button></span>}</div><p>{notice.content}</p><small>{new Date(notice.created_at).toLocaleDateString('ko-KR')} · {notice.author_name || user?.name}{notice.updated_at && notice.updated_at !== notice.created_at ? ' · 수정됨' : ''}</small></>}</article>) : <div className="notice-empty"><BellRing /><p>아직 작성된 내용이 없습니다.</p></div>}</div>
