@@ -1,6 +1,6 @@
 import { AlertCircle, ArrowLeft, Check, Circle, Clock3, Plus, Save, Settings2, Trash2, UserRound, UsersRound } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../app/AuthContext';
 import { api } from '../shared/api/client';
 import { useAsync } from '../shared/hooks/useAsync';
@@ -24,6 +24,7 @@ export function ActivityManagePage() {
   const { teamId: teamIdParam } = useParams();
   const teamId = Number(teamIdParam);
   const { user } = useAuth();
+  const { hash } = useLocation();
   const navigate = useNavigate();
   const [selectedMemberId, setSelectedMemberId] = useState<number | null>(null);
   const [scope, setScope] = useState<Scope>('주간');
@@ -49,6 +50,13 @@ export function ActivityManagePage() {
   const team = teams.data?.find((item) => item.team_id === teamId);
   const selectedMember = members.data?.find((member) => member.user_id === selectedMemberId);
   const isLeader = Number(team?.leader_user_id) === user?.id;
+  useEffect(() => {
+    if (!hash || teams.loading || members.loading) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [hash, members.loading, teams.loading]);
   const completion = useMemo(() => {
     const list = todos.data || [];
     return list.length ? Math.round((list.filter((todo) => todo.status === '완료').length / list.length) * 100) : 0;
@@ -151,7 +159,7 @@ export function ActivityManagePage() {
     {(message || error) && <div className={error ? 'form-error' : 'form-success'}>{error || message}</div>}
 
     <div className="activity-manage-grid">
-      <section className="content-card team-goal-manager">
+      <section className="content-card team-goal-manager" id="team-goals">
         <div className="dashboard-section-head"><div><span className="eyebrow">TEAM GOALS</span><h3>팀원 목표</h3></div><strong>{completion}% 완료</strong></div>
         <div className="member-tabs">{members.data?.map((member) => <button className={member.user_id === selectedMemberId ? 'active' : ''} onClick={() => setSelectedMemberId(member.user_id)} key={member.user_id}><span><UserRound /></span><strong>{member.name}</strong><small>{member.part || '역할 미정'}</small></button>)}</div>
         <div className="team-goal-filters"><select value={scope} onChange={(event) => setScope(event.target.value as Scope)}><option>일일</option><option>주간</option><option>월간</option></select><input type="date" value={range.start} onChange={(event) => setRange((current) => ({ ...current, start: event.target.value }))} /><span>~</span><input type="date" value={range.end} onChange={(event) => setRange((current) => ({ ...current, end: event.target.value }))} /></div>
@@ -159,7 +167,7 @@ export function ActivityManagePage() {
         {todos.loading ? <PageState loading /> : <div className="goal-list">{todos.data?.length ? todos.data.map((todo) => <button className={`goal-row ${todo.status}`} onClick={async () => { await api(`/todos/${todo.todo_id}`, { method: 'PUT', body: JSON.stringify({ status: nextStatus(todo.status) }) }); await todos.reload(); }} key={todo.todo_id}><span>{todo.status === '완료' ? <Check /> : todo.status === '진행중' ? <Clock3 /> : <Circle />}</span><div><strong>{todo.title}</strong><small>{todo.scope_start_date.slice(0, 10)} ~ {todo.scope_end_date.slice(0, 10)}</small></div><em>{todo.status}</em></button>) : <div className="goal-empty">선택한 기간에 목표가 없습니다.</div>}</div>}
       </section>
 
-      <section className="content-card activity-settings-panel">
+      <section className="content-card activity-settings-panel" id="activity-settings">
         <div className="dashboard-section-head"><div><span className="eyebrow">SETTINGS</span><h3>활동 설정</h3></div><Settings2 /></div>
         <form onSubmit={saveSettings}>
           <label>활동 프로젝트명<input name="team_name" defaultValue={team.team_name} disabled={!isLeader} /></label>
@@ -172,7 +180,7 @@ export function ActivityManagePage() {
       </section>
     </div>
 
-    {team.participation_mode === 'TEAM' && <section className="content-card team-issue-tracker">
+    {team.participation_mode === 'TEAM' && <section className="content-card team-issue-tracker" id="team-issues">
       <div className="dashboard-section-head"><div><span className="eyebrow">ISSUE TRACKER</span><h3>팀 이슈 트래커</h3></div><strong>{issues.data?.filter((issue) => issue.status !== 'DONE').length || 0}개 진행 중</strong></div>
       <form className="issue-create-form" onSubmit={addIssue}>
         <label>이슈 제목<input name="title" maxLength={180} required placeholder="확인하거나 해결할 일을 적어주세요" /></label>

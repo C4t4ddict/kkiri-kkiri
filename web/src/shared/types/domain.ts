@@ -115,6 +115,15 @@ export type TeamSummary = {
   source_name?: string;
 };
 
+export type TeamMember = {
+  user_id: number;
+  name: string;
+  department?: string;
+  profile_picture?: string;
+  part?: string;
+  role?: 'LEADER' | 'MEMBER';
+};
+
 export type Todo = {
   todo_id: number;
   title: string;
