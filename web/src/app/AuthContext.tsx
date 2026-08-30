@@ -1,11 +1,13 @@
 import { createContext, ReactNode, useContext, useMemo, useState } from 'react';
 import { clearStoredSession, getStoredSession, setStoredSession } from '../shared/auth/session';
+import { api } from '../shared/api/client';
 import type { User } from '../shared/types/domain';
 
 type AuthContextValue = {
   user: User | null;
   login: (token: string, user: User) => void;
   updateUser: (user: User) => void;
+  refreshUser: () => Promise<User | null>;
   logout: () => void;
 };
 
@@ -23,6 +25,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const token = localStorage.getItem('kkiri_token');
       if (token) setStoredSession(token, nextUser);
       setUser(nextUser);
+    },
+    refreshUser: async () => {
+      if (!user) return null;
+      const response = await api<{ user: User }>(`/api/user/${user.id}`);
+      const token = localStorage.getItem('kkiri_token');
+      if (token) setStoredSession(token, response.user);
+      setUser(response.user);
+      return response.user;
     },
     logout: () => {
       clearStoredSession();

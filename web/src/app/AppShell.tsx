@@ -4,6 +4,7 @@ import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { api } from '../shared/api/client';
 import { useAsync } from '../shared/hooks/useAsync';
+import { UserAvatar } from '../shared/ui/UserAvatar';
 
 const navItems = [
   ['/', '홈', Home],
@@ -45,7 +46,7 @@ export function AppShell() {
       <Link className="wordmark" to="/">끼리끼리</Link>
       <nav><NavigationItems studio={Boolean(user.is_admin)} /></nav>
       <div className="sidebar-foot">
-        <div className="avatar">{user.name?.slice(0, 1) || 'K'}</div>
+        <UserAvatar user={user} />
         <div><strong>{user.name}</strong><small>{user.department || user.email}</small></div>
         <button aria-label="로그아웃" onClick={logout}><LogOut size={18} /></button>
       </div>
