@@ -3118,6 +3118,8 @@ app.get('/teams/:teamId/members', (req, res) => {
     SELECT
       u.id AS user_id,
       u.name,
+      u.department,
+      u.profile_picture,
       tm.part,
       tm.role
     FROM team_members requester
@@ -3134,7 +3136,10 @@ app.get('/teams/:teamId/members', (req, res) => {
       return res.status(500).json({ message: '서버 오류' });
     }
 
-    res.json(results || []);
+    res.json((results || []).map((member) => ({
+      ...member,
+      profile_picture: normalizeLocalUrl(member.profile_picture),
+    })));
   });
 });
 

@@ -6,10 +6,13 @@ import {
   ChevronRight,
   Circle,
   Clock3,
+  Crown,
   Edit3,
   Flame,
+  ListChecks,
   Plus,
   Save,
+  Settings2,
   Sparkles,
   Target,
   Trash2,
@@ -21,8 +24,9 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../app/AuthContext';
 import { api } from '../shared/api/client';
+import { resolveApiMediaUrl } from '../shared/api/media';
 import { useAsync } from '../shared/hooks/useAsync';
-import type { HeatmapDay, TeamNotice, TeamSummary, Todo } from '../shared/types/domain';
+import type { HeatmapDay, TeamMember, TeamNotice, TeamSummary, Todo } from '../shared/types/domain';
 import { PageState } from '../shared/ui/PageState';
 import { PageTitle } from '../shared/ui/PageTitle';
 
@@ -61,6 +65,17 @@ const nextStatus = (status: Todo['status']): Todo['status'] => status === '미�
     ? '완료'
     : '미진행';
 
+function TeamMemberAvatar({ member }: { member: TeamMember }) {
+  const imageUrl = resolveApiMediaUrl(member.profile_picture);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => setFailed(false), [imageUrl]);
+
+  return imageUrl && !failed
+    ? <img src={imageUrl} alt={`${member.name} 프로필`} onError={() => setFailed(true)} />
+    : <span aria-hidden="true">{member.name?.slice(0, 1) || '?'}</span>;
+}
+
 export function ActivityPage() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -87,6 +102,7 @@ export function ActivityPage() {
     if (selectedId) setSearchParams({ team: String(selectedId) }, { replace: true });
   }, [selectedId, setSearchParams]);
 
+  const selected = active.data?.find((team) => team.team_id === selectedId) || null;
   const goals = useAsync(async () => {
     if (!selectedId) return { 월간: [], 주간: [], 일일: [] } as Record<GoalScope, Todo[]>;
     const load = (goalScope: GoalScope) => api<Todo[]>(`/todos/${selectedId}?scope_type=${encodeURIComponent(goalScope)}&start=${ranges[goalScope].start}&end=${ranges[goalScope].end}`);
@@ -103,8 +119,13 @@ export function ActivityPage() {
       : Promise.resolve([]),
     [selectedId],
   );
+  const members = useAsync(
+    () => selectedId && selected?.participation_mode === 'TEAM'
+      ? api<TeamMember[]>(`/teams/${selectedId}/members`)
+      : Promise.resolve([]),
+    [selectedId, selected?.participation_mode],
+  );
 
-  const selected = active.data?.find((team) => team.team_id === selectedId) || null;
   const categories = useMemo(() => ['전체', ...new Set((active.data || []).map((team) => team.activity_category || (team.source_type === 'ENTERPRISE_CURRICULUM' ? '기업 커리큘럼' : '팀 활동')))], [active.data]);
   const filteredTeams = useMemo(() => (active.data || []).filter((team) => category === '전체' || (team.activity_category || (team.source_type === 'ENTERPRISE_CURRICULUM' ? '기업 커리큘럼' : '팀 활동')) === category), [active.data, category]);
   useEffect(() => {
@@ -241,6 +262,25 @@ export function ActivityPage() {
             <div className="workspace-kpis"><div><span><CheckCircle2 /></span><strong>{progressOf(goals.data?.월간 || [])}%</strong><small>월간 목표</small></div><div><span><Flame /></span><strong>{todayGoals.filter((goal) => goal.status === '완료').length}/{todayGoals.length}</strong><small>오늘 완료</small></div><div><span><Clock3 /></span><strong>{uniqueGoals.filter((goal) => goal.status === '진행중').length}</strong><small>진행 중</small></div></div>
           </div>
         </section>
+
+        {selected?.participation_mode === 'TEAM' && <section className="selected-team-panel" aria-labelledby="selected-team-heading">
+          <div className="dashboard-section-head"><div><span className="eyebrow">TEAM MEMBERS</span><h3 id="selected-team-heading">선택된 활동 팀원</h3></div><strong>{members.loading ? '확인 중' : `${members.data?.length || 0}명`}</strong></div>
+          {members.loading && <div className="selected-team-state">팀원 정보를 불러오고 있습니다.</div>}
+          {!members.loading && members.error && <div className="selected-team-state error"><span>{members.error}</span><button onClick={members.reload}>다시 시도</button></div>}
+          {!members.loading && !members.error && !members.data?.length && <div className="selected-team-state">현재 확인할 수 있는 팀원이 없습니다.</div>}
+          {!members.loading && !members.error && Boolean(members.data?.length) && <div className="selected-team-members">
+            {members.data?.map((member) => <article key={member.user_id}>
+              <div className="selected-team-avatar"><TeamMemberAvatar member={member} /></div>
+              <div><strong>{member.name}{member.user_id === user?.id && <em>나</em>}</strong><small>{member.department || '소속 미등록'}</small><span>{member.part || '역할 설정 전'}</span></div>
+              {member.role === 'LEADER' && <i title="팀장"><Crown /></i>}
+            </article>)}
+          </div>}
+          <nav className="selected-team-actions" aria-label="선택된 활동 관리 기능">
+            <Link to={`/activity/${selectedId}/manage#team-goals`}><Target /><span><strong>팀원 목표</strong><small>팀원별 목표와 진행률</small></span><ChevronRight /></Link>
+            <Link to={`/activity/${selectedId}/manage#activity-settings`}><Settings2 /><span><strong>역할·활동 설정</strong><small>역할과 프로젝트명 관리</small></span><ChevronRight /></Link>
+            <Link to={`/activity/${selectedId}/manage#team-issues`}><ListChecks /><span><strong>팀 이슈</strong><small>담당자와 해결 상태 관리</small></span><ChevronRight /></Link>
+          </nav>
+        </section>}
 
         <section className="week-visual-card">
           <div className="dashboard-section-head"><div><span className="eyebrow">WEEKLY RHYTHM</span><h3>이번 주 실행 흐름</h3></div><span>{ranges.일일.start} ~ {ranges.일일.end}</span></div>

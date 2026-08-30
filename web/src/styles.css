@@ -452,7 +452,26 @@ body { font-size: 16px; line-height: 1.5; }
 }
 .workspace-manage-row a { display: inline-flex; align-items: center; gap: 6px; color: var(--primary); font-weight: 900; white-space: nowrap; }
 .workspace-manage-row svg { width: 17px; }
+.selected-team-panel { margin-top: 14px; padding: 22px; border: 1px solid var(--border); border-radius: 23px; background: #fff; }
+.selected-team-panel .dashboard-section-head > strong { color: var(--primary); font-size: 14px; }
+.selected-team-members { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 9px; margin-top: 16px; }
+.selected-team-members article { position: relative; min-width: 0; display: grid; grid-template-columns: 44px minmax(0, 1fr) 24px; align-items: center; gap: 10px; padding: 13px; border: 1px solid #eceaf1; border-radius: 15px; background: #fbfafd; }
+.selected-team-avatar, .selected-team-avatar img, .selected-team-avatar > span { width: 44px; height: 44px; }
+.selected-team-avatar img, .selected-team-avatar > span { display: grid; place-items: center; border-radius: 13px; object-fit: cover; color: #fff; background: linear-gradient(135deg, var(--primary), var(--primary-dark)); font-size: 16px; font-weight: 900; }
+.selected-team-members article > div:nth-child(2) { min-width: 0; }
+.selected-team-members article strong, .selected-team-members article small, .selected-team-members article span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.selected-team-members article strong { font-size: 15px; }.selected-team-members article strong em { margin-left: 5px; padding: 2px 5px; border-radius: 5px; color: var(--primary); background: var(--primary-soft); font-size: 11px; font-style: normal; }
+.selected-team-members article small { margin-top: 2px; color: #8d919c; font-size: 12px; }.selected-team-members article span { margin-top: 4px; color: #565b68; font-size: 13px; font-weight: 800; }
+.selected-team-members article > i { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 8px; color: #b54708; background: #fff7e8; }
+.selected-team-members article > i svg { width: 13px; }
+.selected-team-state { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 82px; margin-top: 14px; border-radius: 14px; color: var(--text-sub); background: #f8f7fb; font-size: 14px; }
+.selected-team-state.error { color: #b42318; background: #fef3f2; }.selected-team-state button { padding: 6px 9px; border: 0; border-radius: 8px; color: #fff; background: #b42318; font-weight: 800; }
+.selected-team-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.selected-team-actions a { min-width: 0; display: grid; grid-template-columns: 34px minmax(0, 1fr) 16px; align-items: center; gap: 8px; padding: 11px; border: 1px solid #e6e1fb; border-radius: 13px; color: inherit; background: #faf9ff; }
+.selected-team-actions a:hover { border-color: #cfc4ff; background: var(--primary-soft); }.selected-team-actions a > svg:first-child { width: 17px; color: var(--primary); }.selected-team-actions a > svg:last-child { width: 14px; color: #9b9eaa; }
+.selected-team-actions span { min-width: 0; }.selected-team-actions strong, .selected-team-actions small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.selected-team-actions strong { font-size: 14px; }.selected-team-actions small { margin-top: 2px; color: var(--text-sub); font-size: 12px; }
 .activity-manage-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(300px, .75fr); gap: 18px; align-items: start; }
+.team-goal-manager, .activity-settings-panel, .team-issue-tracker { scroll-margin-top: 96px; }
 .team-goal-manager, .activity-settings-panel { padding: 24px; }
 .member-tabs { display: flex; gap: 9px; overflow-x: auto; margin-top: 18px; padding-bottom: 7px; }
 .member-tabs button {
@@ -490,12 +509,15 @@ body { font-size: 16px; line-height: 1.5; }
 
 @media (max-width: 900px) {
   .activity-manage-grid { grid-template-columns: 1fr; }
+  .selected-team-actions { grid-template-columns: 1fr; }
 }
 @media (max-width: 720px) {
   .workspace-manage-row { align-items: flex-start; flex-direction: column; }
   .team-goal-filters { grid-template-columns: 1fr 1fr; }
   .team-goal-filters > span { display: none; }
   .team-goal-add { grid-template-columns: 1fr; }
+  .selected-team-panel { padding: 18px 14px; }
+  .selected-team-members { grid-template-columns: 1fr; }
 }
 
 .evaluation-page-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
