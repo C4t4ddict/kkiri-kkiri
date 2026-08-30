@@ -10,6 +10,7 @@ import { useAsync } from '../shared/hooks/useAsync';
 import type { ActivityItem, AwardItem, PastActivity, Portfolio } from '../shared/types/domain';
 import { PageState } from '../shared/ui/PageState';
 import { PageTitle } from '../shared/ui/PageTitle';
+import { UserAvatar } from '../shared/ui/UserAvatar';
 
 export function FavoritesPage() {
   const result = useAsync(() => api<ActivityItem[]>('/api/favorite-activities'), []);
@@ -17,7 +18,7 @@ export function FavoritesPage() {
 }
 
 export function AccountSettingsPage() {
-  const { user, updateUser, logout } = useAuth();
+  const { user, updateUser, refreshUser, logout } = useAuth();
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -28,12 +29,21 @@ export function AccountSettingsPage() {
   const saveProfile = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); const next = { ...user, name: String(form.get('name') || ''), department: String(form.get('department') || ''), studentId: String(form.get('student_number') || ''), birth: String(form.get('birth_date') || ''), self_intro: String(form.get('self_intro') || '') };
     run(async () => { await api(`/api/user/${user.id}`, { method: 'PUT', body: JSON.stringify({ name: next.name, department: next.department, student_number: next.studentId, birth_date: next.birth || null, self_intro: next.self_intro }) }); updateUser(next); }, '개인정보를 저장했습니다.');
   };
+  const uploadProfile = (file?: File) => {
+    if (!file) return;
+    const data = new FormData();
+    data.append('image', file);
+    run(async () => {
+      await api(`/api/upload/profile/${user.id}`, { method: 'POST', body: data });
+      await refreshUser();
+    }, '프로필 사진을 변경했습니다.');
+  };
   const changePassword = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); const nextPassword = String(form.get('new_password') || ''); if (nextPassword !== form.get('confirm_password')) return setError('새 비밀번호 확인이 일치하지 않습니다.'); run(() => api(`/api/user/${user.id}/password`, { method: 'PUT', body: JSON.stringify({ current_password: form.get('current_password'), new_password: nextPassword }) }), '비밀번호를 변경했습니다.'); event.currentTarget.reset(); };
   const togglePreference = (key: string) => { const next = { ...preferences, [key]: !preferences[key] }; setPreferences(next); localStorage.setItem('kkiri_notification_preferences', JSON.stringify(next)); };
   const deleteAccount = async () => { if (!window.confirm('회원 탈퇴 시 모든 계정 데이터를 되돌릴 수 없습니다. 계속할까요?')) return; if (!window.confirm('정말 탈퇴할까요?')) return; await run(() => api(`/api/delete-user/${user.id}`, { method: 'DELETE' }), '회원 탈퇴가 완료되었습니다.'); logout(); };
 
   return <><PageTitle eyebrow="ACCOUNT SETTINGS" title="계정 및 개인정보" description="프로필, 비밀번호, 알림 환경을 관리하세요." />{message && <div className="form-success"><CheckCircle2 />{message}</div>}{error && <div className="form-error">{error}</div>}
-    <div className="settings-layout"><form className="content-card feature-form" onSubmit={saveProfile}><div className="feature-card-title"><Settings /><div><h2>개인정보</h2><p>서비스에서 사용하는 기본 정보입니다.</p></div></div><div className="form-grid two"><label>이메일<input value={user.email} disabled /></label><label>이름<input name="name" defaultValue={user.name} required /></label><label>학과<input name="department" defaultValue={user.department} /></label><label>학번<input name="student_number" defaultValue={user.studentId} /></label><label>생년월일<input name="birth_date" type="date" defaultValue={user.birth?.slice(0, 10)} /></label><label className="wide">한 줄 소개<textarea name="self_intro" rows={3} defaultValue={user.self_intro} /></label></div><button className="primary-button submit-wide" disabled={busy}><Save /> 개인정보 저장</button></form>
+    <div className="settings-layout"><form className="content-card feature-form" onSubmit={saveProfile}><div className="feature-card-title"><Settings /><div><h2>개인정보</h2><p>서비스에서 사용하는 기본 정보입니다.</p></div></div><div className="account-profile-upload"><UserAvatar user={user} className="account-profile-preview" /><div><strong>프로필 사진</strong><p>JPG, PNG, WEBP 이미지로 변경할 수 있습니다.</p><label className="ghost-button"><ImagePlus /> 사진 변경<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(event) => { uploadProfile(event.target.files?.[0]); event.target.value = ''; }} /></label></div></div><div className="form-grid two"><label>이메일<input value={user.email} disabled /></label><label>이름<input name="name" defaultValue={user.name} required /></label><label>학과<input name="department" defaultValue={user.department} /></label><label>학번<input name="student_number" defaultValue={user.studentId} /></label><label>생년월일<input name="birth_date" type="date" defaultValue={user.birth?.slice(0, 10)} /></label><label className="wide">한 줄 소개<textarea name="self_intro" rows={3} defaultValue={user.self_intro} /></label></div><button className="primary-button submit-wide" disabled={busy}><Save /> 개인정보 저장</button></form>
       <div className="settings-side"><form className="content-card feature-form" onSubmit={changePassword}><h2>비밀번호 변경</h2><label>현재 비밀번호<input name="current_password" type="password" required /></label><label>새 비밀번호<input name="new_password" type="password" minLength={4} required /></label><label>새 비밀번호 확인<input name="confirm_password" type="password" minLength={4} required /></label><button className="primary-button submit-wide" disabled={busy}>변경하기</button></form>
         <section className="content-card"><h2>알림 설정</h2><div className="toggle-list">{[['matching','팀/팀원 매칭'],['activity','활동 게시글'],['todo','활동 할 일'],['notice','공지사항']].map(([key,label]) => <button className={preferences[key] ? 'active' : ''} onClick={() => togglePreference(key)} key={key}><span>{label}</span><i /></button>)}</div></section>
         <section className="content-card danger-zone"><h2>회원 탈퇴</h2><p>계정과 활동 기록을 삭제합니다. 이 작업은 되돌릴 수 없습니다.</p><button onClick={deleteAccount} disabled={busy}>회원 탈퇴</button></section>
