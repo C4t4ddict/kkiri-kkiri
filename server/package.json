@@ -10,6 +10,7 @@
     "crawl:competitions": "node crawler/index.js",
     "crawl:competitions:dry": "node crawler/index.js --dry-run --limit 5",
     "seed:current-activity": "node seeds/seedCurrentActivity.js",
+    "seed:past-activity-history": "node seeds/seedPastActivityHistory.js",
     "seed:curricula": "node seeds/seedCurricula.js",
     "admin:provision": "node scripts/provisionAdmin.js",
     "test": "node --test applications/test/*.tests.js crawler/test/*.tests.js portfolio/test/*.tests.js lib/test/*.tests.js"
