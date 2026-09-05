@@ -37,7 +37,7 @@ export function MatchingPage() {
   };
 
   return <>
-    <div className="title-actions"><PageTitle eyebrow="TEAM MATCHING" title="함께할 팀 찾기" description="관심 활동을 중심으로 조건이 맞는 팀을 찾아보세요." /><div className="button-row top-actions"><Link className="ghost-button" to="/matching/mine">내 모집글</Link><Link className="primary-button compact" to="/matching/new"><Plus />팀 모집</Link></div></div>
+    <div className="title-actions"><PageTitle title="함께할 팀 찾기" description="관심 활동을 중심으로 조건이 맞는 팀을 찾아보세요." /><div className="button-row top-actions"><Link className="ghost-button" to="/matching/mine">내 모집글</Link><Link className="primary-button compact" to="/matching/new"><Plus />팀 모집</Link></div></div>
     <section className="matching-overview" aria-label="매칭 현황">
       <article><span><UsersRound /></span><div><strong>{result.data?.length || 0}</strong><small>공개 모집글</small></div></article>
       <article><span><MonitorSmartphone /></span><div><strong>{remoteCount}</strong><small>비대면·혼합</small></div></article>

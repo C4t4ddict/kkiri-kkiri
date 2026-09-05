@@ -2,6 +2,7 @@ import { Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { resolveApiMediaUrl } from '../../shared/api/media';
 import type { ActivityItem } from '../../shared/types/domain';
+import { getActivityCategoryLabel } from './activityCategory';
 
 function Dday({ end }: { end?: string }) {
   if (!end) return <span>일정 확인</span>;
@@ -16,7 +17,7 @@ export function ActivityCard({ item }: { item: ActivityItem }) {
       : <div className="poster-fallback"><Sparkles /></div>}
     <div className="activity-card-body">
       <div className="card-tags">
-        <span>{item.topic_category || item.category || '활동'}</span>
+        <span>{getActivityCategoryLabel(item.topic_category || item.category)}</span>
         <Dday end={item.application_period_end} />
       </div>
       <h3>{item.title}</h3>

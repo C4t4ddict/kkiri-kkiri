@@ -70,7 +70,7 @@ export function CurriculumStudioPage() {
           })),
         }),
       });
-      navigate(`/curricula/${curriculum.curriculum_id}`);
+      navigate(`/curriculum/${curriculum.curriculum_id}`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '커리큘럼을 저장하지 못했습니다');
     } finally {
@@ -79,7 +79,7 @@ export function CurriculumStudioPage() {
   };
 
   return <>
-    <PageTitle eyebrow="CURRICULUM STUDIO" title="기업 커리큘럼 만들기" description="기업의 기술 요구를 사용자가 실행할 수 있는 월간·주간·일일 목표로 구성하세요." />
+    <PageTitle title="기업 커리큘럼 만들기" description="기업의 기술 요구를 사용자가 실행할 수 있는 월간·주간·일일 목표로 구성하세요." />
     <form className="curriculum-studio" onSubmit={submit}>
       <section className="studio-main">
         <article className="studio-card">
@@ -118,7 +118,7 @@ export function CurriculumStudioPage() {
       </section>
 
       <aside className="studio-aside">
-        <section><span className="eyebrow">PUBLISH CHECK</span><h3>배포 전 확인</h3><ul><li><span>{nodes.length > 0 && <Save />}</span>최소 1개 이상의 목표</li><li><span>{nodes.some((node) => node.level === 'MONTHLY') && <Save />}</span>월간 마일스톤</li><li><span>{nodes.some((node) => node.level === 'DAILY') && <Save />}</span>실행 가능한 일일 목표</li></ul><label className="publish-check"><input type="checkbox" name="publish_now" defaultChecked /><span><strong>바로 공개하기</strong><small>저장 즉시 사용자가 탐색할 수 있습니다.</small></span></label></section>
+        <section><h3>배포 전 확인</h3><ul><li><span>{nodes.length > 0 && <Save />}</span>최소 1개 이상의 목표</li><li><span>{nodes.some((node) => node.level === 'MONTHLY') && <Save />}</span>월간 마일스톤</li><li><span>{nodes.some((node) => node.level === 'DAILY') && <Save />}</span>실행 가능한 일일 목표</li></ul><label className="publish-check"><input type="checkbox" name="publish_now" defaultChecked /><span><strong>바로 공개하기</strong><small>저장 즉시 사용자가 탐색할 수 있습니다.</small></span></label></section>
         {error && <div className="form-error">{error}</div>}
         <button className="primary-button studio-submit" disabled={saving}>{saving ? '저장 중…' : '커리큘럼 저장'} <ArrowRight /></button>
       </aside>

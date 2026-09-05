@@ -113,7 +113,6 @@ export function CurriculumDetailPage() {
         <span className="company-monogram large">{curriculum.organization_name.slice(0, 1)}</span>
         <span><strong>{curriculum.organization_name}{curriculum.is_verified && <CheckCircle2 size={15} />}</strong><small>기업 제공 · v{curriculum.version_number}</small></span>
       </div>
-      <span className="eyebrow">{curriculum.role_title || 'TECH CAREER ROADMAP'}</span>
       <h1>{curriculum.title}</h1>
       <p>{curriculum.summary}</p>
       <div className="detail-hero-meta">
@@ -133,7 +132,6 @@ export function CurriculumDetailPage() {
 
     <section className="curriculum-reading-layout">
       <article className="curriculum-article">
-        <span className="eyebrow">ABOUT THIS CURRICULUM</span>
         <h2>이 과정을 마치면</h2>
         <p>{curriculum.description || curriculum.summary}</p>
         <blockquote><Sparkles size={18} /> 기업이 제안한 목표는 기준점이고, 실제 일정과 수행 방식은 사용자가 결정합니다.</blockquote>
@@ -142,7 +140,7 @@ export function CurriculumDetailPage() {
     </section>
 
     <section className="learning-map-section">
-      <div className="catalog-toolbar compact"><div><span className="eyebrow">LEARNING MAP</span><h2>학습 과정</h2><p>큰 목표부터 오늘 할 일까지 연결된 구조입니다.</p></div></div>
+      <div className="catalog-toolbar compact"><div><h2>학습 과정</h2><p>큰 목표부터 오늘 할 일까지 연결된 구조입니다.</p></div></div>
       <div className="learning-map-grid">
         {(Object.keys(levelMeta) as Array<keyof typeof levelMeta>).map((level) => {
           const meta = levelMeta[level];
@@ -157,7 +155,7 @@ export function CurriculumDetailPage() {
 
     {setupOpen && <div className="modal-backdrop curriculum-modal-backdrop">
       <div className="web-modal curriculum-setup-modal">
-        <div className="modal-head"><div><span className="eyebrow">ADD TO ACTIVITY</span><h2>학습 방식과 일정을 정해주세요</h2></div><button aria-label="닫기" onClick={() => setSetupOpen(false)}><X /></button></div>
+        <div className="modal-head"><div><h2>학습 방식과 일정을 정해주세요</h2></div><button aria-label="닫기" onClick={() => setSetupOpen(false)}><X /></button></div>
         <div className="mode-selector">
           <button className={mode === 'PERSONAL' ? 'active' : ''} onClick={() => { setMode('PERSONAL'); setPlan(null); }}><span><UserRound /></span><strong>개인으로 시작</strong><small>내 일정에 맞춰 혼자 완주해요</small></button>
           <button className={mode === 'TEAM' ? 'active' : ''} onClick={() => { setMode('TEAM'); setPlan(null); }}><span><UsersRound /></span><strong>팀으로 시작</strong><small>팀원과 목표를 나누고 함께 완주해요</small></button>

@@ -39,7 +39,7 @@ export function NotificationsPage() {
   };
 
   return <>
-    <PageTitle eyebrow="NOTIFICATIONS" title="알림" description="팀 활동과 지원에 관한 중요한 소식을 모아봤어요." />
+    <PageTitle title="알림" description="팀 활동과 지원에 관한 중요한 소식을 모아봤어요." />
     {message && <div className="inline-message">{message}</div>}
     <PageState loading={result.loading} error={result.error} empty={!result.loading && !result.data?.length ? '아직 도착한 알림이 없습니다.' : undefined} />
     <div className="notification-list">{result.data?.map((item) => <article className={`notification-card ${item.is_read ? '' : 'unread'}`} key={item.notification_id}>

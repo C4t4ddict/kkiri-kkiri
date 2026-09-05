@@ -1,12 +1,14 @@
 import { FormEvent, useState } from 'react';
 import { CalendarCheck2, Sparkles, Target, UsersRound } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../app/AuthContext';
 import { api } from '../shared/api/client';
 import type { User } from '../shared/types/domain';
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -22,6 +24,8 @@ export function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
       login(result.token, result.user);
+      const destination = typeof location.state?.from === 'string' ? location.state.from : '/';
+      navigate(destination, { replace: true });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '로그인에 실패했습니다');
     } finally {
@@ -29,10 +33,11 @@ export function LoginPage() {
     }
   };
 
+  if (user) return <Navigate to="/" replace />;
+
   return <main className="login-page">
     <section className="login-brand">
       <div className="brand-mark"><Sparkles size={24} /></div>
-      <p>KKIRI KKIRI</p>
       <h1>함께할 사람을 찾고,<br />성장한 기록을 남겨요.</h1>
       <div className="login-activity-motion" aria-hidden="true">
         <div className="motion-core"><Sparkles /><span>함께 성장 중</span></div>
