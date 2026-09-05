@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { CalendarCheck2, Sparkles, Target, UsersRound } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../app/AuthContext';
 import { api } from '../shared/api/client';
@@ -35,24 +35,53 @@ export function LoginPage() {
 
   if (user) return <Navigate to="/" replace />;
 
+  const asciiFrames = [
+    String.raw`       .                 *
+      /|\               /|\
+     / | \      +      / | \
+    o--+--o .......... o--+--o
+       |       kkiri      |
+       o ................. o`,
+    String.raw`             .     *
+       |                 |
+    o--+--o ....+..... o--+--o
+     \ | /    kkiri     \ | /
+      \|/                 \|/
+       ' ................. '`,
+    String.raw`       *           .
+      \|/               \|/
+       o ......+......... o
+      /|\     kkiri      /|\
+     o-+-o ............ o-+-o
+       |                 |`,
+    String.raw`       +                 .
+       |                 |
+     .-o-.             .-o-.
+    /  |  \... kkiri ../  |  \
+    o--+--o           o--+--o
+        * ............. +`,
+  ];
+
   return <main className="login-page">
-    <section className="login-brand">
-      <div className="brand-mark"><Sparkles size={24} /></div>
-      <h1>함께할 사람을 찾고,<br />성장한 기록을 남겨요.</h1>
-      <div className="login-activity-motion" aria-hidden="true">
-        <div className="motion-core"><Sparkles /><span>함께 성장 중</span></div>
-        <div className="motion-orbit orbit-team"><UsersRound /><span>팀 매칭</span></div>
-        <div className="motion-orbit orbit-goal"><Target /><span>목표 달성</span></div>
-        <div className="motion-orbit orbit-calendar"><CalendarCheck2 /><span>활동 기록</span></div>
-        <i className="motion-path path-one" /><i className="motion-path path-two" />
-      </div>
-      <div className="login-rings"><span /><span /><span /></div>
-    </section>
+    <div className="login-backdrop-copy" aria-hidden="true">KKIRI · CONNECT · CREATE · GROW ·</div>
     <section className="login-panel">
+      <div className="login-brand">
+        <Link className="login-wordmark" to="/"><span><Sparkles size={20} /></span>끼리끼리</Link>
+        <p>같이 시작하고, 함께 완성하는 활동 공간</p>
+      </div>
+      <div className="login-ascii" aria-hidden="true">
+        <div className="login-ascii-bar"><span>●</span><span>●</span><span>●</span><em>kkiri_network.exe</em></div>
+        <div className="login-ascii-stage">
+          {asciiFrames.map((frame, index) => <pre key={frame} style={{ animationDelay: `${index * 1.2}s` }}>{frame}</pre>)}
+        </div>
+        <div className="login-ascii-status"><span>&gt; FINDING YOUR PEOPLE_</span><span>[ ONLINE ]</span></div>
+      </div>
       <form className="login-card" onSubmit={submit}>
-        <Link className="wordmark" to="/">끼리끼리</Link>
-        <h2>다시 만나서 반가워요</h2>
-        <p>모바일 앱과 같은 계정으로 로그인하세요.</p>
+        <div className="login-copy">
+          <span>WELCOME BACK</span>
+          <h1>다시 만나서 반가워요</h1>
+          <p>모바일 앱과 같은 계정으로 로그인하세요.</p>
+        </div>
         <label>이메일<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" required /></label>
         <label>비밀번호<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="비밀번호" required /></label>
         {error && <div className="form-error">{error}</div>}
