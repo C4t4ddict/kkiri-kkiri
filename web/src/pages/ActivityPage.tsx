@@ -1,6 +1,7 @@
 import {
   BellRing,
   BriefcaseBusiness,
+  CalendarDays,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -10,6 +11,7 @@ import {
   Edit3,
   FileText,
   Flame,
+  Gauge,
   ListChecks,
   Plus,
   Save,
@@ -18,77 +20,23 @@ import {
   Target,
   Trash2,
   UsersRound,
+  Zap,
   X,
 } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../app/AuthContext';
+import { ActivityToolGrid, type ActivityToolDefinition } from '../features/activity/ActivityToolGrid';
 import { api } from '../shared/api/client';
 import { resolveApiMediaUrl } from '../shared/api/media';
 import { useAsync } from '../shared/hooks/useAsync';
-import type { HeatmapDay, TeamMember, TeamNotice, TeamSummary, Todo } from '../shared/types/domain';
+import type { ActivityDocument, HeatmapDay, TeamMember, TeamNotice, TeamSummary, Todo } from '../shared/types/domain';
 import { PageState } from '../shared/ui/PageState';
 import { PageTitle } from '../shared/ui/PageTitle';
 
 type GoalScope = '일일' | '주간' | '월간';
-type ActivityToolId = 'weekly' | 'heatmap' | 'goals' | 'notices';
-type ActivityToolSize = 'small' | 'medium' | 'large';
-type ActivityToolSizes = Record<ActivityToolId, ActivityToolSize>;
-
-const DEFAULT_TOOL_SIZES: ActivityToolSizes = {
-  weekly: 'large',
-  heatmap: 'large',
-  goals: 'small',
-  notices: 'small',
-};
-const TOOL_SIZE_OPTIONS: { value: ActivityToolSize; label: string; shortLabel: string }[] = [
-  { value: 'small', label: '작게', shortLabel: 'S' },
-  { value: 'medium', label: '보통', shortLabel: 'M' },
-  { value: 'large', label: '넓게', shortLabel: 'L' },
-];
-
-const loadToolSizes = (userId?: number): ActivityToolSizes => {
-  if (!userId) return DEFAULT_TOOL_SIZES;
-  try {
-    const saved = JSON.parse(localStorage.getItem(`kkiri:activity-tool-sizes:${userId}`) || '{}') as Partial<ActivityToolSizes>;
-    return Object.fromEntries(Object.entries(DEFAULT_TOOL_SIZES).map(([tool, fallback]) => {
-      const value = saved[tool as ActivityToolId];
-      return [tool, TOOL_SIZE_OPTIONS.some((option) => option.value === value) ? value : fallback];
-    })) as ActivityToolSizes;
-  } catch {
-    return DEFAULT_TOOL_SIZES;
-  }
-};
-
-const saveToolSizes = (userId: number, sizes: ActivityToolSizes) => {
-  try {
-    localStorage.setItem(`kkiri:activity-tool-sizes:${userId}`, JSON.stringify(sizes));
-  } catch {
-    // 저장소가 비활성화되어도 현재 화면의 크기 변경은 유지한다.
-  }
-};
-
-function ToolSizeControl({ label, value, onChange }: {
-  label: string;
-  value: ActivityToolSize;
-  onChange: (size: ActivityToolSize) => void;
-}) {
-  return <div className="activity-tool-resize">
-    <span><Settings2 /> 카드 크기</span>
-    <div role="group" aria-label={`${label} 카드 크기`}>
-      {TOOL_SIZE_OPTIONS.map((option) => <button
-        type="button"
-        className={value === option.value ? 'active' : ''}
-        aria-pressed={value === option.value}
-        aria-label={`${label} ${option.label}`}
-        title={option.label}
-        onClick={() => onChange(option.value)}
-        key={option.value}
-      >{option.shortLabel}</button>)}
-    </div>
-  </div>;
-}
+type ActivityDocumentSummary = Omit<ActivityDocument, 'content_markdown'>;
 
 const dateKey = (date: Date) => [
   date.getFullYear(),
@@ -123,6 +71,23 @@ const nextStatus = (status: Todo['status']): Todo['status'] => status === '미�
     ? '완료'
     : '미진행';
 
+const daysUntil = (dateValue?: string | null) => {
+  if (!dateValue) return null;
+  const target = new Date(`${dateValue.slice(0, 10)}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (Number.isNaN(target.getTime())) return null;
+  return Math.ceil((target.getTime() - today.getTime()) / 86_400_000);
+};
+
+const deadlineLabel = (days: number | null) => days === null
+  ? '일정 미정'
+  : days > 0
+    ? `D-${days}`
+    : days === 0
+      ? 'D-DAY'
+      : `D+${Math.abs(days)}`;
+
 function TeamMemberAvatar({ member }: { member: TeamMember }) {
   const imageUrl = resolveApiMediaUrl(member.profile_picture);
   const [failed, setFailed] = useState(false);
@@ -148,21 +113,7 @@ export function ActivityPage() {
   const [editingNoticeTitle, setEditingNoticeTitle] = useState('');
   const [editingNoticeContent, setEditingNoticeContent] = useState('');
   const [saving, setSaving] = useState(false);
-  const [toolSizes, setToolSizes] = useState<ActivityToolSizes>(() => loadToolSizes(user?.id));
   const ranges = useMemo(currentRanges, []);
-
-  useEffect(() => {
-    setToolSizes(loadToolSizes(user?.id));
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (!user?.id) return;
-    saveToolSizes(user.id, toolSizes);
-  }, [toolSizes, user?.id]);
-
-  const setToolSize = (tool: ActivityToolId, size: ActivityToolSize) => {
-    setToolSizes((current) => ({ ...current, [tool]: size }));
-  };
 
   useEffect(() => {
     if (!active.data?.length) return;
@@ -196,6 +147,12 @@ export function ActivityPage() {
       ? api<TeamMember[]>(`/teams/${selectedId}/members`)
       : Promise.resolve([]),
     [selectedId, selected?.participation_mode],
+  );
+  const recentDocuments = useAsync(
+    () => selectedId
+      ? api<ActivityDocumentSummary[]>(`/teams/${selectedId}/documents`)
+      : Promise.resolve([]),
+    [selectedId],
   );
 
   const categories = useMemo(() => ['전체', ...new Set((active.data || []).map((team) => team.activity_category || (team.source_type === 'ENTERPRISE_CURRICULUM' ? '기업 커리큘럼' : '팀 활동')))], [active.data]);
@@ -298,6 +255,124 @@ export function ActivityPage() {
     return { key, label: ['월', '화', '수', '목', '금', '토', '일'][index], date: date.getDate(), items, percent: progressOf(items), today: key === dateKey(new Date()) };
   }), [goals.data?.일일, ranges.weekStart]);
 
+  const dueDays = daysUntil(selected?.due_date);
+  const nextActionGoals = uniqueGoals
+    .filter((goal) => goal.status !== '완료')
+    .sort((left, right) => left.scope_end_date.localeCompare(right.scope_end_date))
+    .slice(0, 3);
+  const activityTools: ActivityToolDefinition[] = [
+    {
+      id: 'weekly',
+      title: '이번 주 실행 흐름',
+      description: '요일별 완료율을 한눈에 확인합니다.',
+      className: 'week-visual-card',
+      defaultColumns: 12,
+      defaultRows: 7,
+      minColumns: 6,
+      minRows: 6,
+      content: <>
+        <div className="dashboard-section-head"><div><h3>이번 주 실행 흐름</h3></div><span>{ranges.일일.start} ~ {ranges.일일.end}</span></div>
+        <div className="week-bars">{weekDays.map((day) => <div className={day.today ? 'today' : ''} key={day.key}><div className="week-bar-track"><span style={{ height: `${day.items.length ? Math.max(10, day.percent) : 4}%` }} /></div><strong>{day.label}</strong><small>{day.date}</small></div>)}</div>
+      </>,
+    },
+    {
+      id: 'goals',
+      title: '목표 관리',
+      description: '일일·주간·월간 목표를 빠르게 실행합니다.',
+      className: 'goal-board',
+      defaultColumns: 6,
+      defaultRows: 10,
+      minColumns: 5,
+      minRows: 8,
+      content: <>
+        <div className="dashboard-section-head"><div><h3>목표 관리</h3></div><div className="goal-scope-tabs">{(['일일', '주간', '월간'] as GoalScope[]).map((item) => <button className={scope === item ? 'active' : ''} onClick={() => setScope(item)} key={item}>{item}</button>)}</div></div>
+        <form className="quick-goal-form" onSubmit={addGoal}><Plus /><input value={newGoal} onChange={(event) => setNewGoal(event.target.value)} placeholder={`${scope} 목표를 추가하세요`} /><button disabled={saving || !newGoal.trim()}>추가</button></form>
+        {goals.loading ? <PageState loading /> : <div className="goal-list">{(goals.data?.[scope] || []).length ? goals.data?.[scope].map((todo) => <button className={`goal-row ${todo.status}`} onClick={() => changeStatus(todo)} key={todo.todo_id}><span>{todo.status === '완료' ? <Check /> : todo.status === '진행중' ? <Clock3 /> : <Circle />}</span><div><strong>{todo.title}</strong><small>{todo.scope_start_date.slice(0, 10)}{todo.scope_start_date !== todo.scope_end_date ? ` ~ ${todo.scope_end_date.slice(0, 10)}` : ''}</small></div><em>{todo.status}</em></button>) : <div className="goal-empty">이 기간에 등록된 목표가 없습니다.</div>}</div>}
+      </>,
+    },
+    {
+      id: 'notices',
+      title: selected?.participation_mode === 'PERSONAL' ? '나의 메모' : '팀 공지',
+      description: '중요한 안내와 메모를 공유합니다.',
+      className: 'notice-board-web',
+      defaultColumns: 6,
+      defaultRows: 10,
+      minColumns: 5,
+      minRows: 8,
+      content: <>
+        <div className="dashboard-section-head"><div><h3>{selected?.participation_mode === 'PERSONAL' ? '나의 메모' : '팀 공지'}</h3></div><BellRing /></div>
+        <form className="notice-quick-form" onSubmit={addNotice}><input value={noticeTitle} onChange={(event) => setNoticeTitle(event.target.value)} placeholder="제목" /><textarea value={noticeContent} onChange={(event) => setNoticeContent(event.target.value)} placeholder={selected?.participation_mode === 'PERSONAL' ? '학습 중 기억할 내용을 남겨보세요.' : '팀원에게 알릴 내용을 남겨보세요.'} rows={3} /><button disabled={saving || !noticeTitle.trim() || !noticeContent.trim()}>등록</button></form>
+        <div className="notice-list-web">{notices.data?.length ? notices.data.map((notice) => <article key={notice.notice_id}>{editingNoticeId === notice.notice_id ? <form className="notice-edit-form" onSubmit={saveNotice}><input value={editingNoticeTitle} onChange={(event) => setEditingNoticeTitle(event.target.value)} aria-label="메모 제목" /><textarea rows={4} value={editingNoticeContent} onChange={(event) => setEditingNoticeContent(event.target.value)} aria-label="메모 내용" /><div><button type="button" onClick={() => setEditingNoticeId(null)}><X /> 취소</button><button disabled={saving}><Save /> 저장</button></div></form> : <><div className="notice-item-head"><strong>{notice.title}</strong>{Number(notice.author_id) === user?.id && <span><button aria-label="수정" onClick={() => beginEditNotice(notice)}><Edit3 /></button><button aria-label="삭제" onClick={() => deleteNotice(notice.notice_id)}><Trash2 /></button></span>}</div><p>{notice.content}</p><small>{new Date(notice.created_at).toLocaleDateString('ko-KR')} · {notice.author_name || user?.name}{notice.updated_at && notice.updated_at !== notice.created_at ? ' · 수정됨' : ''}</small></>}</article>) : <div className="notice-empty"><BellRing /><p>아직 작성된 내용이 없습니다.</p></div>}</div>
+      </>,
+    },
+    {
+      id: 'heatmap',
+      title: selected?.source_type === 'ENTERPRISE_CURRICULUM' ? '커리큘럼 학습 히트맵' : '활동 실행 히트맵',
+      description: '이번 달의 꾸준한 실행을 확인합니다.',
+      className: 'activity-heatmap-card',
+      defaultColumns: 6,
+      defaultRows: 8,
+      minColumns: 4,
+      minRows: 7,
+      content: <>
+        <div className="dashboard-section-head"><div><h3>{selected?.source_type === 'ENTERPRISE_CURRICULUM' ? '커리큘럼 학습 히트맵' : '활동 실행 히트맵'}</h3></div><span>{new Date().getFullYear()}년 {new Date().getMonth() + 1}월</span></div>
+        <div className="activity-heatmap-weekdays">{['월', '화', '수', '목', '금', '토', '일'].map((day) => <span key={day}>{day}</span>)}</div>
+        <div className="activity-heatmap-grid">
+          {heatmap.data?.map((day, index) => <span className={`heat-${Math.min(day.count, 4)}`} title={`${day.date} · 완료 ${day.count}개`} key={day.date} style={index === 0 ? { gridColumnStart: (new Date(`${day.date}T00:00:00`).getDay() + 6) % 7 + 1 } : undefined}><em>{Number(day.date.slice(-2))}</em></span>)}
+        </div>
+        <div className="activity-heatmap-legend"><span>적음</span>{[0, 1, 2, 3, 4].map((level) => <i className={`heat-${level}`} key={level} />)}<span>많음</span></div>
+      </>,
+    },
+    {
+      id: 'documents',
+      title: '최근 활동 문서',
+      description: '팀이 최근 편집한 Markdown 문서를 이어서 작성합니다.',
+      className: 'activity-recent-documents-card',
+      defaultColumns: 6,
+      defaultRows: 8,
+      minColumns: 4,
+      minRows: 6,
+      content: <>
+        <div className="dashboard-section-head"><div><h3>최근 활동 문서</h3></div><Link to={`/activity/${selectedId}/documents`}>전체 보기 <ChevronRight /></Link></div>
+        {recentDocuments.loading ? <div className="activity-tool-state">문서를 불러오는 중입니다.</div> : recentDocuments.error ? <div className="activity-tool-state error"><span>{recentDocuments.error}</span><button onClick={recentDocuments.reload}>다시 시도</button></div> : recentDocuments.data?.length ? <div className="activity-recent-document-list">{recentDocuments.data.slice(0, 5).map((document) => <Link to={`/activity/${selectedId}/documents`} key={document.document_id}><span><FileText /></span><div><strong>{document.title || '제목 없는 문서'}</strong><small>{document.editor_name || document.creator_name || '팀 문서'} · {new Date(document.updated_at).toLocaleDateString('ko-KR')}</small></div><ChevronRight /></Link>)}</div> : <div className="activity-tool-state"><FileText /><span>아직 문서가 없습니다.</span><Link to={`/activity/${selectedId}/documents`}>첫 문서 만들기</Link></div>}
+      </>,
+    },
+    {
+      id: 'deadline',
+      title: '마감과 다음 할 일',
+      description: '활동 마감과 가까운 미완료 목표를 확인합니다.',
+      className: 'activity-deadline-card',
+      defaultColumns: 6,
+      defaultRows: 7,
+      minColumns: 4,
+      minRows: 6,
+      content: <>
+        <div className="dashboard-section-head"><div><h3>마감과 다음 할 일</h3></div><CalendarDays /></div>
+        <div className={`activity-deadline-summary ${dueDays !== null && dueDays < 0 ? 'overdue' : ''}`}><span>{deadlineLabel(dueDays)}</span><div><strong>{selected?.due_date ? new Date(selected.due_date).toLocaleDateString('ko-KR') : '종료일 미정'}</strong><small>{selected?.team_name}</small></div></div>
+        <div className="activity-next-goals">{nextActionGoals.length ? nextActionGoals.map((goal) => <button type="button" onClick={() => changeStatus(goal)} key={goal.todo_id}><span>{goal.status === '진행중' ? <Clock3 /> : <Circle />}</span><div><strong>{goal.title}</strong><small>{goal.scope_type} · {goal.scope_end_date.slice(0, 10)}</small></div></button>) : <div className="activity-tool-state compact"><CheckCircle2 /><span>남은 목표가 없습니다.</span></div>}</div>
+      </>,
+    },
+    {
+      id: 'shortcuts',
+      title: '빠른 실행',
+      description: '자주 사용하는 활동 기능으로 바로 이동합니다.',
+      className: 'activity-shortcuts-card',
+      defaultColumns: 6,
+      defaultRows: 7,
+      minColumns: 4,
+      minRows: 6,
+      content: <>
+        <div className="dashboard-section-head"><div><h3>빠른 실행</h3></div><Zap /></div>
+        <nav className="activity-tool-shortcuts" aria-label="활동 빠른 실행">
+          <Link to={`/activity/${selectedId}/documents`}><span><FileText /></span><div><strong>활동 문서</strong><small>Markdown 회의록·자료</small></div><ChevronRight /></Link>
+          <Link to={`/activity/${selectedId}/manage#team-goals`}><span><Target /></span><div><strong>팀원 목표</strong><small>담당 목표와 진행률</small></div><ChevronRight /></Link>
+          <Link to={`/activity/${selectedId}/manage#team-issues`}><span><ListChecks /></span><div><strong>팀 이슈</strong><small>문제와 해결 상태</small></div><ChevronRight /></Link>
+          <Link to={`/activity/${selectedId}/manage#activity-settings`}><span><Gauge /></span><div><strong>활동 설정</strong><small>역할·프로젝트 관리</small></div><ChevronRight /></Link>
+        </nav>
+      </>,
+    },
+  ];
+
   if (active.loading) return <PageState loading />;
 
   return <>
@@ -354,37 +429,7 @@ export function ActivityPage() {
           </nav>
         </section>}
 
-        <div className="activity-tool-grid">
-        <section className={`week-visual-card activity-tool-card activity-tool-size-${toolSizes.weekly}`}>
-          <ToolSizeControl label="이번 주 실행 흐름" value={toolSizes.weekly} onChange={(size) => setToolSize('weekly', size)} />
-          <div className="dashboard-section-head"><div><h3>이번 주 실행 흐름</h3></div><span>{ranges.일일.start} ~ {ranges.일일.end}</span></div>
-          <div className="week-bars">{weekDays.map((day) => <div className={day.today ? 'today' : ''} key={day.key}><div className="week-bar-track"><span style={{ height: `${day.items.length ? Math.max(10, day.percent) : 4}%` }} /></div><strong>{day.label}</strong><small>{day.date}</small></div>)}</div>
-        </section>
-
-        <section className={`activity-heatmap-card activity-tool-card activity-tool-size-${toolSizes.heatmap}`}>
-          <ToolSizeControl label="활동 실행 히트맵" value={toolSizes.heatmap} onChange={(size) => setToolSize('heatmap', size)} />
-          <div className="dashboard-section-head"><div><h3>{selected?.source_type === 'ENTERPRISE_CURRICULUM' ? '커리큘럼 학습 히트맵' : '활동 실행 히트맵'}</h3></div><span>{new Date().getFullYear()}년 {new Date().getMonth() + 1}월</span></div>
-          <div className="activity-heatmap-weekdays">{['월', '화', '수', '목', '금', '토', '일'].map((day) => <span key={day}>{day}</span>)}</div>
-          <div className="activity-heatmap-grid">
-            {heatmap.data?.map((day, index) => <span className={`heat-${Math.min(day.count, 4)}`} title={`${day.date} · 완료 ${day.count}개`} key={day.date} style={index === 0 ? { gridColumnStart: (new Date(`${day.date}T00:00:00`).getDay() + 6) % 7 + 1 } : undefined}><em>{Number(day.date.slice(-2))}</em></span>)}
-          </div>
-          <div className="activity-heatmap-legend"><span>적음</span>{[0, 1, 2, 3, 4].map((level) => <i className={`heat-${level}`} key={level} />)}<span>많음</span></div>
-        </section>
-
-          <section className={`goal-board activity-tool-card activity-tool-size-${toolSizes.goals}`}>
-            <ToolSizeControl label="목표 관리" value={toolSizes.goals} onChange={(size) => setToolSize('goals', size)} />
-            <div className="dashboard-section-head"><div><h3>목표 관리</h3></div><div className="goal-scope-tabs">{(['일일', '주간', '월간'] as GoalScope[]).map((item) => <button className={scope === item ? 'active' : ''} onClick={() => setScope(item)} key={item}>{item}</button>)}</div></div>
-            <form className="quick-goal-form" onSubmit={addGoal}><Plus /><input value={newGoal} onChange={(event) => setNewGoal(event.target.value)} placeholder={`${scope} 목표를 추가하세요`} /><button disabled={saving || !newGoal.trim()}>추가</button></form>
-            {goals.loading ? <PageState loading /> : <div className="goal-list">{(goals.data?.[scope] || []).length ? goals.data?.[scope].map((todo) => <button className={`goal-row ${todo.status}`} onClick={() => changeStatus(todo)} key={todo.todo_id}><span>{todo.status === '완료' ? <Check /> : todo.status === '진행중' ? <Clock3 /> : <Circle />}</span><div><strong>{todo.title}</strong><small>{todo.scope_start_date.slice(0, 10)}{todo.scope_start_date !== todo.scope_end_date ? ` ~ ${todo.scope_end_date.slice(0, 10)}` : ''}</small></div><em>{todo.status}</em></button>) : <div className="goal-empty">이 기간에 등록된 목표가 없습니다.</div>}</div>}
-          </section>
-
-          <section className={`notice-board-web activity-tool-card activity-tool-size-${toolSizes.notices}`}>
-            <ToolSizeControl label={selected?.participation_mode === 'PERSONAL' ? '나의 메모' : '팀 공지'} value={toolSizes.notices} onChange={(size) => setToolSize('notices', size)} />
-            <div className="dashboard-section-head"><div><h3>{selected?.participation_mode === 'PERSONAL' ? '나의 메모' : '팀 공지'}</h3></div><BellRing /></div>
-            <form className="notice-quick-form" onSubmit={addNotice}><input value={noticeTitle} onChange={(event) => setNoticeTitle(event.target.value)} placeholder="제목" /><textarea value={noticeContent} onChange={(event) => setNoticeContent(event.target.value)} placeholder={selected?.participation_mode === 'PERSONAL' ? '학습 중 기억할 내용을 남겨보세요.' : '팀원에게 알릴 내용을 남겨보세요.'} rows={3} /><button disabled={saving || !noticeTitle.trim() || !noticeContent.trim()}>등록</button></form>
-            <div className="notice-list-web">{notices.data?.length ? notices.data.map((notice) => <article key={notice.notice_id}>{editingNoticeId === notice.notice_id ? <form className="notice-edit-form" onSubmit={saveNotice}><input value={editingNoticeTitle} onChange={(event) => setEditingNoticeTitle(event.target.value)} aria-label="메모 제목" /><textarea rows={4} value={editingNoticeContent} onChange={(event) => setEditingNoticeContent(event.target.value)} aria-label="메모 내용" /><div><button type="button" onClick={() => setEditingNoticeId(null)}><X /> 취소</button><button disabled={saving}><Save /> 저장</button></div></form> : <><div className="notice-item-head"><strong>{notice.title}</strong>{Number(notice.author_id) === user?.id && <span><button aria-label="수정" onClick={() => beginEditNotice(notice)}><Edit3 /></button><button aria-label="삭제" onClick={() => deleteNotice(notice.notice_id)}><Trash2 /></button></span>}</div><p>{notice.content}</p><small>{new Date(notice.created_at).toLocaleDateString('ko-KR')} · {notice.author_name || user?.name}{notice.updated_at && notice.updated_at !== notice.created_at ? ' · 수정됨' : ''}</small></>}</article>) : <div className="notice-empty"><BellRing /><p>아직 작성된 내용이 없습니다.</p></div>}</div>
-          </section>
-        </div>
+        <ActivityToolGrid userId={user?.id} tools={activityTools} />
       </div>
     </div>}
   </>;
