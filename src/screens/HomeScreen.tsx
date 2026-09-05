@@ -28,6 +28,10 @@ type Activity = {
   open_recruitment_count?: number;
 };
 
+type ActivityPageResponse = {
+  items: Activity[];
+};
+
 const BASE_URL =
   Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 
@@ -41,10 +45,10 @@ export default function HomeScreen() {
 
   const fetchActivities = useCallback(async (showError = true) => {
     try {
-      const res = await axios.get<Activity[]>(`${BASE_URL}/api/activities`, {
+      const res = await axios.get<ActivityPageResponse>(`${BASE_URL}/api/activities/open?page=1&limit=100`, {
         headers: user?.id ? { 'x-user-id': String(user.id) } : undefined,
       });
-      setActivities(Array.isArray(res.data) ? res.data : []);
+      setActivities(Array.isArray(res.data?.items) ? res.data.items : []);
       setError(false);
     } catch (requestError) {
       console.warn('홈 활동 불러오기 오류:', requestError);

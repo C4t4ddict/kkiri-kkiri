@@ -45,7 +45,9 @@ CREATE TABLE IF NOT EXISTS activitys (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_activity_source (source_name, source_item_id),
-  INDEX idx_activitys_hidden_updated (is_hidden, updated_at)
+  INDEX idx_activitys_hidden_updated (is_hidden, updated_at),
+  INDEX idx_activitys_feed (is_hidden, created_at, activity_id),
+  INDEX idx_activitys_open_feed (is_hidden, application_period_end, created_at, activity_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS activity_view_events (
@@ -84,6 +86,7 @@ CREATE TABLE IF NOT EXISTS team_recruitments (
   deleted_at DATETIME NULL,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_team_recruitments_activity_status (activity_id, status),
+  INDEX idx_team_recruitments_open_activity (status, deleted_at, activity_id, recruitment_scope, school_domain),
   INDEX idx_team_recruitments_curriculum_status (curriculum_id, status),
   INDEX idx_team_recruitments_owner_deleted (owner_user_id, deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

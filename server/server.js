@@ -3,6 +3,7 @@ console.log('끼리끼리 서버 시작...');
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
+const compression = require('compression');
 const bodyParser = require('body-parser');
 const path = require('path');
 const fs = require('fs');
@@ -19,6 +20,7 @@ const { attachAuth, getAuthenticatedUserId, issueAuthToken } = require('./lib/au
 const { getRequestMetrics, logger, requestLogger } = require('./lib/logger');
 const { createSecureImageUpload } = require('./lib/secureImageUpload');
 const { createTtlCache } = require('./lib/ttlCache');
+const { createMemoryRateLimiter } = require('./lib/rateLimit');
 const { extractPrizeDetails, extractPrizeSummary } = require('./lib/activityPrize');
 const { buildMonthTodoCalendar, findPeriodGoalCapacityConflict } = require('./lib/todoCalendar');
 const {
@@ -89,45 +91,32 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const BCRYPT_SALT_ROUNDS = 10;
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
+const PUBLIC_MEDIA_BASE_URL = String(process.env.PUBLIC_MEDIA_BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
+const buildUploadUrl = (fileName) => `${PUBLIC_MEDIA_BASE_URL}/uploads/${encodeURIComponent(fileName)}`;
+const RUN_BACKGROUND_JOBS = String(
+  process.env.RUN_BACKGROUND_JOBS ?? (process.env.NODE_ENV !== 'production'),
+).toLowerCase() === 'true';
 
-const isPasswordValid = (inputPassword, savedPassword) => {
+const isPasswordValid = async (inputPassword, savedPassword) => {
   if (!savedPassword) {
     return false;
   }
 
   if (savedPassword.startsWith('$2')) {
-    return bcrypt.compareSync(inputPassword, savedPassword);
+    return bcrypt.compare(inputPassword, savedPassword);
   }
 
   return inputPassword === savedPassword;
 };
 
-const hashPassword = (password) => bcrypt.hashSync(password, BCRYPT_SALT_ROUNDS);
+const hashPassword = (password) => bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
 
 const normalizeLocalUrl = (url) =>
   url ? url.replace('http://localhost:3000', 'http://10.0.2.2:3000') : url;
 
 const getActivityImageUrl = (url) => {
   const normalizedUrl = normalizeLocalUrl(url);
-
-  if (!normalizedUrl) {
-    return normalizedUrl;
-  }
-
-  const uploadMatch = normalizedUrl.match(/\/uploads\/([^/?#]+)/);
-
-  if (!uploadMatch) {
-    return normalizedUrl;
-  }
-
-  const fileName = decodeURIComponent(uploadMatch[1]);
-  const filePath = path.join(UPLOADS_DIR, fileName);
-
-  if (fs.existsSync(filePath)) {
-    return normalizedUrl;
-  }
-
-  return null;
+  return normalizedUrl || null;
 };
 
 const normalizeActivity = (activity) => {
@@ -181,21 +170,31 @@ const parseIdList = (value) => {
 
 const parsePagination = (query) => {
   if (query.page === undefined && query.limit === undefined) return null;
-  const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
+  const page = Math.min(1000, Math.max(1, Number.parseInt(query.page, 10) || 1));
   const limit = Math.min(100, Math.max(1, Number.parseInt(query.limit, 10) || 20));
   return { page, limit };
 };
 
-const sendActivityList = (res, activities, pagination) => {
+const ACTIVITY_COMPATIBILITY_LIMIT = Math.min(
+  1000,
+  Math.max(24, Number.parseInt(process.env.ACTIVITY_COMPATIBILITY_LIMIT, 10) || 200),
+);
+
+const sendActivityList = (res, activities, pagination, total = activities.length) => {
   const normalized = activities.map(normalizeActivity);
-  if (!pagination) return res.status(200).json(normalized);
-  const start = (pagination.page - 1) * pagination.limit;
+  res.setHeader('Cache-Control', 'private, max-age=15, stale-while-revalidate=30');
+  if (!pagination) {
+    if (normalized.length >= ACTIVITY_COMPATIBILITY_LIMIT) {
+      res.setHeader('X-Result-Limit', String(ACTIVITY_COMPATIBILITY_LIMIT));
+    }
+    return res.status(200).json(normalized);
+  }
   return res.status(200).json({
-    items: normalized.slice(start, start + pagination.limit),
+    items: normalized,
     pagination: {
       ...pagination,
-      total: normalized.length,
-      totalPages: Math.ceil(normalized.length / pagination.limit),
+      total,
+      totalPages: Math.ceil(total / pagination.limit),
     },
   });
 };
@@ -287,6 +286,33 @@ const toClientUser = (user) => ({
 
 // Middleware 설정
 app.use(cors());
+app.use(compression({ threshold: 1024 }));
+const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
+if (Number.isSafeInteger(trustProxyHops) && trustProxyHops > 0) app.set('trust proxy', trustProxyHops);
+
+const apiRateLimiter = createMemoryRateLimiter({
+  windowMs: Number(process.env.API_RATE_LIMIT_WINDOW_MS || 60_000),
+  maximum: Number(process.env.API_RATE_LIMIT_MAX || 600),
+  maxKeys: Number(process.env.RATE_LIMIT_MAX_KEYS || 10_000),
+});
+const authRateLimiter = createMemoryRateLimiter({
+  windowMs: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS || 15 * 60_000),
+  maximum: Number(process.env.AUTH_RATE_LIMIT_MAX || 30),
+  maxKeys: Number(process.env.RATE_LIMIT_MAX_KEYS || 10_000),
+});
+const emailRateLimiter = createMemoryRateLimiter({
+  windowMs: Number(process.env.EMAIL_RATE_LIMIT_WINDOW_MS || 15 * 60_000),
+  maximum: Number(process.env.EMAIL_RATE_LIMIT_MAX || 5),
+  maxKeys: Number(process.env.RATE_LIMIT_MAX_KEYS || 10_000),
+});
+const uploadRateLimiter = createMemoryRateLimiter({
+  windowMs: Number(process.env.UPLOAD_RATE_LIMIT_WINDOW_MS || 10 * 60_000),
+  maximum: Number(process.env.UPLOAD_RATE_LIMIT_MAX || 30),
+  maxKeys: Number(process.env.RATE_LIMIT_MAX_KEYS || 10_000),
+});
+app.use(['/api', '/auth', '/teams', '/users', '/todos', '/notifications'], apiRateLimiter);
+app.use(['/api/login', '/login', '/api/register', '/register', '/auth'], authRateLimiter);
+app.use(['/auth/email-verification/request', '/auth/password-reset/request'], emailRateLimiter);
 app.use('/teams/:teamId/documents', (req, res, next) => {
   res.setHeader('Cache-Control', 'private, no-store');
   next();
@@ -320,6 +346,8 @@ app.use((req, res, next) => {
 
 // 검증된 이미지 업로드만 브라우저에서 표시하고 MIME 스니핑을 차단합니다.
 app.use('/uploads', express.static(UPLOADS_DIR, {
+  immutable: true,
+  maxAge: '1y',
   setHeaders: (res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
   },
@@ -336,14 +364,17 @@ const db = mysql.createPool({
   connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 10),
   maxIdle: Number(process.env.DB_MAX_IDLE || 10),
   idleTimeout: Number(process.env.DB_IDLE_TIMEOUT_MS || 60_000),
-  queueLimit: Number(process.env.DB_QUEUE_LIMIT || 0),
+  queueLimit: Number(process.env.DB_QUEUE_LIMIT || 100),
+  connectTimeout: Number(process.env.DB_CONNECT_TIMEOUT_MS || 10_000),
+  enableKeepAlive: true,
+  keepAliveInitialDelay: Number(process.env.DB_KEEP_ALIVE_DELAY_MS || 10_000),
   charset: 'utf8mb4',
 });
 db.state = 'connecting';
 const portfolioDb = db.promise();
 const activityCache = createTtlCache({
   ttlMs: Number(process.env.ACTIVITY_CACHE_TTL_MS || 30_000),
-  maxEntries: 20,
+  maxEntries: Number(process.env.ACTIVITY_CACHE_MAX_ENTRIES || 100),
 });
 let portfolioQueue = Promise.resolve();
 let matchingSchemaReady = Promise.resolve();
@@ -461,6 +492,28 @@ const ensureActivityDiscoverySchema = async () => {
     PRIMARY KEY (activity_id, user_id, view_date),
     INDEX idx_activity_views_recent (view_date, activity_id)
   )`);
+};
+
+const ensureTrafficIndexes = async () => {
+  const definitions = [
+    ['activitys', 'idx_activitys_feed', '(is_hidden, created_at, activity_id)'],
+    ['activitys', 'idx_activitys_open_feed', '(is_hidden, application_period_end, created_at, activity_id)'],
+    [
+      'team_recruitments',
+      'idx_team_recruitments_open_activity',
+      '(status, deleted_at, activity_id, recruitment_scope, school_domain)',
+    ],
+  ];
+
+  for (const [table, indexName, columns] of definitions) {
+    const [indexes] = await portfolioDb.query(
+      `SHOW INDEX FROM \`${table}\` WHERE Key_name = ?`,
+      [indexName],
+    );
+    if (!indexes.length) {
+      await queryWithLockRetry(portfolioDb, `ALTER TABLE \`${table}\` ADD INDEX \`${indexName}\` ${columns}`);
+    }
+  }
 };
 
 const ensureTodoCompletionColumn = () => {
@@ -714,10 +767,11 @@ db.getConnection((err, connection) => {
     feedbackSchemaReady = ensureDeveloperFeedbackSchema(portfolioDb);
     activityDiscoverySchemaReady = ensureActivityDiscoverySchema();
     messagingSchemaReady = ensureMessagingSchema(portfolioDb);
-    crawlerScheduler = startCrawlerScheduler();
+    if (RUN_BACKGROUND_JOBS) crawlerScheduler = startCrawlerScheduler();
     curriculumSchemaReady = Promise.all([
       ensureRecruitmentActivityColumns(),
       ensureActivityPrizeSchema(),
+      ensureTrafficIndexes(),
       todoCalendarSchemaReady,
       authSchemaReady,
     ])
@@ -730,23 +784,30 @@ db.getConnection((err, connection) => {
       .then(() => adminSchemaReady)
       .then(() => ensurePortfolioSchema(portfolioDb))
       .then(() => ensureAwardsSchema(portfolioDb));
-    awardSchemaReady
-      .then(() => runArchiveMaintenance())
-      .then((archived) => {
-        if (archived.length) {
-          console.log(`✅ 지난 활동 자동 아카이브 ${archived.length}개 팀 완료`);
-        }
-      })
-      .catch((portfolioError) => console.error('DB 스키마 초기화 오류:', portfolioError));
+    if (RUN_BACKGROUND_JOBS) {
+      awardSchemaReady
+        .then(() => runArchiveMaintenance())
+        .then((archived) => {
+          if (archived.length) {
+            console.log(`✅ 지난 활동 자동 아카이브 ${archived.length}개 팀 완료`);
+          }
+        })
+        .catch((portfolioError) => console.error('DB 스키마 초기화 오류:', portfolioError));
+    } else {
+      logger.info('background_jobs_disabled');
+    }
   }
 });
 
-const portfolioArchiveTimer = setInterval(() => {
-  if (db.state === 'connected') {
-    runArchiveMaintenance().catch((error) => console.error('지난 활동 정기 아카이브 오류:', error));
-  }
-}, 60 * 60 * 1000);
-portfolioArchiveTimer.unref();
+let portfolioArchiveTimer = null;
+if (RUN_BACKGROUND_JOBS) {
+  portfolioArchiveTimer = setInterval(() => {
+    if (db.state === 'connected') {
+      runArchiveMaintenance().catch((error) => console.error('지난 활동 정기 아카이브 오류:', error));
+    }
+  }, 60 * 60 * 1000);
+  portfolioArchiveTimer.unref();
+}
 
 app.use('/teams/:teamId/documents', createActivityDocumentsRouter({
   database: portfolioDb,
@@ -985,7 +1046,14 @@ app.get('/api/ops/status', requireOpsToken, async (req, res) => {
         requests: getRequestMetrics(),
       },
       database: { state: db.state, pool: db.pool?._allConnections?.length ?? null },
-      cache: { activityEntries: activityCache.size() },
+      cache: {
+        activityEntries: activityCache.size(),
+        activityLoadsInFlight: activityCache.pending(),
+      },
+      backgroundJobs: {
+        enabled: RUN_BACKGROUND_JOBS,
+        crawlerRunning,
+      },
       crawlerRuns,
       timestamp: new Date().toISOString(),
     });
@@ -1123,7 +1191,7 @@ app.post('/auth/password-reset/confirm', async (req, res) => {
     await authSchemaReady;
     const reset = await resetPasswordWithToken(portfolioDb, {
       token,
-      passwordHash: hashPassword(password),
+      passwordHash: await hashPassword(password),
     });
     if (!reset) return res.status(400).json({ message: '재설정 요청이 만료되었습니다. 다시 인증해주세요' });
     res.json({ success: true, message: '비밀번호가 변경되었습니다' });
@@ -1133,7 +1201,7 @@ app.post('/auth/password-reset/confirm', async (req, res) => {
 });
 
 // 새로운 로그인 API (LoginScreen0에서 사용)
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -1144,7 +1212,12 @@ app.post('/api/login', (req, res) => {
   }
 
   // 더미 데이터로 테스트 (DB 연결 전)
-  if (!db || db.state === 'disconnected') {
+  if (!db || db.state !== 'connected') {
+    const allowDummyLogin = process.env.NODE_ENV === 'development'
+      && String(process.env.ALLOW_DUMMY_LOGIN || '').toLowerCase() === 'true';
+    if (!allowDummyLogin) {
+      return res.status(503).json({ success: false, message: '데이터베이스 연결을 준비하고 있습니다' });
+    }
     console.log('더미 로그인 처리 (MySQL 미연결)');
     
     // 테스트용 계정
@@ -1196,15 +1269,8 @@ app.post('/api/login', (req, res) => {
     WHERE email = ?
   `;
   
-  db.query(query, [email], (err, results) => {
-    if (err) {
-      console.error('로그인 DB 에러:', err);
-      return res.status(500).json({
-        success: false,
-        message: '서버 오류'
-      });
-    }
-
+  try {
+    const [results] = await portfolioDb.query(query, [email]);
     if (results.length === 0) {
       return res.status(401).json({
         success: false,
@@ -1214,7 +1280,7 @@ app.post('/api/login', (req, res) => {
 
     const user = results[0];
 
-    if (!isPasswordValid(password, user.password)) {
+    if (!await isPasswordValid(password, user.password)) {
       return res.status(401).json({
         success: false,
         message: '이메일 또는 비밀번호가 잘못되었습니다'
@@ -1227,11 +1293,23 @@ app.post('/api/login', (req, res) => {
       user: toClientUser(user),
       token: issueAuthToken(user.user_id),
     });
+  } catch (error) {
+    logger.error('login_failed', { error: error.message });
+    return res.status(500).json({ success: false, message: '서버 오류' });
+  }
+});
+
+app.get('/api/ready', (req, res) => {
+  const ready = db.state === 'connected';
+  res.status(ready ? 200 : 503).json({
+    status: ready ? 'ready' : 'not_ready',
+    database: db.state,
+    timestamp: new Date().toISOString(),
   });
 });
 
 // 기존 로그인 API 호환성 (기존 LoginScreen에서 사용)
-app.post('/login', (req, res) => {
+app.post('/login', async (req, res) => {
   console.log('기존 로그인 API 호출 - /login 라우트');
   
   const { email, password } = req.body;
@@ -1244,7 +1322,12 @@ app.post('/login', (req, res) => {
   }
 
   // 더미 데이터로 테스트 (DB 연결 전)
-  if (!db || db.state === 'disconnected') {
+  if (!db || db.state !== 'connected') {
+    const allowDummyLogin = process.env.NODE_ENV === 'development'
+      && String(process.env.ALLOW_DUMMY_LOGIN || '').toLowerCase() === 'true';
+    if (!allowDummyLogin) {
+      return res.status(503).json({ success: false, message: '데이터베이스 연결을 준비하고 있습니다' });
+    }
     console.log('더미 로그인 처리 (MySQL 미연결) - 기존 API');
     
     // 테스트용 계정
@@ -1296,15 +1379,8 @@ app.post('/login', (req, res) => {
     WHERE email = ?
   `;
   
-  db.query(query, [email], (err, results) => {
-    if (err) {
-      console.error('로그인 DB 에러:', err);
-      return res.status(500).json({
-        success: false,
-        message: '서버 오류'
-      });
-    }
-
+  try {
+    const [results] = await portfolioDb.query(query, [email]);
     if (results.length === 0) {
       return res.status(401).json({
         success: false,
@@ -1314,7 +1390,7 @@ app.post('/login', (req, res) => {
 
     const user = results[0];
 
-    if (!isPasswordValid(password, user.password)) {
+    if (!await isPasswordValid(password, user.password)) {
       return res.status(401).json({
         success: false,
         message: '이메일 또는 비밀번호를 확인해주세요.'
@@ -1327,7 +1403,10 @@ app.post('/login', (req, res) => {
       user: toClientUser(user),
       token: issueAuthToken(user.user_id),
     });
-  });
+  } catch (error) {
+    logger.error('legacy_login_failed', { error: error.message });
+    return res.status(500).json({ success: false, message: '서버 오류' });
+  }
 });
 
 const registerUser = async (req, res) => {
@@ -1367,7 +1446,7 @@ const registerUser = async (req, res) => {
         school ? 'STUDENT' : 'GENERAL',
         school?.school_domain || null,
         school?.school_name || null,
-        hashPassword(password),
+        await hashPassword(password),
         name,
         department,
         studentNumber,
@@ -1523,9 +1602,8 @@ app.get('/api/activities', async (req, res) => {
   const schoolDomain = profile?.email_verified && profile?.account_type === 'STUDENT'
     ? profile.school_domain
     : null;
-  const cacheKey = `activities:all:${schoolDomain || 'nationwide'}`;
-  const cached = activityCache.get(cacheKey);
-  if (cached) return sendActivityList(res, cached, pagination);
+  const pageKey = pagination ? `${pagination.page}:${pagination.limit}` : `compat:${ACTIVITY_COMPATIBILITY_LIMIT}`;
+  const cacheKey = `activities:all:${schoolDomain || 'nationwide'}:${pageKey}`;
 
   // 실제 DB 쿼리
   const sql = `
@@ -1543,15 +1621,34 @@ app.get('/api/activities', async (req, res) => {
         )
       GROUP BY activity_id
     ) rc ON rc.activity_id = a.activity_id
-    WHERE COALESCE(a.is_hidden, 0) = 0
-      AND COALESCE(a.source_name, '') <> 'local-demo'
-    ORDER BY a.created_at DESC
+    WHERE a.is_hidden = 0
+      AND (a.source_name IS NULL OR a.source_name <> 'local-demo')
+    ORDER BY a.created_at DESC, a.activity_id DESC
+    LIMIT ?${pagination ? ' OFFSET ?' : ''}
   `;
 
-    const [results] = await portfolioDb.query(sql, [schoolDomain]);
-    const activities = results || [];
-    activityCache.set(cacheKey, activities);
-    sendActivityList(res, activities, pagination);
+    const queryValues = [
+      schoolDomain,
+      pagination?.limit || ACTIVITY_COMPATIBILITY_LIMIT,
+      ...(pagination ? [(pagination.page - 1) * pagination.limit] : []),
+    ];
+    const dataPromise = activityCache.remember(cacheKey, async () => {
+      const [results] = await portfolioDb.query(sql, queryValues);
+      return results || [];
+    });
+    const totalPromise = pagination
+      ? activityCache.remember('activities:all:count', async () => {
+        const [rows] = await portfolioDb.query(`
+          SELECT COUNT(*) AS total
+          FROM activitys a
+          WHERE a.is_hidden = 0
+            AND (a.source_name IS NULL OR a.source_name <> 'local-demo')
+        `);
+        return Number(rows[0]?.total || 0);
+      })
+      : Promise.resolve(0);
+    const [activities, total] = await Promise.all([dataPromise, totalPromise]);
+    sendActivityList(res, activities, pagination, total || activities.length);
   } catch (error) {
     console.error('활동 조회 오류:', error);
     res.status(500).json({ message: '서버 오류' });
@@ -1566,9 +1663,8 @@ app.get('/api/activities/open', async (req, res) => {
   const schoolDomain = profile?.email_verified && profile?.account_type === 'STUDENT'
     ? profile.school_domain
     : null;
-  const cacheKey = `activities:open:${schoolDomain || 'nationwide'}`;
-  const cached = activityCache.get(cacheKey);
-  if (cached) return sendActivityList(res, cached, pagination);
+  const pageKey = pagination ? `${pagination.page}:${pagination.limit}` : `compat:${ACTIVITY_COMPATIBILITY_LIMIT}`;
+  const cacheKey = `activities:open:${schoolDomain || 'nationwide'}:${pageKey}`;
 
   const sql = `
     SELECT
@@ -1585,17 +1681,38 @@ app.get('/api/activities/open', async (req, res) => {
         )
       GROUP BY activity_id
     ) rc ON rc.activity_id = a.activity_id
-    WHERE COALESCE(a.is_hidden, 0) = 0
-      AND COALESCE(a.source_name, '') <> 'local-demo'
+    WHERE a.is_hidden = 0
+      AND (a.source_name IS NULL OR a.source_name <> 'local-demo')
       AND (a.application_period_start IS NULL OR a.application_period_start <= NOW())
       AND (a.application_period_end IS NULL OR a.application_period_end >= CURDATE())
-    ORDER BY a.application_period_end ASC, a.created_at DESC
+    ORDER BY a.application_period_end ASC, a.created_at DESC, a.activity_id DESC
+    LIMIT ?${pagination ? ' OFFSET ?' : ''}
   `;
 
-    const [results] = await portfolioDb.query(sql, [schoolDomain]);
-    const activities = results || [];
-    activityCache.set(cacheKey, activities);
-    sendActivityList(res, activities, pagination);
+    const queryValues = [
+      schoolDomain,
+      pagination?.limit || ACTIVITY_COMPATIBILITY_LIMIT,
+      ...(pagination ? [(pagination.page - 1) * pagination.limit] : []),
+    ];
+    const dataPromise = activityCache.remember(cacheKey, async () => {
+      const [results] = await portfolioDb.query(sql, queryValues);
+      return results || [];
+    });
+    const totalPromise = pagination
+      ? activityCache.remember('activities:open:count', async () => {
+        const [rows] = await portfolioDb.query(`
+          SELECT COUNT(*) AS total
+          FROM activitys a
+          WHERE a.is_hidden = 0
+            AND (a.source_name IS NULL OR a.source_name <> 'local-demo')
+            AND (a.application_period_start IS NULL OR a.application_period_start <= NOW())
+            AND (a.application_period_end IS NULL OR a.application_period_end >= CURDATE())
+        `);
+        return Number(rows[0]?.total || 0);
+      })
+      : Promise.resolve(0);
+    const [activities, total] = await Promise.all([dataPromise, totalPromise]);
+    sendActivityList(res, activities, pagination, total || activities.length);
   } catch (error) {
     console.error('모집 중 활동 조회 오류:', error);
     res.status(500).json({ message: '서버 오류' });
@@ -1606,7 +1723,8 @@ app.get('/api/activities/trending', async (req, res) => {
   const limit = Math.min(24, Math.max(4, Number.parseInt(req.query.limit, 10) || 12));
   try {
     await Promise.all([matchingSchemaReady, activityDiscoverySchemaReady]);
-    const [rows] = await portfolioDb.query(`
+    const rows = await activityCache.remember(`activities:trending:${limit}`, async () => {
+      const [results] = await portfolioDb.query(`
       SELECT
         a.*,
         COALESCE(views.view_count, 0) AS recent_view_count,
@@ -1636,7 +1754,7 @@ app.get('/api/activities/trending', async (req, res) => {
         WHERE status = 'OPEN' AND deleted_at IS NULL AND activity_id IS NOT NULL
         GROUP BY activity_id
       ) recruitments ON recruitments.activity_id = a.activity_id
-      WHERE COALESCE(a.is_hidden, 0) = 0
+      WHERE a.is_hidden = 0
         AND a.source_name IN ('위비티', '씽굿')
         AND a.main_image_url IS NOT NULL
         AND TRIM(a.main_image_url) <> ''
@@ -1646,7 +1764,10 @@ app.get('/api/activities/trending', async (req, res) => {
                a.application_period_end ASC,
                a.activity_id DESC
       LIMIT ?
-    `, [limit]);
+      `, [limit]);
+      return results || [];
+    });
+    res.setHeader('Cache-Control', 'private, max-age=15, stale-while-revalidate=30');
     res.json((rows || []).map(normalizeActivity));
   } catch (error) {
     logger.error('trending_activities_failed', { error: error.message });
@@ -5077,7 +5198,7 @@ app.put('/api/user/:id', (req, res) => {
   });
 });
 
-app.put('/api/user/:id/password', (req, res) => {
+app.put('/api/user/:id/password', async (req, res) => {
   const userId = Number(req.params.id);
   const requestUserId = getRequestUserId(req);
   const currentPassword = String(req.body?.current_password || '');
@@ -5095,33 +5216,25 @@ app.put('/api/user/:id/password', (req, res) => {
     return res.status(400).json({ success: false, message: '현재 비밀번호와 4자 이상의 새 비밀번호를 입력해주세요' });
   }
 
-  db.query('SELECT password FROM users WHERE id = ?', [userId], (findErr, rows) => {
-    if (findErr) {
-      console.error('비밀번호 변경 사용자 조회 오류:', findErr);
-      return res.status(500).json({ success: false, message: '서버 오류' });
-    }
-
+  try {
+    const [rows] = await portfolioDb.query('SELECT password FROM users WHERE id = ?', [userId]);
     if (!rows.length) {
       return res.status(404).json({ success: false, message: '사용자를 찾을 수 없습니다' });
     }
 
-    if (!isPasswordValid(currentPassword, rows[0].password)) {
+    if (!await isPasswordValid(currentPassword, rows[0].password)) {
       return res.status(400).json({ success: false, message: '현재 비밀번호가 일치하지 않습니다' });
     }
 
-    db.query(
+    await portfolioDb.query(
       'UPDATE users SET password = ?, updated_at = NOW() WHERE id = ?',
-      [hashPassword(newPassword), userId],
-      (updateErr) => {
-        if (updateErr) {
-          console.error('비밀번호 변경 오류:', updateErr);
-          return res.status(500).json({ success: false, message: '비밀번호 변경에 실패했습니다' });
-        }
-
-        res.json({ success: true, message: '비밀번호가 변경되었습니다' });
-      }
+      [await hashPassword(newPassword), userId],
     );
-  });
+    return res.json({ success: true, message: '비밀번호가 변경되었습니다' });
+  } catch (error) {
+    logger.error('password_change_failed', { userId, error: error.message });
+    return res.status(500).json({ success: false, message: '비밀번호 변경에 실패했습니다' });
+  }
 });
 
 // 사용자 탈퇴 (Setting에서 사용)
@@ -5172,7 +5285,7 @@ const requireSelfUpload = (parameterName) => (req, res, next) => {
   next();
 };
 
-app.post('/api/upload', requireUploadUser, secureImageUpload, (req, res) => {
+app.post('/api/upload', uploadRateLimiter, requireUploadUser, secureImageUpload, (req, res) => {
   if (!req.file) {
     return res.status(400).json({ 
       success: false,
@@ -5180,14 +5293,14 @@ app.post('/api/upload', requireUploadUser, secureImageUpload, (req, res) => {
     });
   }
 
-  const imageUrl = `http://localhost:3000/uploads/${req.file.filename}`;
+  const imageUrl = buildUploadUrl(req.file.filename);
   res.status(200).json({ 
     success: true,
     imageUrl 
   });
 });
 
-app.post('/api/upload/profile/:userId', requireSelfUpload('userId'), secureImageUpload, (req, res) => {
+app.post('/api/upload/profile/:userId', uploadRateLimiter, requireSelfUpload('userId'), secureImageUpload, (req, res) => {
   const requestUserId = getRequestUserId(req);
   const { userId } = req.params;
 
@@ -5199,7 +5312,7 @@ app.post('/api/upload/profile/:userId', requireSelfUpload('userId'), secureImage
     return res.status(400).json({ success: false, message: '이미지 파일이 없습니다' });
   }
 
-  const imageUrl = `http://localhost:3000/uploads/${req.file.filename}`;
+  const imageUrl = buildUploadUrl(req.file.filename);
   db.query('UPDATE users SET profile_picture = ?, updated_at = NOW() WHERE id = ?', [imageUrl, userId], (err, result) => {
     if (err) {
       console.error('프로필 이미지 저장 오류:', err);
@@ -5212,7 +5325,7 @@ app.post('/api/upload/profile/:userId', requireSelfUpload('userId'), secureImage
   });
 });
 
-app.post('/users/:userId/past-activities/:portfolioId/images', requireSelfUpload('userId'), secureImageUpload, async (req, res) => {
+app.post('/users/:userId/past-activities/:portfolioId/images', uploadRateLimiter, requireSelfUpload('userId'), secureImageUpload, async (req, res) => {
   const userId = Number(req.params.userId);
   const portfolioId = Number(req.params.portfolioId);
   const requestUserId = getRequestUserId(req);
@@ -5226,7 +5339,7 @@ app.post('/users/:userId/past-activities/:portfolioId/images', requireSelfUpload
     [portfolioId, userId],
   );
   if (!rows.length) return res.status(404).json({ message: '미니포트폴리오를 찾을 수 없습니다' });
-  res.status(201).json({ imageUrl: `/uploads/${req.file.filename}` });
+  res.status(201).json({ imageUrl: buildUploadUrl(req.file.filename) });
 });
 
 app.get('/api/admin/overview', requireAdmin, async (req, res) => {
@@ -5373,6 +5486,7 @@ app.use((req, res) => {
     availableRoutes: [
       'GET /',
       'GET /api/health',
+      'GET /api/ready',
       'GET /api/db-health',
       'POST /api/login (새로운 API - LoginScreen0 사용)',
       'POST /login (기존 호환성 API)',
@@ -5395,7 +5509,7 @@ app.use((req, res) => {
 });
 
 // 서버 시작
-app.listen(PORT, () => {
+const httpServer = app.listen(PORT, () => {
   console.log(`🚀 끼리끼리 서버가 http://localhost:${PORT}에서 실행 중입니다`);
   console.log('');
   console.log('📋 사용 가능한 엔드포인트:');
@@ -5420,5 +5534,37 @@ app.listen(PORT, () => {
   console.log('');
   console.log('✅ 서버 설정 완료!');
 });
+
+httpServer.requestTimeout = Number(process.env.HTTP_REQUEST_TIMEOUT_MS || 30_000);
+httpServer.headersTimeout = Number(process.env.HTTP_HEADERS_TIMEOUT_MS || 15_000);
+httpServer.keepAliveTimeout = Number(process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS || 5_000);
+httpServer.maxRequestsPerSocket = Number(process.env.HTTP_MAX_REQUESTS_PER_SOCKET || 1000);
+
+let shutdownStarted = false;
+const shutdown = (signal) => {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  logger.info('server_shutdown_started', { signal });
+  if (portfolioArchiveTimer) clearInterval(portfolioArchiveTimer);
+  crawlerScheduler?.stop?.();
+
+  const forceTimer = setTimeout(() => {
+    logger.error('server_shutdown_forced', { signal });
+    process.exit(1);
+  }, Number(process.env.HTTP_SHUTDOWN_TIMEOUT_MS || 10_000));
+  forceTimer.unref();
+
+  httpServer.close(() => {
+    db.end((error) => {
+      clearTimeout(forceTimer);
+      if (error) logger.error('database_pool_close_failed', { error: error.message });
+      logger.info('server_shutdown_completed', { signal });
+      process.exit(error ? 1 : 0);
+    });
+  });
+};
+
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+process.once('SIGINT', () => shutdown('SIGINT'));
 
 console.log('서버 준비 중...');
