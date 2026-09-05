@@ -165,6 +165,7 @@ export function ActivityToolGrid({ userId, tools }: { userId?: number; tools: Ac
 
   const dropTool = (event: DragEvent, targetId: string) => {
     event.preventDefault();
+    event.stopPropagation();
     const sourceId = draggedId || event.dataTransfer.getData('text/plain');
     if (!sourceId || sourceId === targetId) {
       setDragOverId(null);
@@ -221,8 +222,7 @@ export function ActivityToolGrid({ userId, tools }: { userId?: number; tools: Ac
     const resize = resizeRef.current;
     if (!resize || resize.pointerId !== event.pointerId || resize.toolId !== tool.id) return;
     resizeRef.current = null;
-    const placement = layout.items[tool.id];
-    setAnnouncement(`${tool.title} 크기를 ${placement.columns}열, ${placement.rows}칸으로 조절했습니다.`);
+    setAnnouncement(`${tool.title} 크기 조절을 완료했습니다.`);
   };
 
   const handleResizeKey = (event: KeyboardEvent, tool: ActivityToolDefinition) => {
@@ -274,7 +274,20 @@ export function ActivityToolGrid({ userId, tools }: { userId?: number; tools: Ac
       {hiddenCount > 0 && <small>숨긴 도구 {hiddenCount}개</small>}
     </div>}
 
-    <div className="activity-tool-grid" ref={gridRef}>
+    <div
+      className="activity-tool-grid"
+      ref={gridRef}
+      onDragOver={(event) => { if (editing && draggedId) event.preventDefault(); }}
+      onDrop={(event) => {
+        if (event.target !== event.currentTarget || !draggedId) return;
+        event.preventDefault();
+        moveTool(draggedId, layout.order.length);
+        setAnnouncement(`${toolMap.get(draggedId)?.title || '도구'}를 마지막으로 이동했습니다.`);
+        setDraggedId(null);
+        setDragOverId(null);
+      }}
+    >
+      {!visibleTools.length && <div className="activity-tool-grid-empty"><LayoutGrid /><strong>표시 중인 도구가 없습니다.</strong><span>위 도구 추가·숨김 목록에서 필요한 도구를 다시 선택하세요.</span></div>}
       {visibleTools.map((tool) => {
         const placement = layout.items[tool.id];
         const style = {
