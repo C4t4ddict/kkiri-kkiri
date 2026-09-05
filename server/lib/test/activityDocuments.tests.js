@@ -249,6 +249,10 @@ test('문서 삭제는 행을 제거하지 않고 version을 올리며 deleted_a
 
 test('문서 API는 스키마 준비를 기다리고 인증 정보와 no-store 정책을 적용한다', async (context) => {
   let schemaReadyCount = 0;
+  let resolveSchemaReady;
+  let signalSchemaWaitStarted;
+  const schemaReady = new Promise((resolve) => { resolveSchemaReady = resolve; });
+  const schemaWaitStarted = new Promise((resolve) => { signalSchemaWaitStarted = resolve; });
   const app = express();
   app.use(express.json());
   app.use('/teams/:teamId/documents', createActivityDocumentsRouter({
@@ -258,7 +262,11 @@ test('문서 API는 스키마 준비를 기다리고 인증 정보와 no-store �
       },
     },
     getRequestUserId: (req) => req.get('x-test-user') === '7' ? 7 : null,
-    getSchemaReady: async () => { schemaReadyCount += 1; },
+    getSchemaReady: () => {
+      schemaReadyCount += 1;
+      signalSchemaWaitStarted();
+      return schemaReady;
+    },
     logError: () => undefined,
   }));
   const server = app.listen(0, '127.0.0.1');
@@ -266,18 +274,29 @@ test('문서 API는 스키마 준비를 기다리고 인증 정보와 no-store �
   await once(server, 'listening');
 
   const { port } = server.address();
-  const unauthorizedResponse = await fetch(`http://127.0.0.1:${port}/teams/4/documents`);
-  assert.equal(unauthorizedResponse.status, 401);
-  assert.equal(unauthorizedResponse.headers.get('cache-control'), 'private, no-store');
-
-  const response = await fetch(`http://127.0.0.1:${port}/teams/not-a-number/documents`, {
+  let responseCompleted = false;
+  const responsePromise = fetch(`http://127.0.0.1:${port}/teams/not-a-number/documents`, {
     headers: { 'x-test-user': '7' },
   });
+  responsePromise.then(
+    () => { responseCompleted = true; },
+    () => { responseCompleted = true; },
+  );
+  await schemaWaitStarted;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(responseCompleted, false);
+
+  resolveSchemaReady();
+  const response = await responsePromise;
   const body = await response.json();
 
   assert.equal(response.status, 400);
   assert.equal(response.headers.get('cache-control'), 'private, no-store');
   assert.equal(body.code, 'INVALID_ACTIVITY_DOCUMENT_ID');
+
+  const unauthorizedResponse = await fetch(`http://127.0.0.1:${port}/teams/4/documents`);
+  assert.equal(unauthorizedResponse.status, 401);
+  assert.equal(unauthorizedResponse.headers.get('cache-control'), 'private, no-store');
   assert.equal(schemaReadyCount, 2);
 });
 

@@ -24,7 +24,7 @@ import {
   Table2,
   Trash2,
 } from 'lucide-react';
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import remarkGfm from 'remark-gfm';
@@ -35,6 +35,7 @@ import '../activity-documents.css';
 
 type EditorMode = 'edit' | 'split' | 'preview';
 type SaveState = 'saved' | 'dirty' | 'saving' | 'conflict' | 'error';
+type TeamGeneration = { teamId: number; generation: number };
 type ApiDocument = Omit<ActivityDocument, 'content_markdown'> & {
   content_markdown?: string;
   markdown_content?: string;
@@ -134,20 +135,76 @@ export function ActivityDocumentsPage() {
   const [creating, setCreating] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const draftRef = useRef<ActivityDocument | null>(null);
+  const documentsRef = useRef<ActivityDocument[]>([]);
+  const selectedIdRef = useRef<number | null>(null);
   const saveStateRef = useRef<SaveState>('saved');
   const savingRef = useRef(false);
+  const creatingRef = useRef(false);
   const queuedSaveRef = useRef(false);
+  const saveOperationRef = useRef(0);
+  const teamGenerationRef = useRef<TeamGeneration>({ teamId, generation: 0 });
+  const deleteQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const deletingIdsRef = useRef(new Set<number>());
   const documentRequestRef = useRef(0);
   const deferredMarkdown = useDeferredValue(draft?.content_markdown ?? '');
 
   useEffect(() => { draftRef.current = draft; }, [draft]);
   useEffect(() => { saveStateRef.current = saveState; }, [saveState]);
 
-  const openDocument = useCallback((document: ActivityDocument | null, ignoreStoredDraft = false) => {
+  const isCurrentGeneration = useCallback((context: TeamGeneration) => {
+    const current = teamGenerationRef.current;
+    return Object.is(current.teamId, context.teamId) && current.generation === context.generation;
+  }, []);
+
+  const replaceDocuments = useCallback((next: ActivityDocument[]) => {
+    documentsRef.current = next;
+    setDocuments(next);
+  }, []);
+
+  const updateDocuments = useCallback((updater: (current: ActivityDocument[]) => ActivityDocument[]) => {
+    const next = updater(documentsRef.current);
+    documentsRef.current = next;
+    setDocuments(next);
+    return next;
+  }, []);
+
+  useLayoutEffect(() => {
+    const previous = teamGenerationRef.current;
+    if (Object.is(previous.teamId, teamId)) return;
+    if (draftRef.current && ['dirty', 'saving', 'conflict', 'error'].includes(saveStateRef.current)) {
+      storeDraft(draftRef.current);
+    }
+    teamGenerationRef.current = { teamId, generation: previous.generation + 1 };
+    documentRequestRef.current += 1;
+    saveOperationRef.current += 1;
+    savingRef.current = false;
+    creatingRef.current = false;
+    queuedSaveRef.current = false;
+    deleteQueueRef.current = Promise.resolve();
+    deletingIdsRef.current = new Set();
+    documentsRef.current = [];
+    selectedIdRef.current = null;
+    draftRef.current = null;
+    setTeam(null);
+    setDocuments([]);
+    setSelectedId(null);
+    setDraft(null);
+    setSaveState('saved');
+    saveStateRef.current = 'saved';
+    setSaveError('');
+    setPageError('');
+    setDocumentLoading(false);
+    setCreating(false);
+    setLoading(true);
+  }, [teamId]);
+
+  const openDocument = useCallback((document: ActivityDocument | null, ignoreStoredDraft = false, context = teamGenerationRef.current) => {
+    if (!isCurrentGeneration(context) || (document && document.team_id !== context.teamId)) return;
     const stored = document && !ignoreStoredDraft ? readStoredDraft(document) : null;
     if (document && ignoreStoredDraft) clearStoredDraft(document);
     const nextDocument = document && stored ? { ...document, ...stored } : document;
     setSelectedId(document?.document_id ?? null);
+    selectedIdRef.current = document?.document_id ?? null;
     setDraft(nextDocument ? { ...nextDocument } : null);
     draftRef.current = nextDocument ? { ...nextDocument } : null;
     setSaveError(stored ? '브라우저에 남아 있던 저장 전 초안을 복구했습니다.' : '');
@@ -155,10 +212,12 @@ export function ActivityDocumentsPage() {
     const nextState: SaveState = stored ? 'dirty' : 'saved';
     setSaveState(nextState);
     saveStateRef.current = nextState;
-  }, []);
+  }, [isCurrentGeneration]);
 
   const loadDocuments = useCallback(async (preferredId?: number) => {
-    if (!Number.isFinite(teamId) || teamId <= 0) {
+    const context = { ...teamGenerationRef.current };
+    if (!Object.is(context.teamId, teamId) || !isCurrentGeneration(context)) return;
+    if (!Number.isSafeInteger(teamId) || teamId <= 0) {
       setPageError('올바르지 않은 활동 주소입니다.');
       setLoading(false);
       return;
@@ -171,29 +230,29 @@ export function ActivityDocumentsPage() {
         api<TeamSummary[]>('/my-teams'),
         api<ApiDocument[]>(`/teams/${teamId}/documents`),
       ]);
-      if (requestId !== documentRequestRef.current) return;
+      if (!isCurrentGeneration(context) || requestId !== documentRequestRef.current) return;
       let nextDocuments = result.map(normalizeDocument);
       setTeam(teams.find((item) => item.team_id === teamId) ?? null);
-      const nextId = preferredId ?? selectedId;
+      const nextId = preferredId ?? selectedIdRef.current;
       const selectedMeta = nextDocuments.find((item) => item.document_id === nextId) ?? nextDocuments[0] ?? null;
       if (selectedMeta) {
         const detail = normalizeDocument(await api<ApiDocument>(`/teams/${teamId}/documents/${selectedMeta.document_id}`));
-        if (requestId !== documentRequestRef.current) return;
+        if (!isCurrentGeneration(context) || requestId !== documentRequestRef.current) return;
         const selectedDocument = { ...selectedMeta, ...detail };
         nextDocuments = nextDocuments.map((item) => item.document_id === selectedDocument.document_id ? selectedDocument : item);
-        setDocuments(nextDocuments);
-        openDocument(selectedDocument);
+        replaceDocuments(nextDocuments);
+        openDocument(selectedDocument, false, context);
       } else {
-        setDocuments([]);
-        openDocument(null);
+        replaceDocuments([]);
+        openDocument(null, false, context);
       }
     } catch (reason) {
-      if (requestId !== documentRequestRef.current) return;
+      if (!isCurrentGeneration(context) || requestId !== documentRequestRef.current) return;
       setPageError(reason instanceof Error ? reason.message : '문서를 불러오지 못했습니다.');
     } finally {
-      if (requestId === documentRequestRef.current) setLoading(false);
+      if (isCurrentGeneration(context) && requestId === documentRequestRef.current) setLoading(false);
     }
-  }, [openDocument, selectedId, teamId]);
+  }, [isCurrentGeneration, openDocument, replaceDocuments, teamId]);
 
   // 팀이 바뀔 때만 새 목록과 선택 문서를 가져옵니다.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -201,10 +260,13 @@ export function ActivityDocumentsPage() {
 
   const saveDraft = useCallback(async (snapshot = draftRef.current) => {
     if (!snapshot) return false;
+    const context = { ...teamGenerationRef.current };
+    if (snapshot.team_id !== context.teamId || !isCurrentGeneration(context)) return false;
     if (savingRef.current) {
       queuedSaveRef.current = true;
       return false;
     }
+    const operationId = ++saveOperationRef.current;
     savingRef.current = true;
     setSaveState('saving');
     saveStateRef.current = 'saving';
@@ -219,9 +281,10 @@ export function ActivityDocumentsPage() {
           version: requestSnapshot.version,
         }),
       });
+      if (!isCurrentGeneration(context) || operationId !== saveOperationRef.current) return false;
       const saved = normalizeDocument(result);
       const nextVersion = saved.version ?? requestSnapshot.version + 1;
-      setDocuments((current) => current.map((item) => item.document_id === snapshot.document_id
+      updateDocuments((current) => current.map((item) => item.document_id === snapshot.document_id
         ? { ...item, ...saved, content_markdown: requestSnapshot.content_markdown, version: nextVersion }
         : item));
       const latestDraft = draftRef.current;
@@ -245,6 +308,7 @@ export function ActivityDocumentsPage() {
       }
       return currentSnapshotSaved;
     } catch (reason) {
+      if (!isCurrentGeneration(context) || operationId !== saveOperationRef.current) return false;
       const conflict = reason instanceof ApiError && (reason.status === 409 || reason.code === 'DOCUMENT_VERSION_CONFLICT');
       const nextState: SaveState = conflict ? 'conflict' : 'error';
       setSaveState(nextState);
@@ -254,14 +318,16 @@ export function ActivityDocumentsPage() {
         : reason instanceof Error ? reason.message : '문서를 저장하지 못했습니다.');
       return false;
     } finally {
-      savingRef.current = false;
-      const shouldRunQueuedSave = queuedSaveRef.current && saveStateRef.current === 'dirty';
-      queuedSaveRef.current = false;
-      if (shouldRunQueuedSave) {
-        window.setTimeout(() => { saveDraft(draftRef.current); }, 0);
+      if (isCurrentGeneration(context) && operationId === saveOperationRef.current) {
+        savingRef.current = false;
+        const shouldRunQueuedSave = queuedSaveRef.current && saveStateRef.current === 'dirty';
+        queuedSaveRef.current = false;
+        if (shouldRunQueuedSave) {
+          window.setTimeout(() => { saveDraft(draftRef.current); }, 0);
+        }
       }
     }
-  }, []);
+  }, [isCurrentGeneration, updateDocuments]);
 
   useEffect(() => {
     if (saveState !== 'dirty' || !draftRef.current) return undefined;
@@ -293,6 +359,11 @@ export function ActivityDocumentsPage() {
   }, [draft, saveState]);
 
   const updateDraft = (changes: Partial<Pick<ActivityDocument, 'title' | 'content_markdown'>>) => {
+    if (!draftRef.current || deletingIdsRef.current.has(draftRef.current.document_id)) return;
+    // 로컬 입력은 진행 중인 reload/create보다 최신 사용자 의도입니다.
+    documentRequestRef.current += 1;
+    setLoading(false);
+    setDocumentLoading(false);
     setDraft((current) => {
       if (!current) return current;
       const next = { ...current, ...changes };
@@ -300,7 +371,7 @@ export function ActivityDocumentsPage() {
       return next;
     });
     if ('title' in changes) {
-      setDocuments((current) => current.map((item) => item.document_id === selectedId ? { ...item, ...changes } : item));
+      updateDocuments((current) => current.map((item) => item.document_id === selectedIdRef.current ? { ...item, ...changes } : item));
     }
     setSaveState('dirty');
     saveStateRef.current = 'dirty';
@@ -308,7 +379,9 @@ export function ActivityDocumentsPage() {
   };
 
   const selectDocument = async (document: ActivityDocument) => {
-    if (document.document_id === selectedId) return;
+    if (document.document_id === selectedIdRef.current) return;
+    if (document.team_id !== teamGenerationRef.current.teamId) return;
+    if (deletingIdsRef.current.has(document.document_id)) return;
     if (saveStateRef.current === 'saving') return;
     if (saveStateRef.current === 'dirty') {
       const saved = await saveDraft();
@@ -318,25 +391,29 @@ export function ActivityDocumentsPage() {
       if (!window.confirm('저장되지 않은 변경사항을 버리고 다른 문서로 이동할까요?')) return;
       if (draftRef.current) clearStoredDraft(draftRef.current);
     }
+    const context = { ...teamGenerationRef.current };
+    if (document.team_id !== context.teamId || !isCurrentGeneration(context)) return;
     setDocumentLoading(true);
     setPageError('');
     const requestId = ++documentRequestRef.current;
     try {
       const detail = normalizeDocument(await api<ApiDocument>(`/teams/${teamId}/documents/${document.document_id}`));
-      if (requestId !== documentRequestRef.current) return;
+      if (!isCurrentGeneration(context) || requestId !== documentRequestRef.current
+        || deletingIdsRef.current.has(document.document_id)
+        || !documentsRef.current.some((item) => item.document_id === document.document_id)) return;
       const selectedDocument = { ...document, ...detail };
-      setDocuments((current) => current.map((item) => item.document_id === document.document_id ? selectedDocument : item));
-      openDocument(selectedDocument);
+      updateDocuments((current) => current.map((item) => item.document_id === document.document_id ? selectedDocument : item));
+      openDocument(selectedDocument, false, context);
     } catch (reason) {
-      if (requestId !== documentRequestRef.current) return;
+      if (!isCurrentGeneration(context) || requestId !== documentRequestRef.current) return;
       setPageError(reason instanceof Error ? reason.message : '문서를 불러오지 못했습니다.');
     } finally {
-      if (requestId === documentRequestRef.current) setDocumentLoading(false);
+      if (isCurrentGeneration(context) && requestId === documentRequestRef.current) setDocumentLoading(false);
     }
   };
 
   const createDocument = async () => {
-    if (saveStateRef.current === 'saving') return;
+    if (saveStateRef.current === 'saving' || creatingRef.current || deletingIdsRef.current.size > 0) return;
     if (saveStateRef.current === 'dirty' && !(await saveDraft())) return;
     const preserveDraft = draftRef.current && ['conflict', 'error'].includes(saveStateRef.current);
     const draftToPreserve = preserveDraft ? draftRef.current : null;
@@ -344,31 +421,47 @@ export function ActivityDocumentsPage() {
       // eslint-disable-next-line no-alert
       if (!window.confirm('저장되지 않은 현재 초안을 복구 문서로 보존하고 새 문서를 만들까요?')) return;
     }
+    const context = { ...teamGenerationRef.current };
+    if (!isCurrentGeneration(context)) return;
+    // 선택/삭제 후 실행 중인 상세 조회가 새 문서를 다시 덮어쓰지 못하게 무효화합니다.
+    const requestId = ++documentRequestRef.current;
+    setDocumentLoading(false);
+    setLoading(false);
+    creatingRef.current = true;
     setCreating(true);
     setPageError('');
     try {
-      const result = await api<ApiDocument>(`/teams/${teamId}/documents`, {
+      const result = await api<ApiDocument>(`/teams/${context.teamId}/documents`, {
         method: 'POST',
         body: JSON.stringify({
           title: draftToPreserve ? `${draftToPreserve.title || '제목 없는 문서'} (복구본)`.slice(0, 160) : '제목 없는 문서',
           content_markdown: draftToPreserve ? draftToPreserve.content_markdown : DEFAULT_DOCUMENT,
         }),
       });
+      if (!isCurrentGeneration(context)) return;
       const created = normalizeDocument(result);
       if (draftToPreserve) clearStoredDraft(draftToPreserve);
-      setDocuments((current) => [created, ...current]);
-      openDocument(created);
-      window.requestAnimationFrame(() => textareaRef.current?.focus());
+      updateDocuments((current) => [created, ...current.filter((item) => item.document_id !== created.document_id)]);
+      if (requestId !== documentRequestRef.current) return;
+      openDocument(created, false, context);
+      window.requestAnimationFrame(() => {
+        if (isCurrentGeneration(context) && requestId === documentRequestRef.current) textareaRef.current?.focus();
+      });
     } catch (reason) {
+      if (!isCurrentGeneration(context)) return;
       setPageError(reason instanceof Error ? reason.message : '새 문서를 만들지 못했습니다.');
     } finally {
-      setCreating(false);
+      if (isCurrentGeneration(context)) {
+        creatingRef.current = false;
+        setCreating(false);
+      }
     }
   };
 
   const deleteDocument = async (document: ActivityDocument) => {
+    if (document.team_id !== teamGenerationRef.current.teamId || deletingIdsRef.current.has(document.document_id)) return;
     let target = document;
-    if (document.document_id === selectedId) {
+    if (document.document_id === selectedIdRef.current) {
       if (saveStateRef.current === 'saving') return;
       if (saveStateRef.current === 'dirty') {
         if (!(await saveDraft())) return;
@@ -381,55 +474,97 @@ export function ActivityDocumentsPage() {
     }
     // eslint-disable-next-line no-alert
     if (!window.confirm(`“${target.title || '제목 없는 문서'}” 문서를 삭제할까요? 이 작업은 되돌릴 수 없습니다.`)) return;
-    try {
-      await api(`/teams/${teamId}/documents/${target.document_id}`, {
-        method: 'DELETE',
-        body: JSON.stringify({ version: target.version }),
-      });
-      const remaining = documents.filter((item) => item.document_id !== document.document_id);
-      clearStoredDraft(target);
-      setDocuments(remaining);
-      setPageError('');
-      if (document.document_id === selectedId) {
-        // 목록 응답에는 본문이 없으므로 다음 문서는 상세 조회를 거쳐 열어야 합니다.
-        openDocument(null);
-        if (remaining[0]) await selectDocument(remaining[0]);
-      }
-    } catch (reason) {
-      const conflict = reason instanceof ApiError && (reason.status === 409 || reason.code === 'DOCUMENT_VERSION_CONFLICT');
-      const message = conflict
-        ? '다른 팀원이 문서를 수정해 삭제하지 못했습니다. 최신 목록을 불러오세요.'
-        : reason instanceof Error ? reason.message : '문서를 삭제하지 못했습니다.';
-      if (document.document_id === selectedId) {
-        setSaveError(message);
-        if (conflict) {
-          setSaveState('conflict');
-          saveStateRef.current = 'conflict';
+    const context = { ...teamGenerationRef.current };
+    if (target.team_id !== context.teamId || !isCurrentGeneration(context)) return;
+    const deletingIds = deletingIdsRef.current;
+    deletingIds.add(target.document_id);
+
+    const runDelete = async () => {
+      let replacesSelection = false;
+      let deletionIntentId = 0;
+      try {
+        if (!isCurrentGeneration(context)) return;
+        replacesSelection = selectedIdRef.current === target.document_id;
+        deletionIntentId = ++documentRequestRef.current;
+        setDocumentLoading(false);
+        setLoading(false);
+        await api(`/teams/${context.teamId}/documents/${target.document_id}`, {
+          method: 'DELETE',
+          body: JSON.stringify({ version: target.version }),
+        });
+        if (!isCurrentGeneration(context)) return;
+        const remaining = updateDocuments((current) => current.filter((item) => item.document_id !== target.document_id));
+        clearStoredDraft(target);
+        setPageError('');
+        if (replacesSelection && deletionIntentId === documentRequestRef.current
+          && selectedIdRef.current === target.document_id) {
+          // 목록 메타에는 본문이 없으므로 최신 remaining의 첫 항목을 상세 조회해 엽니다.
+          openDocument(null, false, context);
+          const nextMeta = remaining.find((item) => !deletingIds.has(item.document_id));
+          if (nextMeta) {
+            setDocumentLoading(true);
+            const requestId = ++documentRequestRef.current;
+            try {
+              const detail = normalizeDocument(await api<ApiDocument>(`/teams/${context.teamId}/documents/${nextMeta.document_id}`));
+              if (!isCurrentGeneration(context) || requestId !== documentRequestRef.current
+                || deletingIds.has(nextMeta.document_id)
+                || !documentsRef.current.some((item) => item.document_id === nextMeta.document_id)) return;
+              const nextDocument = { ...nextMeta, ...detail };
+              updateDocuments((current) => current.map((item) => item.document_id === nextDocument.document_id ? nextDocument : item));
+              openDocument(nextDocument, false, context);
+            } catch (reason) {
+              if (!isCurrentGeneration(context) || requestId !== documentRequestRef.current) return;
+              setPageError(reason instanceof Error ? reason.message : '다음 문서를 불러오지 못했습니다.');
+            } finally {
+              if (isCurrentGeneration(context) && requestId === documentRequestRef.current) setDocumentLoading(false);
+            }
+          }
         }
-      } else {
-        // 다른 목록 항목의 삭제 실패가 현재 편집 중인 문서 상태를 오염시키지 않게 합니다.
-        setPageError(message);
+      } catch (reason) {
+        if (!isCurrentGeneration(context)) return;
+        const conflict = reason instanceof ApiError && (reason.status === 409 || reason.code === 'DOCUMENT_VERSION_CONFLICT');
+        const message = conflict
+          ? '다른 팀원이 문서를 수정해 삭제하지 못했습니다. 최신 목록을 불러오세요.'
+          : reason instanceof Error ? reason.message : '문서를 삭제하지 못했습니다.';
+        if (replacesSelection && deletionIntentId === documentRequestRef.current
+          && selectedIdRef.current === target.document_id) {
+          setSaveError(message);
+          if (conflict) {
+            setSaveState('conflict');
+            saveStateRef.current = 'conflict';
+          }
+        } else {
+          setPageError(message);
+        }
+      } finally {
+        deletingIds.delete(target.document_id);
       }
-    }
+    };
+
+    const queuedDelete = deleteQueueRef.current.then(runDelete, runDelete);
+    deleteQueueRef.current = queuedDelete;
+    await queuedDelete;
   };
 
   const reloadConflictedDocument = async () => {
-    if (!selectedId) return;
+    const documentId = selectedIdRef.current;
+    const context = { ...teamGenerationRef.current };
+    if (!documentId || !isCurrentGeneration(context)) return;
     // eslint-disable-next-line no-alert
     if (!window.confirm('서버의 최신본을 불러오면 화면의 로컬 초안이 대체됩니다. 계속할까요?')) return;
     setLoading(true);
     const requestId = ++documentRequestRef.current;
     try {
-      const result = await api<ApiDocument>(`/teams/${teamId}/documents/${selectedId}`);
-      if (requestId !== documentRequestRef.current) return;
+      const result = await api<ApiDocument>(`/teams/${context.teamId}/documents/${documentId}`);
+      if (!isCurrentGeneration(context) || requestId !== documentRequestRef.current) return;
       const latest = normalizeDocument(result);
-      setDocuments((current) => current.map((item) => item.document_id === selectedId ? latest : item));
-      openDocument(latest, true);
+      updateDocuments((current) => current.map((item) => item.document_id === documentId ? latest : item));
+      openDocument(latest, true, context);
     } catch (reason) {
-      if (requestId !== documentRequestRef.current) return;
+      if (!isCurrentGeneration(context) || requestId !== documentRequestRef.current) return;
       setSaveError(reason instanceof Error ? reason.message : '최신 문서를 불러오지 못했습니다.');
     } finally {
-      if (requestId === documentRequestRef.current) setLoading(false);
+      if (isCurrentGeneration(context) && requestId === documentRequestRef.current) setLoading(false);
     }
   };
 
@@ -512,14 +647,18 @@ export function ActivityDocumentsPage() {
   }, [navigate, saveDraft]);
 
   const retryLoadDocuments = async () => {
-    if (saveStateRef.current === 'saving') return;
+    const context = { ...teamGenerationRef.current };
+    if (!isCurrentGeneration(context)) return;
+    if (saveStateRef.current === 'saving' || creatingRef.current || deletingIdsRef.current.size > 0) return;
     if (saveStateRef.current === 'dirty' && !(await saveDraft())) return;
+    if (!isCurrentGeneration(context)) return;
     if (['conflict', 'error'].includes(saveStateRef.current)) {
       // eslint-disable-next-line no-alert
       if (!window.confirm('저장되지 않은 초안을 버리고 문서 목록을 다시 불러올까요?')) return;
       if (draftRef.current) clearStoredDraft(draftRef.current);
     }
-    await loadDocuments(selectedId ?? undefined);
+    if (!isCurrentGeneration(context)) return;
+    await loadDocuments(selectedIdRef.current ?? undefined);
   };
 
   const filteredDocuments = useMemo(() => {
@@ -544,7 +683,7 @@ export function ActivityDocumentsPage() {
       </button>
     </header>
 
-    {pageError && <div className="document-inline-alert error" role="alert"><CloudOff /><span>{pageError}</span><button type="button" onClick={() => { retryLoadDocuments(); }}>다시 시도</button></div>}
+    {pageError && <div className="document-inline-alert error" role="alert"><CloudOff /><span>{pageError}</span><button type="button" onClick={() => { retryLoadDocuments(); }} disabled={creating}>다시 시도</button></div>}
 
     <div className="document-workspace">
       <aside className="document-sidebar" aria-label="활동 문서 목록">

@@ -74,6 +74,16 @@ const run = async () => {
     );
     const tableNames = new Set(tables.map((row) => row.TABLE_NAME || row.table_name));
     const missingTables = requiredTables.filter((table) => !tableNames.has(table));
+    const orphanDocumentsSelect = tableNames.has('activity_documents')
+      ? `(SELECT COUNT(*)
+         FROM activity_documents activity_document
+         LEFT JOIN teams document_team ON document_team.team_id = activity_document.team_id
+         LEFT JOIN users document_creator ON document_creator.id = activity_document.author_id
+         LEFT JOIN users document_editor ON document_editor.id = activity_document.last_editor_id
+         WHERE document_team.team_id IS NULL
+           OR document_creator.id IS NULL
+           OR document_editor.id IS NULL) AS orphan_documents`
+      : '0 AS orphan_documents';
 
     const [[activityStats]] = await connection.query(`
       SELECT
@@ -109,14 +119,7 @@ const run = async () => {
         (SELECT COUNT(*) FROM team_members member LEFT JOIN teams team ON team.team_id = member.team_id WHERE team.team_id IS NULL) AS orphan_memberships,
         (SELECT COUNT(*) FROM todos todo LEFT JOIN teams team ON team.team_id = todo.team_id WHERE team.team_id IS NULL) AS orphan_todos,
         (SELECT COUNT(*) FROM team_issues issue_item LEFT JOIN teams team ON team.team_id = issue_item.team_id WHERE team.team_id IS NULL) AS orphan_issues,
-        (SELECT COUNT(*)
-         FROM activity_documents activity_document
-         LEFT JOIN teams document_team ON document_team.team_id = activity_document.team_id
-         LEFT JOIN users document_creator ON document_creator.id = activity_document.author_id
-         LEFT JOIN users document_editor ON document_editor.id = activity_document.last_editor_id
-         WHERE document_team.team_id IS NULL
-           OR document_creator.id IS NULL
-           OR document_editor.id IS NULL) AS orphan_documents,
+        ${orphanDocumentsSelect},
         (SELECT COUNT(*)
          FROM teams sourced_team
          JOIN team_members sourced_member ON sourced_member.team_id = sourced_team.team_id AND sourced_member.user_id = 1
