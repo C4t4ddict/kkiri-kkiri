@@ -13,6 +13,8 @@ const requiredTables = [
   'todos',
   'team_notices',
   'team_issues',
+  'user_friendships',
+  'direct_messages',
 ];
 
 const verifyImage = async (activity) => {

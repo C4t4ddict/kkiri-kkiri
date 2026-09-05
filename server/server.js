@@ -77,6 +77,11 @@ const {
   previewCurriculum,
   provisionCurriculumGoalsForMember,
 } = require('./curricula/service');
+const {
+  areFriends,
+  ensureMessagingSchema,
+  normalizeFriendshipPair,
+} = require('./messaging/service');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -284,7 +289,7 @@ app.use(bodyParser.json());
 app.use(attachAuth);
 app.use(requestLogger);
 
-const privateApiPattern = /^(?:\/api\/(?:user(?:\/|$)|delete-user(?:\/|$)|upload(?:\/|$)|favorite-activities(?:\/|$)|application-templates(?:\/|$)|developer-feedback(?:\/|$)|my-(?:recruitments|applications)(?:\/|$)|applications(?:\/|$)|reviews(?:\/|$)|participations(?:\/|$)|team-join-offers(?:\/|$)|curriculum-enrollments(?:\/|$))|\/(?:users|teams|todos|notifications)(?:\/|$))/;
+const privateApiPattern = /^(?:\/api\/(?:user(?:\/|$)|delete-user(?:\/|$)|upload(?:\/|$)|favorite-activities(?:\/|$)|application-templates(?:\/|$)|developer-feedback(?:\/|$)|friends(?:\/|$)|messages(?:\/|$)|my-(?:recruitments|applications)(?:\/|$)|applications(?:\/|$)|reviews(?:\/|$)|participations(?:\/|$)|team-join-offers(?:\/|$)|curriculum-enrollments(?:\/|$))|\/(?:users|teams|todos|notifications)(?:\/|$))/;
 app.use((req, res, next) => {
   if (!privateApiPattern.test(req.path)) return next();
   if (!getRequestUserId(req)) return res.status(401).json({ message: '로그인이 필요합니다' });
@@ -327,6 +332,7 @@ let authSchemaReady = Promise.resolve();
 let feedbackSchemaReady = Promise.resolve();
 let curriculumSchemaReady = Promise.resolve();
 let activityDiscoverySchemaReady = Promise.resolve();
+let messagingSchemaReady = Promise.resolve();
 let crawlerScheduler = null;
 
 const queuePortfolioJob = (job) => {
@@ -681,6 +687,7 @@ db.getConnection((err, connection) => {
     authSchemaReady = ensureAuthVerificationSchema(portfolioDb);
     feedbackSchemaReady = ensureDeveloperFeedbackSchema(portfolioDb);
     activityDiscoverySchemaReady = ensureActivityDiscoverySchema();
+    messagingSchemaReady = ensureMessagingSchema(portfolioDb);
     crawlerScheduler = startCrawlerScheduler();
     curriculumSchemaReady = Promise.all([
       ensureRecruitmentActivityColumns(),
@@ -1963,7 +1970,6 @@ app.get('/api/team-recruitments', async (req, res) => {
   }
 
   const userId = getRequestUserId(req);
-  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
 
   try {
     await matchingSchemaReady;
@@ -2352,8 +2358,6 @@ app.get('/api/team-recruitments/:id', async (req, res) => {
   if (!Number.isInteger(recruitmentId) || recruitmentId <= 0) {
     return res.status(400).json({ message: '올바른 모집글 ID가 필요합니다' });
   }
-
-  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
 
   const sql = `
     SELECT
@@ -3391,6 +3395,301 @@ app.get('/notifications', async (req, res) => {
   } catch (error) {
     console.error('알림 조회 오류:', error);
     res.status(500).json({ message: '알림을 불러오지 못했습니다' });
+  }
+});
+
+app.get('/api/friends', async (req, res) => {
+  const userId = getRequestUserId(req);
+  try {
+    await messagingSchemaReady;
+    const [rows] = await portfolioDb.query(
+      `SELECT
+        friendship.friendship_id,
+        friendship.requester_id,
+        friendship.status,
+        user.id AS user_id,
+        user.name,
+        user.department,
+        user.email,
+        user.profile_picture
+       FROM user_friendships friendship
+       JOIN users user
+         ON user.id = CASE
+           WHEN friendship.user_low_id = ? THEN friendship.user_high_id
+           ELSE friendship.user_low_id
+         END
+       WHERE (friendship.user_low_id = ? OR friendship.user_high_id = ?)
+         AND friendship.status IN ('PENDING', 'ACCEPTED')
+       ORDER BY friendship.status = 'PENDING' DESC, friendship.updated_at DESC`,
+      [userId, userId, userId],
+    );
+    const normalized = rows.map((row) => ({
+      ...row,
+      profile_picture: normalizeLocalUrl(row.profile_picture),
+    }));
+    res.json({
+      friends: normalized.filter((row) => row.status === 'ACCEPTED'),
+      incoming: normalized.filter((row) => row.status === 'PENDING' && Number(row.requester_id) !== userId),
+      outgoing: normalized.filter((row) => row.status === 'PENDING' && Number(row.requester_id) === userId),
+    });
+  } catch (error) {
+    logger.error('friend_list_failed', { userId, error: error.message });
+    res.status(500).json({ message: '친구 목록을 불러오지 못했습니다' });
+  }
+});
+
+app.get('/api/friends/search', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const query = String(req.query.q || '').trim();
+  if (query.length < 2) return res.json([]);
+  try {
+    await messagingSchemaReady;
+    const searchTerm = `%${query.slice(0, 80)}%`;
+    const [rows] = await portfolioDb.query(
+      `SELECT
+        user.id AS user_id,
+        user.name,
+        user.department,
+        user.email,
+        user.profile_picture,
+        friendship.friendship_id,
+        friendship.requester_id,
+        friendship.status
+       FROM users user
+       LEFT JOIN user_friendships friendship
+         ON friendship.user_low_id = LEAST(user.id, ?)
+        AND friendship.user_high_id = GREATEST(user.id, ?)
+       WHERE user.id <> ?
+         AND (user.name LIKE ? OR user.email LIKE ? OR COALESCE(user.department, '') LIKE ?)
+       ORDER BY user.name ASC
+       LIMIT 20`,
+      [userId, userId, userId, searchTerm, searchTerm, searchTerm],
+    );
+    res.json(rows.map((row) => ({
+      ...row,
+      profile_picture: normalizeLocalUrl(row.profile_picture),
+      relationship: row.status === 'ACCEPTED'
+        ? 'FRIEND'
+        : row.status === 'PENDING'
+          ? Number(row.requester_id) === userId ? 'OUTGOING' : 'INCOMING'
+          : 'NONE',
+    })));
+  } catch (error) {
+    logger.error('friend_search_failed', { userId, error: error.message });
+    res.status(500).json({ message: '사용자를 검색하지 못했습니다' });
+  }
+});
+
+app.post('/api/friends/requests', async (req, res) => {
+  const requesterId = getRequestUserId(req);
+  const recipientId = Number(req.body.recipient_id);
+  if (!recipientId || recipientId === requesterId) {
+    return res.status(400).json({ message: '친구 요청 대상이 올바르지 않습니다' });
+  }
+  const [userLowId, userHighId] = normalizeFriendshipPair(requesterId, recipientId);
+  try {
+    await messagingSchemaReady;
+    const [users] = await portfolioDb.query('SELECT id FROM users WHERE id = ? LIMIT 1', [recipientId]);
+    if (!users.length) return res.status(404).json({ message: '사용자를 찾을 수 없습니다' });
+    const [existingRows] = await portfolioDb.query(
+      'SELECT friendship_id, requester_id, status FROM user_friendships WHERE user_low_id = ? AND user_high_id = ? LIMIT 1',
+      [userLowId, userHighId],
+    );
+    const existing = existingRows[0];
+    if (existing?.status === 'ACCEPTED') return res.status(409).json({ message: '이미 친구입니다' });
+    if (existing?.status === 'PENDING') {
+      const message = Number(existing.requester_id) === requesterId
+        ? '이미 친구 요청을 보냈습니다'
+        : '상대방이 보낸 친구 요청을 먼저 확인해주세요';
+      return res.status(409).json({ message });
+    }
+    if (existing) {
+      await portfolioDb.query(
+        `UPDATE user_friendships
+         SET requester_id = ?, status = 'PENDING', updated_at = CURRENT_TIMESTAMP
+         WHERE friendship_id = ?`,
+        [requesterId, existing.friendship_id],
+      );
+      return res.status(201).json({ friendship_id: existing.friendship_id });
+    }
+    const [result] = await portfolioDb.query(
+      `INSERT INTO user_friendships (user_low_id, user_high_id, requester_id, status)
+       VALUES (?, ?, ?, 'PENDING')`,
+      [userLowId, userHighId, requesterId],
+    );
+    res.status(201).json({ friendship_id: result.insertId });
+  } catch (error) {
+    logger.error('friend_request_failed', { requesterId, recipientId, error: error.message });
+    res.status(500).json({ message: '친구 요청을 보내지 못했습니다' });
+  }
+});
+
+app.put('/api/friends/requests/:friendshipId', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const friendshipId = Number(req.params.friendshipId);
+  const status = String(req.body.status || '').toUpperCase();
+  if (!friendshipId || !['ACCEPTED', 'REJECTED'].includes(status)) {
+    return res.status(400).json({ message: '친구 요청 처리 정보가 올바르지 않습니다' });
+  }
+  try {
+    await messagingSchemaReady;
+    const [result] = await portfolioDb.query(
+      `UPDATE user_friendships
+       SET status = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE friendship_id = ?
+         AND status = 'PENDING'
+         AND requester_id <> ?
+         AND (user_low_id = ? OR user_high_id = ?)`,
+      [status, friendshipId, userId, userId, userId],
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: '처리할 친구 요청을 찾을 수 없습니다' });
+    res.json({ success: true, status });
+  } catch (error) {
+    logger.error('friend_request_update_failed', { userId, friendshipId, error: error.message });
+    res.status(500).json({ message: '친구 요청을 처리하지 못했습니다' });
+  }
+});
+
+app.delete('/api/friends/:friendId', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const friendId = Number(req.params.friendId);
+  if (!friendId || friendId === userId) return res.status(400).json({ message: '친구 정보가 올바르지 않습니다' });
+  const [userLowId, userHighId] = normalizeFriendshipPair(userId, friendId);
+  try {
+    await messagingSchemaReady;
+    const [result] = await portfolioDb.query(
+      'DELETE FROM user_friendships WHERE user_low_id = ? AND user_high_id = ?',
+      [userLowId, userHighId],
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: '친구 관계를 찾을 수 없습니다' });
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('friend_delete_failed', { userId, friendId, error: error.message });
+    res.status(500).json({ message: '친구 관계를 삭제하지 못했습니다' });
+  }
+});
+
+app.get('/api/messages/unread-count', async (req, res) => {
+  const userId = getRequestUserId(req);
+  try {
+    await messagingSchemaReady;
+    const [rows] = await portfolioDb.query(
+      'SELECT COUNT(*) AS count FROM direct_messages WHERE recipient_id = ? AND read_at IS NULL',
+      [userId],
+    );
+    res.json({ count: Number(rows[0]?.count || 0) });
+  } catch (error) {
+    logger.error('message_unread_count_failed', { userId, error: error.message });
+    res.status(500).json({ message: '읽지 않은 쪽지 수를 불러오지 못했습니다' });
+  }
+});
+
+app.get('/api/messages/conversations', async (req, res) => {
+  const userId = getRequestUserId(req);
+  try {
+    await messagingSchemaReady;
+    const [rows] = await portfolioDb.query(
+      `SELECT
+        user.id AS friend_id,
+        user.name,
+        user.department,
+        user.profile_picture,
+        (SELECT message.content
+         FROM direct_messages message
+         WHERE (message.sender_id = ? AND message.recipient_id = user.id)
+            OR (message.sender_id = user.id AND message.recipient_id = ?)
+         ORDER BY message.created_at DESC, message.message_id DESC
+         LIMIT 1) AS last_message,
+        (SELECT message.created_at
+         FROM direct_messages message
+         WHERE (message.sender_id = ? AND message.recipient_id = user.id)
+            OR (message.sender_id = user.id AND message.recipient_id = ?)
+         ORDER BY message.created_at DESC, message.message_id DESC
+         LIMIT 1) AS last_message_at,
+        (SELECT COUNT(*)
+         FROM direct_messages message
+         WHERE message.sender_id = user.id
+           AND message.recipient_id = ?
+           AND message.read_at IS NULL) AS unread_count
+       FROM user_friendships friendship
+       JOIN users user
+         ON user.id = CASE
+           WHEN friendship.user_low_id = ? THEN friendship.user_high_id
+           ELSE friendship.user_low_id
+         END
+       WHERE friendship.status = 'ACCEPTED'
+         AND (friendship.user_low_id = ? OR friendship.user_high_id = ?)
+       ORDER BY last_message_at IS NULL, last_message_at DESC, user.name ASC`,
+      [userId, userId, userId, userId, userId, userId, userId, userId],
+    );
+    res.json(rows.map((row) => ({
+      ...row,
+      unread_count: Number(row.unread_count || 0),
+      profile_picture: normalizeLocalUrl(row.profile_picture),
+    })));
+  } catch (error) {
+    logger.error('message_conversation_list_failed', { userId, error: error.message });
+    res.status(500).json({ message: '쪽지함을 불러오지 못했습니다' });
+  }
+});
+
+app.get('/api/messages/:friendId', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const friendId = Number(req.params.friendId);
+  if (!friendId || friendId === userId) return res.status(400).json({ message: '대화 상대가 올바르지 않습니다' });
+  try {
+    await messagingSchemaReady;
+    if (!await areFriends(portfolioDb, userId, friendId)) {
+      return res.status(403).json({ message: '친구와만 쪽지를 주고받을 수 있습니다' });
+    }
+    const [friendRows] = await portfolioDb.query(
+      'SELECT id AS user_id, name, department, profile_picture FROM users WHERE id = ? LIMIT 1',
+      [friendId],
+    );
+    const [messages] = await portfolioDb.query(
+      `SELECT message_id, sender_id, recipient_id, content, read_at, created_at
+       FROM direct_messages
+       WHERE (sender_id = ? AND recipient_id = ?)
+          OR (sender_id = ? AND recipient_id = ?)
+       ORDER BY created_at ASC, message_id ASC
+       LIMIT 300`,
+      [userId, friendId, friendId, userId],
+    );
+    await portfolioDb.query(
+      `UPDATE direct_messages SET read_at = CURRENT_TIMESTAMP
+       WHERE sender_id = ? AND recipient_id = ? AND read_at IS NULL`,
+      [friendId, userId],
+    );
+    const friend = friendRows[0];
+    res.json({
+      friend: friend ? { ...friend, profile_picture: normalizeLocalUrl(friend.profile_picture) } : null,
+      messages,
+    });
+  } catch (error) {
+    logger.error('message_list_failed', { userId, friendId, error: error.message });
+    res.status(500).json({ message: '대화를 불러오지 못했습니다' });
+  }
+});
+
+app.post('/api/messages/:friendId', async (req, res) => {
+  const senderId = getRequestUserId(req);
+  const recipientId = Number(req.params.friendId);
+  const content = String(req.body.content || '').trim();
+  if (!recipientId || recipientId === senderId) return res.status(400).json({ message: '대화 상대가 올바르지 않습니다' });
+  if (!content || content.length > 2000) return res.status(400).json({ message: '쪽지는 1자 이상 2,000자 이하로 입력해주세요' });
+  try {
+    await messagingSchemaReady;
+    if (!await areFriends(portfolioDb, senderId, recipientId)) {
+      return res.status(403).json({ message: '친구와만 쪽지를 주고받을 수 있습니다' });
+    }
+    const [result] = await portfolioDb.query(
+      'INSERT INTO direct_messages (sender_id, recipient_id, content) VALUES (?, ?, ?)',
+      [senderId, recipientId, content],
+    );
+    res.status(201).json({ message_id: Number(result.insertId) });
+  } catch (error) {
+    logger.error('message_send_failed', { senderId, recipientId, error: error.message });
+    res.status(500).json({ message: '쪽지를 보내지 못했습니다' });
   }
 });
 
