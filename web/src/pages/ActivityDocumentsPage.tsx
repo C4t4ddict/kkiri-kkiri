@@ -511,6 +511,17 @@ export function ActivityDocumentsPage() {
     return () => window.removeEventListener('click', guardInternalNavigation, true);
   }, [navigate, saveDraft]);
 
+  const retryLoadDocuments = async () => {
+    if (saveStateRef.current === 'saving') return;
+    if (saveStateRef.current === 'dirty' && !(await saveDraft())) return;
+    if (['conflict', 'error'].includes(saveStateRef.current)) {
+      // eslint-disable-next-line no-alert
+      if (!window.confirm('저장되지 않은 초안을 버리고 문서 목록을 다시 불러올까요?')) return;
+      if (draftRef.current) clearStoredDraft(draftRef.current);
+    }
+    await loadDocuments(selectedId ?? undefined);
+  };
+
   const filteredDocuments = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase('ko-KR');
     if (!query) return documents;
@@ -533,7 +544,7 @@ export function ActivityDocumentsPage() {
       </button>
     </header>
 
-    {pageError && <div className="document-inline-alert error" role="alert"><CloudOff /><span>{pageError}</span><button type="button" onClick={() => { loadDocuments(selectedId ?? undefined); }}>다시 시도</button></div>}
+    {pageError && <div className="document-inline-alert error" role="alert"><CloudOff /><span>{pageError}</span><button type="button" onClick={() => { retryLoadDocuments(); }}>다시 시도</button></div>}
 
     <div className="document-workspace">
       <aside className="document-sidebar" aria-label="활동 문서 목록">
@@ -558,7 +569,7 @@ export function ActivityDocumentsPage() {
             <input className="document-title-input" value={draft.title} maxLength={160} onChange={(event) => updateDraft({ title: event.target.value })} aria-label="문서 제목" placeholder="문서 제목" />
             <div className="document-save-meta">
               <span className={`document-save-state ${saveState}`} role="status" aria-live="polite"><SaveStateIcon state={saveState} />{saveStateCopy[saveState].label}</span>
-              <button onClick={() => { saveDraft(); }} disabled={saveState === 'saving' || saveState === 'saved'} aria-label="지금 저장"><Save /> 저장</button>
+              <button onClick={() => { saveDraft(); }} disabled={saveState === 'saving' || saveState === 'saved' || saveState === 'conflict'} aria-label="지금 저장"><Save /> 저장</button>
             </div>
           </div>
 
