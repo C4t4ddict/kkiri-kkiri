@@ -191,6 +191,22 @@ CREATE TABLE IF NOT EXISTS team_notices (
   INDEX idx_team_notices_team_created (team_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS activity_documents (
+  document_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  team_id INT NOT NULL,
+  author_id INT NOT NULL,
+  last_editor_id INT NOT NULL,
+  title VARCHAR(160) NOT NULL,
+  content_markdown MEDIUMTEXT NOT NULL,
+  version INT UNSIGNED NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at DATETIME NULL,
+  INDEX idx_activity_documents_team_deleted_updated (team_id, deleted_at, updated_at, document_id),
+  INDEX idx_activity_documents_author (author_id),
+  INDEX idx_activity_documents_last_editor (last_editor_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS notice_comments (
   comment_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   notice_id INT NOT NULL,

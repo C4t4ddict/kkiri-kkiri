@@ -145,6 +145,18 @@ export type TeamNotice = {
   updated_at?: string;
 };
 
+export type ActivityDocument = {
+  document_id: number;
+  team_id: number;
+  title: string;
+  content_markdown: string;
+  version: number;
+  creator_name?: string;
+  editor_name?: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type HeatmapDay = {
   date: string;
   count: number;

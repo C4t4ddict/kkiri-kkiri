@@ -8,6 +8,7 @@ import {
   Clock3,
   Crown,
   Edit3,
+  FileText,
   Flame,
   ListChecks,
   Plus,
@@ -326,7 +327,7 @@ export function ActivityPage() {
             <div><span className={`source-pill ${selected?.source_type === 'ENTERPRISE_CURRICULUM' ? 'enterprise' : ''}`}>{selected?.source_type === 'ENTERPRISE_CURRICULUM' ? '기업 커리큘럼' : '공모전 활동'} · {selected?.participation_mode === 'PERSONAL' ? '개인' : '팀'}</span><h2>{selected?.team_name}</h2><p>{selected?.part || '역할 설정 전'} · {selected?.due_date ? `${new Date(selected.due_date).toLocaleDateString('ko-KR')}까지` : '종료일 미정'}</p></div>
             <div className="workspace-people"><span>{selected?.participation_mode === 'PERSONAL' ? <Target /> : <UsersRound />}</span><div><strong>{selected?.participation_mode === 'PERSONAL' ? '개인 활동' : '팀 활동'}</strong><small>{selected?.visibility === 'RECRUITING' ? '팀원 모집 중' : '실행 중'}</small></div></div>
           </div>
-          <div className="workspace-manage-row"><span>현재 선택된 활동의 팀원 목표와 역할·프로젝트명을 관리할 수 있습니다.</span><Link to={`/activity/${selectedId}/manage`}><UsersRound /> 팀원 목표·활동 설정</Link></div>
+          <div className="workspace-manage-row"><span>선택한 활동의 목표와 팀 문서를 한곳에서 관리하세요.</span><div><Link to={`/activity/${selectedId}/documents`}><FileText /> 활동 문서</Link><Link to={`/activity/${selectedId}/manage`}><UsersRound /> 팀원 목표·활동 설정</Link></div></div>
           <div className="workspace-progress-grid">
             <div className="dashboard-ring" style={{ '--progress': `${overallProgress * 3.6}deg` } as CSSProperties}><div><strong>{overallProgress}%</strong><span>전체 완료</span></div></div>
             <div className="progress-copy"><h3>{overallProgress >= 70 ? '완주가 가까워지고 있어요' : overallProgress >= 30 ? '좋은 흐름으로 성장 중이에요' : '오늘의 작은 목표부터 시작해요'}</h3><p>{uniqueGoals.filter((goal) => goal.status === '완료').length}개를 완료했고 {uniqueGoals.filter((goal) => goal.status !== '완료').length}개 목표가 남아 있습니다.</p><div className="mini-progress"><span style={{ width: `${startedProgress}%` }} /><em>{startedProgress}% 실행 시작</em></div></div>

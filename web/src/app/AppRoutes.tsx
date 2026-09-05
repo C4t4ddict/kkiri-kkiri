@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { ActivityPage } from '../pages/ActivityPage';
 import { ActivityManagePage } from '../pages/ActivityManagePage';
@@ -21,8 +22,12 @@ import { AccountSettingsPage, ActivityArchivePage, AwardsPage, FavoritesPage, Fe
 import { AdminOperationsPage } from '../pages/AdminOperationsPage';
 import { MessagesPage } from '../pages/MessagesPage';
 import { SearchResultsPage } from '../pages/SearchResultsPage';
+import { PageState } from '../shared/ui/PageState';
 import { useAuth } from './AuthContext';
 import { AppShell } from './AppShell';
+
+const ActivityDocumentsPage = lazy(() => import('../pages/ActivityDocumentsPage')
+  .then((module) => ({ default: module.ActivityDocumentsPage })));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -56,6 +61,7 @@ export function AppRoutes() {
       <Route path="matching/:id/edit" element={<RequireAuth><RecruitmentEditorPage /></RequireAuth>} />
       <Route path="activity" element={<RequireAuth><ActivityPage /></RequireAuth>} />
       <Route path="activity/:teamId/manage" element={<RequireAuth><ActivityManagePage /></RequireAuth>} />
+      <Route path="activity/:teamId/documents" element={<RequireAuth><Suspense fallback={<PageState loading />}><ActivityDocumentsPage /></Suspense></RequireAuth>} />
       <Route path="notifications" element={<RequireAuth><NotificationsPage /></RequireAuth>} />
       <Route path="messages" element={<RequireAuth><MessagesPage /></RequireAuth>} />
       <Route path="mypage" element={<RequireAuth><MyPage /></RequireAuth>} />
