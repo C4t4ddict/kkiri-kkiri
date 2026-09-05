@@ -13,7 +13,8 @@
     "seed:past-activity-history": "node seeds/seedPastActivityHistory.js",
     "seed:curricula": "node seeds/seedCurricula.js",
     "admin:provision": "node scripts/provisionAdmin.js",
-    "test": "node --test applications/test/*.tests.js crawler/test/*.tests.js portfolio/test/*.tests.js lib/test/*.tests.js"
+    "test": "node --test applications/test/*.tests.js crawler/test/*.tests.js portfolio/test/*.tests.js lib/test/*.tests.js",
+    "test:load": "node scripts/smokeLoad.js"
   },
   "keywords": [],
   "author": "",
@@ -24,12 +25,13 @@
     "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.0",
     "cheerio": "1.0.0",
+    "compression": "^1.8.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^5.1.0",
     "multer": "^2.0.2",
-    "mysql2": "^3.14.1",
-    "nodemailer": "^7.0.13",
+    "mysql2": "^3.24.3",
+    "nodemailer": "^10.0.0",
     "pdfkit": "^0.19.1"
   }
 }
