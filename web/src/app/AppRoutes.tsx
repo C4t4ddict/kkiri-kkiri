@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { ActivityPage } from '../pages/ActivityPage';
 import { ActivityManagePage } from '../pages/ActivityManagePage';
 import { EvaluationsPage } from '../pages/EvaluationsPage';
@@ -19,49 +19,59 @@ import { NotificationsPage } from '../pages/NotificationsPage';
 import { MatchingDetailPage, MyRecruitmentsPage, RecruitmentEditorPage } from '../pages/MatchingFeaturePages';
 import { AccountSettingsPage, ActivityArchivePage, AwardsPage, FavoritesPage, FeedbackPage, PortfolioPage } from '../pages/AccountFeaturePages';
 import { AdminOperationsPage } from '../pages/AdminOperationsPage';
+import { MessagesPage } from '../pages/MessagesPage';
+import { SearchResultsPage } from '../pages/SearchResultsPage';
 import { useAuth } from './AuthContext';
 import { AppShell } from './AppShell';
 
-export function AppRoutes() {
+function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const location = useLocation();
+  return user ? children : <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+}
 
-  if (!user) {
-    return <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
-      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-      <Route path="*" element={<Navigate to="/login" replace />} />
-    </Routes>;
-  }
+function LegacyCurriculumDetailRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/curriculum/${id}`} replace />;
+}
 
+export function AppRoutes() {
   return <Routes>
+    <Route path="/login" element={<LoginPage />} />
+    <Route path="/register" element={<RegisterPage />} />
+    <Route path="/forgot-password" element={<ForgotPasswordPage />} />
     <Route element={<AppShell />}>
       <Route index element={<HomePage />} />
+      <Route path="search" element={<SearchResultsPage />} />
       <Route path="info" element={<InfoPage />} />
       <Route path="info/:id" element={<InfoDetailPage />} />
-      <Route path="curricula" element={<CurriculaPage />} />
-      <Route path="curricula/:id" element={<CurriculumDetailPage />} />
+      <Route path="curriculum" element={<CurriculaPage />} />
+      <Route path="curriculum/:id" element={<CurriculumDetailPage />} />
+      <Route path="curricula" element={<Navigate to="/curriculum" replace />} />
+      <Route path="curricula/:id" element={<LegacyCurriculumDetailRedirect />} />
       <Route path="matching" element={<MatchingPage />} />
-      <Route path="matching/new" element={<RecruitmentEditorPage />} />
-      <Route path="matching/mine" element={<MyRecruitmentsPage />} />
+      <Route path="matching/new" element={<RequireAuth><RecruitmentEditorPage /></RequireAuth>} />
+      <Route path="matching/mine" element={<RequireAuth><MyRecruitmentsPage /></RequireAuth>} />
       <Route path="matching/:id" element={<MatchingDetailPage />} />
-      <Route path="matching/:id/edit" element={<RecruitmentEditorPage />} />
-      <Route path="activity" element={<ActivityPage />} />
-      <Route path="activity/:teamId/manage" element={<ActivityManagePage />} />
-      <Route path="notifications" element={<NotificationsPage />} />
-      <Route path="mypage" element={<MyPage />} />
-      <Route path="mypage/applications" element={<ApplicationsPage />} />
-      <Route path="mypage/applications/:id" element={<ApplicationDetailPage />} />
-      <Route path="mypage/templates" element={<TemplatesPage />} />
-      <Route path="mypage/favorites" element={<FavoritesPage />} />
-      <Route path="mypage/settings" element={<AccountSettingsPage />} />
-      <Route path="mypage/archive" element={<ActivityArchivePage />} />
-      <Route path="mypage/archive/:id" element={<PortfolioPage />} />
-      <Route path="mypage/awards" element={<AwardsPage />} />
-      <Route path="mypage/feedback" element={<FeedbackPage />} />
-      <Route path="mypage/evaluations" element={<EvaluationsPage />} />
-      <Route path="studio/curricula" element={<CurriculumStudioPage />} />
-      <Route path="admin" element={<AdminOperationsPage />} />
+      <Route path="matching/:id/edit" element={<RequireAuth><RecruitmentEditorPage /></RequireAuth>} />
+      <Route path="activity" element={<RequireAuth><ActivityPage /></RequireAuth>} />
+      <Route path="activity/:teamId/manage" element={<RequireAuth><ActivityManagePage /></RequireAuth>} />
+      <Route path="notifications" element={<RequireAuth><NotificationsPage /></RequireAuth>} />
+      <Route path="messages" element={<RequireAuth><MessagesPage /></RequireAuth>} />
+      <Route path="mypage" element={<RequireAuth><MyPage /></RequireAuth>} />
+      <Route path="mypage/applications" element={<RequireAuth><ApplicationsPage /></RequireAuth>} />
+      <Route path="mypage/applications/:id" element={<RequireAuth><ApplicationDetailPage /></RequireAuth>} />
+      <Route path="mypage/templates" element={<RequireAuth><TemplatesPage /></RequireAuth>} />
+      <Route path="mypage/favorites" element={<RequireAuth><FavoritesPage /></RequireAuth>} />
+      <Route path="mypage/settings" element={<RequireAuth><AccountSettingsPage /></RequireAuth>} />
+      <Route path="mypage/archive" element={<RequireAuth><ActivityArchivePage /></RequireAuth>} />
+      <Route path="mypage/archive/:id" element={<RequireAuth><PortfolioPage /></RequireAuth>} />
+      <Route path="mypage/awards" element={<RequireAuth><AwardsPage /></RequireAuth>} />
+      <Route path="mypage/feedback" element={<RequireAuth><FeedbackPage /></RequireAuth>} />
+      <Route path="mypage/evaluations" element={<RequireAuth><EvaluationsPage /></RequireAuth>} />
+      <Route path="studio/curriculum" element={<RequireAuth><CurriculumStudioPage /></RequireAuth>} />
+      <Route path="studio/curricula" element={<Navigate to="/studio/curriculum" replace />} />
+      <Route path="admin" element={<RequireAuth><AdminOperationsPage /></RequireAuth>} />
     </Route>
     <Route path="*" element={<Navigate to="/" replace />} />
   </Routes>;

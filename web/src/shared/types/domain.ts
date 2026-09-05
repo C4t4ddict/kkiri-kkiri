@@ -230,6 +230,54 @@ export type NotificationItem = {
   offer_status?: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'CANCELED' | null;
 };
 
+export type FriendSummary = {
+  friendship_id: number;
+  requester_id: number;
+  status: 'PENDING' | 'ACCEPTED';
+  user_id: number;
+  name: string;
+  department?: string;
+  email: string;
+  profile_picture?: string;
+};
+
+export type FriendOverview = {
+  friends: FriendSummary[];
+  incoming: FriendSummary[];
+  outgoing: FriendSummary[];
+};
+
+export type FriendSearchResult = Omit<FriendSummary, 'friendship_id' | 'requester_id' | 'status'> & {
+  friendship_id?: number | null;
+  requester_id?: number | null;
+  status?: 'PENDING' | 'ACCEPTED' | 'REJECTED' | null;
+  relationship: 'NONE' | 'FRIEND' | 'INCOMING' | 'OUTGOING';
+};
+
+export type ConversationSummary = {
+  friend_id: number;
+  name: string;
+  department?: string;
+  profile_picture?: string;
+  last_message?: string | null;
+  last_message_at?: string | null;
+  unread_count: number;
+};
+
+export type DirectMessage = {
+  message_id: number;
+  sender_id: number;
+  recipient_id: number;
+  content: string;
+  read_at?: string | null;
+  created_at: string;
+};
+
+export type MessageThread = {
+  friend: Pick<FriendSummary, 'user_id' | 'name' | 'department' | 'profile_picture'> | null;
+  messages: DirectMessage[];
+};
+
 export type PastActivity = {
   portfolio_id: number;
   team_id: number;

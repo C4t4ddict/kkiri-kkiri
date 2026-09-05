@@ -89,7 +89,6 @@ export function InfoDetailPage() {
         {showPrizeDetails && <section className="article-callout prize"><Gift /><div><strong>시상 및 혜택</strong><p>{formattedPrizeDetails}</p></div></section>}
 
         <section className="article-body">
-          <span className="eyebrow">ACTIVITY BRIEF</span>
           <h2>공고 상세</h2>
           <p>{formattedDetails || '등록된 상세 설명이 없습니다. 공식 공고에서 세부 내용을 확인해주세요.'}</p>
         </section>
@@ -99,7 +98,6 @@ export function InfoDetailPage() {
 
       <aside className="editorial-aside">
         <section className="deadline-card">
-          <span className="eyebrow">APPLICATION</span>
           <h2>지원 일정</h2>
           <div className="deadline-line"><span>접수 시작</span><strong>{formatDate(activity.application_period_start)}</strong></div>
           <div className="deadline-line"><span>접수 마감</span><strong>{formatDate(activity.application_period_end)}</strong></div>
@@ -108,7 +106,7 @@ export function InfoDetailPage() {
         </section>
 
         <section className="related-recruitments">
-          <div className="aside-title"><div><span className="eyebrow">TEAM UP</span><h3>함께 준비할 팀</h3></div><em>{recruitments.length}</em></div>
+          <div className="aside-title"><div><h3>함께 준비할 팀</h3></div><em>{recruitments.length}</em></div>
           {recruitments.length ? recruitments.slice(0, 5).map((item) => <Link to={`/matching/${item.recruitment_id}`} className="aside-recruitment" key={item.recruitment_id}><span><UsersRound /></span><div><strong>{item.post_name}</strong><small>{item.meeting_type || '방식 협의'} · {item.required_members || '-'}명 모집</small></div></Link>) : <p className="aside-empty">아직 모집 중인 팀이 없습니다.</p>}
         </section>
 

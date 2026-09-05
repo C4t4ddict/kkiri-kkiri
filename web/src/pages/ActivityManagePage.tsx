@@ -155,12 +155,12 @@ export function ActivityManagePage() {
 
   return <>
     <Link className="back-link" to={`/activity?team=${teamId}`}><ArrowLeft /> 나의 활동으로 돌아가기</Link>
-    <PageTitle eyebrow="ACTIVITY MANAGEMENT" title="팀원 목표·활동 설정" description="모바일 앱의 팀원 할 일과 활동 편집 기능을 웹에서도 그대로 관리합니다." />
+    <PageTitle title="팀원 목표·활동 설정" description="모바일 앱의 팀원 할 일과 활동 편집 기능을 웹에서도 그대로 관리합니다." />
     {(message || error) && <div className={error ? 'form-error' : 'form-success'}>{error || message}</div>}
 
     <div className="activity-manage-grid">
       <section className="content-card team-goal-manager" id="team-goals">
-        <div className="dashboard-section-head"><div><span className="eyebrow">TEAM GOALS</span><h3>팀원 목표</h3></div><strong>{completion}% 완료</strong></div>
+        <div className="dashboard-section-head"><div><h3>팀원 목표</h3></div><strong>{completion}% 완료</strong></div>
         <div className="member-tabs">{members.data?.map((member) => <button className={member.user_id === selectedMemberId ? 'active' : ''} onClick={() => setSelectedMemberId(member.user_id)} key={member.user_id}><span><UserRound /></span><strong>{member.name}</strong><small>{member.part || '역할 미정'}</small></button>)}</div>
         <div className="team-goal-filters"><select value={scope} onChange={(event) => setScope(event.target.value as Scope)}><option>일일</option><option>주간</option><option>월간</option></select><input type="date" value={range.start} onChange={(event) => setRange((current) => ({ ...current, start: event.target.value }))} /><span>~</span><input type="date" value={range.end} onChange={(event) => setRange((current) => ({ ...current, end: event.target.value }))} /></div>
         <form className="team-goal-add" onSubmit={addTodo}><input name="title" required placeholder={`${selectedMember?.name || '팀원'}님의 ${scope} 목표`} /><button className="primary-button">목표 추가</button></form>
@@ -168,7 +168,7 @@ export function ActivityManagePage() {
       </section>
 
       <section className="content-card activity-settings-panel" id="activity-settings">
-        <div className="dashboard-section-head"><div><span className="eyebrow">SETTINGS</span><h3>활동 설정</h3></div><Settings2 /></div>
+        <div className="dashboard-section-head"><div><h3>활동 설정</h3></div><Settings2 /></div>
         <form onSubmit={saveSettings}>
           <label>활동 프로젝트명<input name="team_name" defaultValue={team.team_name} disabled={!isLeader} /></label>
           <label>나의 역할<input name="part" defaultValue={team.part || ''} required /></label>
@@ -181,7 +181,7 @@ export function ActivityManagePage() {
     </div>
 
     {team.participation_mode === 'TEAM' && <section className="content-card team-issue-tracker" id="team-issues">
-      <div className="dashboard-section-head"><div><span className="eyebrow">ISSUE TRACKER</span><h3>팀 이슈 트래커</h3></div><strong>{issues.data?.filter((issue) => issue.status !== 'DONE').length || 0}개 진행 중</strong></div>
+      <div className="dashboard-section-head"><div><h3>팀 이슈 트래커</h3></div><strong>{issues.data?.filter((issue) => issue.status !== 'DONE').length || 0}개 진행 중</strong></div>
       <form className="issue-create-form" onSubmit={addIssue}>
         <label>이슈 제목<input name="title" maxLength={180} required placeholder="확인하거나 해결할 일을 적어주세요" /></label>
         <label>담당자<select name="assignee_id" defaultValue={user?.id}>{members.data?.map((member) => <option value={member.user_id} key={member.user_id}>{member.name} · {member.part || '역할 미정'}</option>)}</select></label>

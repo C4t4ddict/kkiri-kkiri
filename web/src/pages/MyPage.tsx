@@ -21,7 +21,7 @@ export function MyPage() {
   const { user } = useAuth();
   if (!user) return null;
   return <>
-    <section className="profile-card"><UserAvatar user={user} className="profile-avatar" /><div><span className="eyebrow">MY PROFILE</span><h1>{user.name}</h1><p>{user.email} · {user.department || '학과 미등록'}</p></div></section>
+    <section className="profile-card"><UserAvatar user={user} className="profile-avatar" /><div><h1>{user.name}</h1><p>{user.email} · {user.department || '학과 미등록'}</p></div></section>
     <div className="menu-grid">{menus.map(([title, description, path, Icon]) => <Link className="menu-card" to={path} key={title}><div className="menu-icon"><Icon /></div><div><h3>{title}</h3><p>{description}</p></div><ChevronRight /></Link>)}</div>
   </>;
 }

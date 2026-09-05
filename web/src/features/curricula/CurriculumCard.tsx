@@ -15,7 +15,7 @@ export function CurriculumCard({ curriculum }: { curriculum: Curriculum }) {
     : '#6c5ce7';
   return <Link
     className="curriculum-card"
-    to={`/curricula/${curriculum.curriculum_id}`}
+    to={`/curriculum/${curriculum.curriculum_id}`}
     style={{ '--brand-color': brandColor } as CSSProperties}
   >
     <span className="curriculum-accent" />

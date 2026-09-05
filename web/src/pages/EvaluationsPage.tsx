@@ -106,10 +106,10 @@ export function EvaluationsPage() {
   ];
 
   return <>
-    <PageTitle eyebrow="TEAM REVIEW" title="팀원·나의 평가" description="함께 활동한 팀원을 평가하고, 내가 받은 평가와 코멘트를 확인하세요." />
+    <PageTitle title="팀원·나의 평가" description="함께 활동한 팀원을 평가하고, 내가 받은 평가와 코멘트를 확인하세요." />
     <div className="evaluation-page-grid">
       <section className="content-card teammate-review-card">
-        <div className="dashboard-section-head"><div><span className="eyebrow">WRITE REVIEW</span><h3>팀원 평가</h3></div><UsersRound /></div>
+        <div className="dashboard-section-head"><div><h3>팀원 평가</h3></div><UsersRound /></div>
         {!teams.data?.length ? <PageState empty="평가할 진행 활동이 없습니다." /> : <form onSubmit={submit}>
           <label>활동 선택<select value={teamId || ''} onChange={(event) => setTeamId(Number(event.target.value))}>{teams.data.map((team) => <option value={team.team_id} key={team.team_id}>{team.team_name}</option>)}</select></label>
           <label>팀원 선택<select value={memberId || ''} onChange={(event) => setMemberId(Number(event.target.value))}>{(members.data || []).filter((member) => member.user_id !== user?.id).map((member) => <option value={member.user_id} key={member.user_id}>{member.name} · {member.part || '역할 미정'}</option>)}</select></label>
@@ -119,7 +119,7 @@ export function EvaluationsPage() {
       </section>
 
       <section className="content-card received-review-card">
-        <div className="dashboard-section-head"><div><span className="eyebrow">MY FEEDBACK</span><h3>나의 평가</h3></div><Star /></div>
+        <div className="dashboard-section-head"><div><h3>나의 평가</h3></div><Star /></div>
         <div className="evaluation-summary">{ratingOptions.map(({ value, label, icon: Icon }) => <div key={value}><span><Icon /></span><strong>{Number(evaluation?.[`review_${value}` as keyof typeof evaluation] || 0)}</strong><small>{label}</small></div>)}</div>
         <h4><MessageSquareText /> 받은 평가 코멘트</h4>
         <div className="received-review-list">{received.loading ? <PageState loading /> : received.data?.reviews?.length ? received.data.reviews.map((review) => <article key={review.review_id}><header><strong>{review.activity_title}</strong><span>{ratingFrom(review) === 'high' ? '최고예요' : ratingFrom(review) === 'medium' ? '좋아요' : '아쉬워요'}</span></header><p>{review.comment || '코멘트가 없습니다.'}</p><small>{review.reviewer_name} · {new Date(review.created_at).toLocaleDateString('ko-KR')}</small></article>) : <PageState empty="아직 받은 평가 코멘트가 없습니다." />}</div>

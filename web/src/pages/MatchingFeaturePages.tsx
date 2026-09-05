@@ -61,7 +61,7 @@ export function RecruitmentEditorPage() {
   const current = detail.data;
   return <>
     <button className="back-link" onClick={() => navigate(-1)}><ArrowLeft size={16} /> 돌아가기</button>
-    <PageTitle eyebrow="TEAM RECRUITMENT" title={editing ? '모집글 수정' : '새 팀 모집'} description="진행 중인 활동을 고르고 함께할 팀원의 조건을 알려주세요." />
+    <PageTitle title={editing ? '모집글 수정' : '새 팀 모집'} description="진행 중인 활동을 고르고 함께할 팀원의 조건을 알려주세요." />
     <form className="content-card feature-form" onSubmit={submit}>
       <div className="form-grid two">
         <label className="wide">모집글 제목<input name="post_name" defaultValue={current?.post_name} maxLength={120} required /></label>
@@ -129,5 +129,5 @@ export function MatchingDetailPage() {
 export function MyRecruitmentsPage() {
   const result = useAsync(() => api<Recruitment[]>('/api/my-recruitments'), []);
   const remove = async (id: number) => { if (!window.confirm('이 모집글을 삭제할까요?')) return; await api(`/api/team-recruitments/${id}`, { method: 'DELETE' }); await result.reload(); };
-  return <><div className="title-actions"><PageTitle eyebrow="MY RECRUITMENTS" title="내가 작성한 모집글" description="지원자를 확인하고 모집 조건을 관리하세요." /><Link className="primary-button compact" to="/matching/new">새 모집글</Link></div><PageState loading={result.loading} error={result.error} empty={!result.loading && !result.data?.length ? '작성한 모집글이 없습니다.' : undefined} /><div className="recruitment-list">{result.data?.map((item) => <article className="management-row" key={item.recruitment_id}><Link to={`/matching/${item.recruitment_id}`}><div className="card-tags"><span>{item.status || 'OPEN'}</span><span>지원 {item.application_count || 0}명</span></div><h3>{item.post_name}</h3><p>{item.activity_name} · {item.activity_period}</p></Link><div className="row-actions">{Boolean(item.can_edit) && <Link to={`/matching/${item.recruitment_id}/edit`}><Edit3 /> 수정</Link>}<button onClick={() => remove(item.recruitment_id)}><Trash2 /> 삭제</button></div></article>)}</div></>;
+  return <><div className="title-actions"><PageTitle title="내가 작성한 모집글" description="지원자를 확인하고 모집 조건을 관리하세요." /><Link className="primary-button compact" to="/matching/new">새 모집글</Link></div><PageState loading={result.loading} error={result.error} empty={!result.loading && !result.data?.length ? '작성한 모집글이 없습니다.' : undefined} /><div className="recruitment-list">{result.data?.map((item) => <article className="management-row" key={item.recruitment_id}><Link to={`/matching/${item.recruitment_id}`}><div className="card-tags"><span>{item.status || 'OPEN'}</span><span>지원 {item.application_count || 0}명</span></div><h3>{item.post_name}</h3><p>{item.activity_name} · {item.activity_period}</p></Link><div className="row-actions">{Boolean(item.can_edit) && <Link to={`/matching/${item.recruitment_id}/edit`}><Edit3 /> 수정</Link>}<button onClick={() => remove(item.recruitment_id)}><Trash2 /> 삭제</button></div></article>)}</div></>;
 }
