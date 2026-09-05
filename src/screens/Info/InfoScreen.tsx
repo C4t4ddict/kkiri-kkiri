@@ -61,7 +61,9 @@ const InfoScreen = () => {
 
   const fetchActivities = useCallback(async () => {
     try {
-      const res = await axios.get(`${BASE_URL}/api/activities`);
+      const res = await axios.get(`${BASE_URL}/api/activities`, {
+        headers: user?.id ? { 'x-user-id': String(user.id) } : undefined,
+      });
       setActivities(Array.isArray(res.data) ? res.data : []);
       setLoadError(false);
     } catch (error) {
@@ -70,7 +72,7 @@ const InfoScreen = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   const fetchFavoriteIds = useCallback(async () => {
     if (!user?.id) {
@@ -148,6 +150,22 @@ const InfoScreen = () => {
       <AppHeader actions={
         <NotificationBell />
       } />
+
+      <TouchableOpacity
+        activeOpacity={0.86}
+        style={styles.curriculumBanner}
+        onPress={() => navigation.navigate('CurriculumList')}
+      >
+        <View style={styles.curriculumIcon}>
+          <Icon name="sparkles" size={21} color="#FFFFFF" />
+        </View>
+        <View style={styles.curriculumCopy}>
+          <Text style={styles.curriculumEyebrow}>기업이 제안하는 기술 성장 과정</Text>
+          <Text style={styles.curriculumTitle}>기업 커리큘럼을 내 활동으로</Text>
+          <Text style={styles.curriculumDescription}>개인 또는 팀 일정으로 추가해 목표를 관리해보세요.</Text>
+        </View>
+        <Icon name="arrow-forward" size={20} color="#FFFFFF" />
+      </TouchableOpacity>
 
       {/* 검색창 */}
       <View style={styles.searchContainer}>
@@ -272,6 +290,28 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     marginHorizontal: 16,
   },
+  curriculumBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginHorizontal: 16,
+    marginBottom: 14,
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: '#35275E',
+  },
+  curriculumIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  curriculumCopy: { flex: 1 },
+  curriculumEyebrow: { color: '#CFC4FF', fontSize: 9, fontWeight: '900' },
+  curriculumTitle: { marginTop: 3, color: '#FFFFFF', fontSize: 14, fontWeight: '900' },
+  curriculumDescription: { marginTop: 3, color: '#DDD7F6', fontSize: 10 },
   searchInput: {
     fontSize: 16,
     color: '#101828',

@@ -18,8 +18,9 @@ import {
 import axios from 'axios';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useAuth } from '../context/AuthContext';
-import { useNavigation } from '@react-navigation/native';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import MiniCalendarModal from '../components/MiniCalendarModal';
+import { RootStackParamList } from '../types';
 
 const API_BASE_URL =
   Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
@@ -128,6 +129,8 @@ const periodOf = (scope: Scope, anchor: Date): Period => {
 
 export default function TodoScreen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<RouteProp<RootStackParamList, 'TodoScreen'>>();
+  const activityEditHandled = useRef(false);
   const { user } = useAuth();
   const authHeader = useMemo(
     () => user ? { 'x-user-id': String(user.id) } : undefined,
@@ -177,6 +180,7 @@ export default function TodoScreen() {
   const [periodGoalColor, setPeriodGoalColor] = useState(PURPLE);
   const [periodCalendarTarget, setPeriodCalendarTarget] = useState<'start' | 'end' | null>(null);
   const [periodGoalSaving, setPeriodGoalSaving] = useState(false);
+  const [periodGoalLimitMessage, setPeriodGoalLimitMessage] = useState<string | null>(null);
 
   // 팀 목록 로딩
   useEffect(() => {
@@ -187,11 +191,14 @@ export default function TodoScreen() {
       .then((res) => {
         const data = res.data ?? [];
         setTeams(data);
-        if (data.length) setSelected(data[0]);
+        if (data.length) {
+          const requestedTeamId = Number(route.params?.teamId || 0);
+          setSelected(data.find((team) => Number(team.team_id) === requestedTeamId) || data[0]);
+        }
       })
       .catch((err) => console.error('팀 목록 불러오기 실패:', err))
       .finally(() => setLoadingTeams(false));
-  }, [authHeader, user]);
+  }, [authHeader, route.params?.teamId, user]);
 
   // 기간별 데이터 로딩
   const fetchRange = async (scope: Scope) => {
@@ -368,6 +375,14 @@ export default function TodoScreen() {
     setPartModalVisible(true);
   };
 
+  useEffect(() => {
+    if (!route.params?.openActivityEdit || !selected || activityEditHandled.current) return;
+    activityEditHandled.current = true;
+    setNameInput(selected.team_name ?? '');
+    setPartInput(selected.part ?? '');
+    setPartModalVisible(true);
+  }, [route.params?.openActivityEdit, selected]);
+
   const notifyError = (title: string, msg: string) => {
     if (Platform.OS === 'android') {
       ToastAndroid.show(`${title}: ${msg}`, ToastAndroid.LONG);
@@ -458,7 +473,14 @@ export default function TodoScreen() {
       await fetchRange('일일');
       Alert.alert('기간 목표 추가 완료', `${data.created_count || 0}일의 일일 목표가 추가되었습니다.`);
     } catch (error: any) {
-      notifyError('기간 목표 추가 실패', error?.response?.data?.message || '기간 목표를 저장하지 못했습니다.');
+      if (error?.response?.status === 409) {
+        setPeriodGoalLimitMessage(
+          error?.response?.data?.message
+          || '같은 날짜에는 진행 중인 기간 목표를 최대 3개까지 추가할 수 있습니다.',
+        );
+      } else {
+        notifyError('기간 목표 추가 실패', error?.response?.data?.message || '기간 목표를 저장하지 못했습니다.');
+      }
     } finally {
       setPeriodGoalSaving(false);
     }
@@ -698,6 +720,12 @@ export default function TodoScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>기간 목표 추가</Text>
             <Text style={styles.modalDescription}>설정한 기간의 매일 동일한 일일 목표가 생성됩니다.</Text>
+            <View style={styles.periodLimitNotice}>
+              <Icon name="layers-outline" size={16} color={PURPLE} />
+              <Text style={styles.periodLimitNoticeText}>
+                같은 날짜에는 최대 3개까지 진행할 수 있어요. 하나를 완료하면 새 목표를 추가할 수 있습니다.
+              </Text>
+            </View>
             <Text style={styles.modalFieldLabel}>목표</Text>
             <TextInput
               value={periodGoalTitle}
@@ -750,6 +778,31 @@ export default function TodoScreen() {
                 <Text style={[styles.modalBtnText, styles.modalSaveText]}>{periodGoalSaving ? '추가 중' : '추가'}</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={periodGoalLimitMessage !== null}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setPeriodGoalLimitMessage(null)}
+      >
+        <View style={styles.limitPopupBackdrop}>
+          <View style={styles.limitPopupCard}>
+            <View style={styles.limitPopupIcon}>
+              <Icon name="layers-outline" size={25} color={PURPLE} />
+            </View>
+            <Text style={styles.limitPopupTitle}>기간 목표를 더 추가할 수 없어요</Text>
+            <Text style={styles.limitPopupMessage}>{periodGoalLimitMessage}</Text>
+            <TouchableOpacity
+              style={styles.limitPopupButton}
+              activeOpacity={0.78}
+              onPress={() => setPeriodGoalLimitMessage(null)}
+            >
+              <Text style={styles.limitPopupButtonText}>확인</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -901,6 +954,16 @@ const styles = StyleSheet.create({
   modalCard: { width: '86%', backgroundColor: 'white', borderRadius: 14, padding: 16 },
   modalTitle: { fontSize: 16, fontWeight: '700', color: TEXT_MAIN, marginBottom: 10 },
   modalDescription: { marginTop: -4, marginBottom: 12, color: TEXT_HINT, fontSize: 13, lineHeight: 19 },
+  periodLimitNotice: {
+    marginBottom: 14,
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderRadius: 11,
+    backgroundColor: '#F4F0FF',
+  },
+  periodLimitNoticeText: { flex: 1, marginLeft: 7, color: '#53389E', fontSize: 11, lineHeight: 16, fontWeight: '700' },
   modalFieldLabel: { marginBottom: 6, color: '#344054', fontSize: 12, fontWeight: '800' },
   modalHelper: { marginTop: -7, marginBottom: 12, color: TEXT_HINT, fontSize: 11 },
   modalInput: {
@@ -945,6 +1008,48 @@ const styles = StyleSheet.create({
   modalSaveButton: { backgroundColor: PURPLE },
   modalCancelText: { color: '#374151' },
   modalSaveText: { color: '#FFFFFF' },
+  limitPopupBackdrop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    backgroundColor: 'rgba(16,24,40,0.45)',
+  },
+  limitPopupCard: {
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 18,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#101828',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  limitPopupIcon: {
+    width: 50,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 17,
+    backgroundColor: LILAC,
+  },
+  limitPopupTitle: { marginTop: 15, color: TEXT_MAIN, fontSize: 17, fontWeight: '800', textAlign: 'center' },
+  limitPopupMessage: { marginTop: 8, color: TEXT_HINT, fontSize: 13, lineHeight: 20, textAlign: 'center' },
+  limitPopupButton: {
+    width: '100%',
+    minHeight: 46,
+    marginTop: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    backgroundColor: PURPLE,
+  },
+  limitPopupButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
 
   teamBtn: {
   backgroundColor: '#EFEAFF',
