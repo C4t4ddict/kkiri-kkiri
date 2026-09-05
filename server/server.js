@@ -82,6 +82,8 @@ const {
   ensureMessagingSchema,
   normalizeFriendshipPair,
 } = require('./messaging/service');
+const { createActivityDocumentsRouter } = require('./activity-documents/router');
+const { ensureActivityDocumentsSchema } = require('./activity-documents/service');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -285,6 +287,26 @@ const toClientUser = (user) => ({
 
 // Middleware 설정
 app.use(cors());
+app.use('/teams/:teamId/documents', (req, res, next) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  next();
+});
+app.use('/teams/:teamId/documents', bodyParser.json({ limit: '512kb' }));
+app.use('/teams/:teamId/documents', (error, req, res, next) => {
+  if (error?.type === 'entity.too.large') {
+    return res.status(413).json({
+      message: 'Markdown 문서 요청은 512KB 이하여야 합니다',
+      code: 'ACTIVITY_DOCUMENT_REQUEST_TOO_LARGE',
+    });
+  }
+  if (error instanceof SyntaxError && error.status === 400 && 'body' in error) {
+    return res.status(400).json({
+      message: '올바른 JSON 요청이 필요합니다',
+      code: 'INVALID_JSON_BODY',
+    });
+  }
+  return next(error);
+});
 app.use(bodyParser.json());
 app.use(attachAuth);
 app.use(requestLogger);
@@ -333,6 +355,10 @@ let feedbackSchemaReady = Promise.resolve();
 let curriculumSchemaReady = Promise.resolve();
 let activityDiscoverySchemaReady = Promise.resolve();
 let messagingSchemaReady = Promise.resolve();
+const activityDocumentSchemaReady = ensureActivityDocumentsSchema(portfolioDb);
+activityDocumentSchemaReady.catch((schemaError) => {
+  console.error('활동 문서 테이블 준비 오류:', schemaError);
+});
 let crawlerScheduler = null;
 
 const queuePortfolioJob = (job) => {
@@ -721,6 +747,13 @@ const portfolioArchiveTimer = setInterval(() => {
   }
 }, 60 * 60 * 1000);
 portfolioArchiveTimer.unref();
+
+app.use('/teams/:teamId/documents', createActivityDocumentsRouter({
+  database: portfolioDb,
+  getRequestUserId,
+  getSchemaReady: () => activityDocumentSchemaReady,
+  logError: (...args) => console.error(...args),
+}));
 
 // 기본 라우트
 app.get('/', (req, res) => {
