@@ -48,6 +48,18 @@ const extractDetails = ($) => {
   return cleanMultilineText(lines.length ? lines.join('\n') : container.text());
 };
 
+const selectThinkcontestImage = (primaryImage, openGraphImage) => {
+  const candidates = [primaryImage, openGraphImage].map((value) => absoluteUrl(value, BASE_URL));
+  return candidates.find((value) => {
+    if (!value) return false;
+    const url = new URL(value);
+    if (url.pathname.endsWith('/common/display.do')) {
+      return Boolean(url.searchParams.get('filepath') && url.searchParams.get('filename'));
+    }
+    return !url.pathname.endsWith('/resource/image/common/sub_bg03.png');
+  }) || null;
+};
+
 const parseThinkcontestDetail = (html, seed) => {
   const $ = cheerio.load(html);
   const rows = extractInfoRows($);
@@ -66,9 +78,10 @@ const parseThinkcontestDetail = (html, seed) => {
     details,
     category: '공모전',
     sourceCategories: splitCategories(rows['응모분야']?.text || seed.sourceCategories),
-    mainImageUrl:
-      $('.content-detail__top .img-wrap img.contestimg').first().attr('src') ||
+    mainImageUrl: selectThinkcontestImage(
+      $('.content-detail__top .img-wrap img.contestimg').first().attr('src'),
       $('meta[property="og:image"]').attr('content'),
+    ),
   });
 };
 
@@ -102,4 +115,9 @@ const createThinkcontestSource = () => ({
   },
 });
 
-module.exports = { createThinkcontestSource, parseThinkcontestDetail, parseThinkcontestList };
+module.exports = {
+  createThinkcontestSource,
+  parseThinkcontestDetail,
+  parseThinkcontestList,
+  selectThinkcontestImage,
+};

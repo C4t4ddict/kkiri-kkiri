@@ -2,6 +2,7 @@ import { ArrowRight, BookOpen, Building2, Search, SearchX, UsersRound } from 'lu
 import { FormEvent, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ActivityCard } from '../features/activities/ActivityCard';
+import { fetchAllActivities } from '../features/activities/activityApi';
 import { CurriculumCard } from '../features/curricula/CurriculumCard';
 import { api } from '../shared/api/client';
 import { useAsync } from '../shared/hooks/useAsync';
@@ -24,7 +25,7 @@ export function SearchResultsPage() {
   const query = params.get('q')?.trim() || '';
   const [input, setInput] = useState(query);
   const result = useAsync(() => Promise.all([
-    api<ActivityItem[]>('/api/activities'),
+    fetchAllActivities(),
     api<Curriculum[]>('/api/curricula'),
     api<Recruitment[]>('/api/team-recruitments'),
   ]).then(([activities, curricula, recruitments]) => ({ activities, curricula, recruitments })), []);

@@ -3,7 +3,7 @@ import { FormEvent, ReactNode, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../app/AuthContext';
 import { api } from '../shared/api/client';
-import { resolveApiMediaUrl } from '../shared/api/media';
+import { ActivityPosterImage } from '../features/activities/ActivityPosterImage';
 import { useAsync } from '../shared/hooks/useAsync';
 import type { ActivityItem, Application, Curriculum, Recruitment } from '../shared/types/domain';
 import { UserAvatar } from '../shared/ui/UserAvatar';
@@ -70,7 +70,7 @@ export function HomePage() {
         <PreviewBoard title="기업 커리큘럼" icon={<Map />} rows={curriculumRows} more="/curriculum" empty={curricula.loading ? '커리큘럼을 불러오는 중…' : '등록된 커리큘럼이 없습니다.'} />
         <PreviewBoard title="나의 지원 현황" icon={<Send />} rows={applicationRows} more="/mypage/applications" empty={applications.loading ? '지원 현황을 불러오는 중…' : '지원한 모집글이 없습니다.'} />
       </div>
-      {Boolean(trending.data?.length) && <section className="home-poster-section"><header><div><span className="home-recommend-label">끼리끼리가 추천하는</span><h2>요즘 많이 찾는 활동</h2></div><Link to="/info">전체 보기 <ChevronRight /></Link></header><div className="home-poster-row">{trending.data?.map((item) => <Link to={`/info/${item.activity_id}`} key={item.activity_id}>{item.main_image_url ? <img src={resolveApiMediaUrl(item.main_image_url)} alt={`${item.title} 포스터`} loading="lazy" referrerPolicy="no-referrer" /> : <span className="poster-mini-fallback"><BriefcaseBusiness /></span>}<div className="home-poster-copy"><span>{item.source_name || '공식 공고'}</span><strong>{item.title}</strong><small>{item.topic_category || item.category || '활동'} · {dday(item.application_period_end)}</small>{Number(item.recent_view_count) > 0 && <em><Eye /> 최근 조회 {item.recent_view_count}</em>}</div></Link>)}</div></section>}
+      {Boolean(trending.data?.length) && <section className="home-poster-section"><header><div><span className="home-recommend-label">끼리끼리가 추천하는</span><h2>요즘 많이 찾는 활동</h2></div><Link to="/info">전체 보기 <ChevronRight /></Link></header><div className="home-poster-row">{trending.data?.map((item) => <Link to={`/info/${item.activity_id}`} key={item.activity_id}><ActivityPosterImage source={item.main_image_url} alt={`${item.title} 포스터`} fallback={<span className="poster-mini-fallback"><BriefcaseBusiness /></span>} /><div className="home-poster-copy"><span>{item.source_name || '공식 공고'}</span><strong>{item.title}</strong><small>{item.topic_category || item.category || '활동'} · {dday(item.application_period_end)}</small>{Number(item.recent_view_count) > 0 && <em><Eye /> 최근 조회 {item.recent_view_count}</em>}</div></Link>)}</div></section>}
     </main>
 
       <aside className="home-side-widgets">

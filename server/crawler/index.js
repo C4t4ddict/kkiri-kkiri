@@ -29,8 +29,8 @@ const toPositiveInteger = (value, name) => {
 const parseArguments = (argumentsList) => {
   const options = {
     source: 'all',
-    pages: toPositiveInteger(process.env.CRAWLER_PAGES || 3, 'CRAWLER_PAGES'),
-    limit: toPositiveInteger(process.env.CRAWLER_LIMIT || 50, 'CRAWLER_LIMIT'),
+    pages: toPositiveInteger(process.env.CRAWLER_PAGES || 20, 'CRAWLER_PAGES'),
+    limit: toPositiveInteger(process.env.CRAWLER_LIMIT || 300, 'CRAWLER_LIMIT'),
     dryRun: false,
   };
   for (let index = 0; index < argumentsList.length; index += 1) {
@@ -121,7 +121,8 @@ const run = async () => {
             console.log(JSON.stringify(previewActivity(activity), null, 2));
           } else {
             const result = await saveActivity(pool, runId, activity, rawHtml);
-            console.log(`[${source.name}] 저장 #${result.activityId} ${activity.title}`);
+            const duplicateLabel = result.duplicatesHidden ? ` · 중복 ${result.duplicatesHidden}건 정리` : '';
+            console.log(`[${source.name}] 저장 #${result.activityId} ${activity.title}${duplicateLabel}`);
           }
           summary.saved += 1;
         } catch (error) {

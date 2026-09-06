@@ -1,7 +1,7 @@
 import { Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { resolveApiMediaUrl } from '../../shared/api/media';
 import type { ActivityItem } from '../../shared/types/domain';
+import { ActivityPosterImage } from './ActivityPosterImage';
 import { getActivityCategoryLabel } from './activityCategory';
 
 function Dday({ end }: { end?: string }) {
@@ -12,9 +12,11 @@ function Dday({ end }: { end?: string }) {
 
 export function ActivityCard({ item }: { item: ActivityItem }) {
   return <Link className="activity-card" to={`/info/${item.activity_id}`}>
-    {item.main_image_url
-      ? <img src={resolveApiMediaUrl(item.main_image_url)} alt="" />
-      : <div className="poster-fallback"><Sparkles /></div>}
+    <ActivityPosterImage
+      source={item.main_image_url}
+      alt={`${item.title} 포스터`}
+      fallback={<div className="poster-fallback"><Sparkles /></div>}
+    />
     <div className="activity-card-body">
       <div className="card-tags">
         <span>{getActivityCategoryLabel(item.topic_category || item.category)}</span>

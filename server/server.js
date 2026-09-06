@@ -5351,7 +5351,7 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
       (SELECT COUNT(*) FROM (
         SELECT LOWER(TRIM(title)) AS normalized_title
         FROM activitys
-        WHERE COALESCE(title, '') <> '' AND COALESCE(source_name, '') <> 'local-demo'
+        WHERE COALESCE(title, '') <> '' AND COALESCE(source_name, '') <> 'local-demo' AND is_hidden = 0
         GROUP BY LOWER(TRIM(title))
         HAVING COUNT(*) > 1
       ) duplicates) AS duplicate_group_count
@@ -5390,9 +5390,12 @@ app.get('/api/admin/activities', requireAdmin, async (req, res) => {
   if (quality === 'missing_image') conditions.push("COALESCE(a.main_image_url, '') = ''");
   else if (quality === 'hidden') conditions.push('a.is_hidden = 1');
   else if (quality === 'duplicates') {
+    conditions.push('a.is_hidden = 0');
     conditions.push(`EXISTS (
       SELECT 1 FROM activitys other
       WHERE other.activity_id <> a.activity_id
+        AND other.is_hidden = 0
+        AND COALESCE(other.source_name, '') <> 'local-demo'
         AND LOWER(TRIM(other.title)) = LOWER(TRIM(a.title))
     )`);
   }

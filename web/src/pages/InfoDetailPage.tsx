@@ -7,14 +7,15 @@ import {
   ExternalLink,
   Gift,
   Heart,
+  ImageOff,
   MapPin,
   UsersRound,
 } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useNavigate, useParams } from 'react-router-dom';
+import { ActivityPosterImage } from '../features/activities/ActivityPosterImage';
 import { api } from '../shared/api/client';
-import { resolveApiMediaUrl } from '../shared/api/media';
 import { useAsync } from '../shared/hooks/useAsync';
 import type { ActivityItem, Recruitment } from '../shared/types/domain';
 import { PageState } from '../shared/ui/PageState';
@@ -53,7 +54,6 @@ export function InfoDetailPage() {
     finally { setFavoriteBusy(false); }
   };
   const externalUrl = activity.official_url || activity.source_url;
-  const imageUrl = resolveApiMediaUrl(activity.main_image_url);
   const rawDetails = String(activity.details || '');
   const formattedDetails = formatEditorialCopy(
     rawDetails.startsWith(activity.title) ? rawDetails.slice(activity.title.length) : rawDetails,
@@ -77,7 +77,11 @@ export function InfoDetailPage() {
           <div className="editorial-byline"><span><Building2 />{activity.organizer || '주최기관 미등록'}</span><span><CalendarDays />접수 {formatDate(activity.application_period_end)}까지</span></div>
         </header>
 
-        {imageUrl && <figure className="editorial-poster"><img src={imageUrl} alt={`${activity.title} 포스터`} /></figure>}
+        {activity.main_image_url && <figure className="editorial-poster"><ActivityPosterImage
+          source={activity.main_image_url}
+          alt={`${activity.title} 포스터`}
+          fallback={<div className="editorial-poster-fallback"><ImageOff /><span>포스터는 공식 공고에서 확인해주세요.</span></div>}
+        /></figure>}
 
         <section className="article-summary-grid">
           <div><span><CalendarDays /></span><strong>운영 기간</strong><p>{formatDate(activity.operation_period_start)}<br />~ {formatDate(activity.operation_period_end)}</p></div>
