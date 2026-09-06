@@ -2,8 +2,8 @@ import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search, SearchX
 import { useSearchParams } from 'react-router-dom';
 import { useMemo, useRef, useState } from 'react';
 import { ActivityCard } from '../features/activities/ActivityCard';
+import { fetchAllActivities } from '../features/activities/activityApi';
 import { getActivityCategoryLabel } from '../features/activities/activityCategory';
-import { api } from '../shared/api/client';
 import { useAsync } from '../shared/hooks/useAsync';
 import type { ActivityItem } from '../shared/types/domain';
 import { PageState } from '../shared/ui/PageState';
@@ -20,7 +20,7 @@ export function InfoPage() {
   const [category, setCategory] = useState('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const categoryBarRef = useRef<HTMLDivElement>(null);
-  const result = useAsync(() => api<ActivityItem[]>('/api/activities'), []);
+  const result = useAsync(fetchAllActivities, []);
   const categoryOptions = useMemo(() => [...new Set((result.data || []).flatMap((item) => [getActivityType(item), getActivityField(item)]))].sort(), [result.data]);
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();

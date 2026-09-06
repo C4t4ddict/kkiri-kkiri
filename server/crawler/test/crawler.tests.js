@@ -3,7 +3,17 @@ const assert = require('node:assert/strict');
 const { isAllowedByRobots } = require('../httpClient');
 const { extractContact, mapTopicCategory, parseDateRange } = require('../normalize');
 const { parseWevityDetail, parseWevityList } = require('../sources/wevity');
-const { parseThinkcontestDetail, parseThinkcontestList } = require('../sources/thinkcontest');
+const {
+  parseThinkcontestDetail,
+  parseThinkcontestList,
+  selectThinkcontestImage,
+} = require('../sources/thinkcontest');
+const {
+  buildActivityDedupKey,
+  chooseCanonicalActivity,
+  normalizeIdentityText,
+  normalizeIdentityUrl,
+} = require('../deduplicate');
 
 test('위비티 목록과 상세 페이지를 정규화한다', () => {
   const list = parseWevityList(`
@@ -75,4 +85,59 @@ test('robots.txt의 최장 일치 규칙을 적용한다', () => {
   const robots = 'User-agent: *\nDisallow: /private\nAllow: /private/public';
   assert.equal(isAllowedByRobots(robots, 'https://example.com/private/data'), false);
   assert.equal(isAllowedByRobots(robots, 'https://example.com/private/public/item'), true);
+});
+
+test('공백과 기호가 다른 동일 제목을 같은 교차 출처 키로 정규화한다', () => {
+  const first = buildActivityDedupKey({
+    title: '2026 국립과천과학관 AI 활용 숏폼 공모전',
+    applicationPeriodEnd: '2026-10-16 23:59:59',
+  });
+  const second = buildActivityDedupKey({
+    title: '2026 국립과천과학관 AI활용 숏폼-공모전',
+    application_period_end: '2026-10-16 18:00:00',
+  });
+  const nextYear = buildActivityDedupKey({
+    title: '2026 국립과천과학관 AI 활용 숏폼 공모전',
+    applicationPeriodEnd: '2027-10-16 23:59:59',
+  });
+  assert.equal(first, second);
+  assert.equal(first, buildActivityDedupKey({
+    title: '2026 국립과천과학관 AI 활용 숏폼 공모전',
+    application_period_end: new Date(2026, 9, 16, 23, 59, 59),
+  }));
+  assert.notEqual(first, nextYear);
+  assert.equal(normalizeIdentityText(' AI · 공모전 '), 'ai공모전');
+});
+
+test('공식 URL의 추적 파라미터와 www 차이를 제거한다', () => {
+  assert.equal(
+    normalizeIdentityUrl('https://www.example.com/contest/?utm_source=wevity&id=3#apply'),
+    'example.com/contest?id=3',
+  );
+});
+
+test('교차 출처 중복에서는 이미지와 상세 정보가 풍부한 활동을 대표로 선택한다', () => {
+  const canonical = chooseCanonicalActivity([
+    { activity_id: 1, details: '짧은 설명' },
+    {
+      activity_id: 2,
+      details: '상세 정보 '.repeat(200),
+      main_image_url: 'https://example.com/poster.jpg',
+      official_url: 'https://example.com/contest',
+      organizer: '주최기관',
+      application_period_end: '2026-10-16 23:59:59',
+    },
+  ]);
+  assert.equal(canonical.activity_id, 2);
+});
+
+test('씽굿의 빈 포스터 경로와 공통 배경 이미지를 실제 포스터로 저장하지 않는다', () => {
+  assert.equal(selectThinkcontestImage(
+    '/thinkgood/common/display.do?filepath=&filename=&filegubun=poster',
+    '/_custom/thinkgood/resource/image/common/sub_bg03.png',
+  ), null);
+  assert.equal(selectThinkcontestImage(
+    '/thinkgood/common/display.do?filepath=/contest/&filename=poster.png&filegubun=poster',
+    null,
+  ), 'https://thinkcontest.com/thinkgood/common/display.do?filepath=/contest/&filename=poster.png&filegubun=poster');
 });

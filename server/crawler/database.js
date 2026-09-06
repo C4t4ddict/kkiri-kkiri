@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const mysql = require('mysql2/promise');
+const { buildActivityDedupKey, chooseCanonicalActivity } = require('./deduplicate');
 
 const ACTIVITY_COLUMNS = {
   prize_details: 'TEXT NULL AFTER points',
@@ -10,7 +11,10 @@ const ACTIVITY_COLUMNS = {
   official_url: 'VARCHAR(1000) NULL AFTER source_url',
   source_categories: 'TEXT NULL AFTER official_url',
   last_crawled_at: 'DATETIME NULL AFTER source_categories',
+  dedup_key: 'CHAR(64) NULL AFTER last_crawled_at',
 };
+
+const CRAWLER_SOURCES = ['씽굿', '위비티'];
 
 const createPool = () =>
   mysql.createPool({
@@ -51,6 +55,16 @@ const ensureCrawlerSchema = async (pool) => {
   );
   if (!indexes.length) {
     await pool.query('ALTER TABLE activitys ADD UNIQUE INDEX uq_activity_source (source_name, source_item_id)');
+  }
+
+  const [dedupIndexes] = await pool.execute(
+    `SELECT index_name
+     FROM information_schema.statistics
+     WHERE table_schema = ? AND table_name = 'activitys' AND index_name = 'idx_activitys_dedup_key'`,
+    [databaseName]
+  );
+  if (!dedupIndexes.length) {
+    await pool.query('ALTER TABLE activitys ADD INDEX idx_activitys_dedup_key (dedup_key, is_hidden)');
   }
 
   await pool.query(`CREATE TABLE IF NOT EXISTS crawler_runs (
@@ -94,6 +108,69 @@ const ensureCrawlerSchema = async (pool) => {
     INDEX idx_crawler_errors_run (run_id),
     INDEX idx_crawler_errors_created (created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  await pool.query(`UPDATE activitys
+    SET main_image_url = NULL
+    WHERE source_name = '씽굿'
+      AND main_image_url LIKE '%/common/display.do?filepath=&filename=&filegubun=poster%'`);
+
+  await backfillActivityDedupKeys(pool);
+  await deduplicateActivities(pool);
+};
+
+const backfillActivityDedupKeys = async (pool) => {
+  const placeholders = CRAWLER_SOURCES.map(() => '?').join(', ');
+  const [activities] = await pool.query(
+    `SELECT activity_id, title, organizer, application_period_start, application_period_end, official_url, dedup_key
+     FROM activitys
+     WHERE source_name IN (${placeholders})`,
+    CRAWLER_SOURCES
+  );
+  for (const activity of activities) {
+    const dedupKey = buildActivityDedupKey(activity);
+    if (dedupKey && dedupKey !== activity.dedup_key) {
+      await pool.execute('UPDATE activitys SET dedup_key = ? WHERE activity_id = ?', [dedupKey, activity.activity_id]);
+    }
+  }
+};
+
+const deduplicateActivityGroup = async (connection, dedupKey) => {
+  if (!dedupKey) return 0;
+  const placeholders = CRAWLER_SOURCES.map(() => '?').join(', ');
+  const [activities] = await connection.query(
+    `SELECT activity_id, is_hidden, details, main_image_url, official_url, organizer,
+            target_audience, application_period_end, contact
+     FROM activitys
+     WHERE dedup_key = ? AND source_name IN (${placeholders})
+     FOR UPDATE`,
+    [dedupKey, ...CRAWLER_SOURCES]
+  );
+  const visibleActivities = activities.filter((activity) => Number(activity.is_hidden) === 0);
+  if (visibleActivities.length <= 1) return 0;
+
+  const canonical = chooseCanonicalActivity(visibleActivities);
+  const duplicates = visibleActivities.filter((activity) => activity.activity_id !== canonical.activity_id);
+  if (!duplicates.length) return 0;
+  await connection.query(
+    `UPDATE activitys SET is_hidden = 1 WHERE activity_id IN (${duplicates.map(() => '?').join(', ')})`,
+    duplicates.map((activity) => activity.activity_id)
+  );
+  return duplicates.length;
+};
+
+const deduplicateActivities = async (pool) => {
+  const placeholders = CRAWLER_SOURCES.map(() => '?').join(', ');
+  const [groups] = await pool.query(
+    `SELECT dedup_key
+     FROM activitys
+     WHERE dedup_key IS NOT NULL AND source_name IN (${placeholders})
+     GROUP BY dedup_key
+     HAVING SUM(is_hidden = 0) > 1`,
+    CRAWLER_SOURCES
+  );
+  let hidden = 0;
+  for (const group of groups) hidden += await deduplicateActivityGroup(pool, group.dedup_key);
+  return hidden;
 };
 
 const startRun = async (pool, sourceName) => {
@@ -150,14 +227,15 @@ const saveActivity = async (pool, runId, activity, rawHtml) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+    const dedupKey = buildActivityDedupKey(activity);
     const [activityResult] = await connection.execute(
       `INSERT INTO activitys (
         title, target_audience, organizer, location,
         operation_period_start, operation_period_end,
         application_period_start, application_period_end,
         points, prize_details, contact, details, category, topic_category, main_image_url,
-        source_name, source_item_id, source_url, official_url, source_categories, last_crawled_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        source_name, source_item_id, source_url, official_url, source_categories, last_crawled_at, dedup_key
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
       ON DUPLICATE KEY UPDATE
         activity_id = LAST_INSERT_ID(activity_id),
         title = VALUES(title),
@@ -177,6 +255,7 @@ const saveActivity = async (pool, runId, activity, rawHtml) => {
         source_url = VALUES(source_url),
         official_url = COALESCE(VALUES(official_url), official_url),
         source_categories = VALUES(source_categories),
+        dedup_key = VALUES(dedup_key),
         last_crawled_at = CURRENT_TIMESTAMP,
         updated_at = CURRENT_TIMESTAMP`,
       [
@@ -200,9 +279,11 @@ const saveActivity = async (pool, runId, activity, rawHtml) => {
         activity.sourceUrl,
         activity.officialUrl,
         JSON.stringify(activity.sourceCategories),
+        dedupKey,
       ]
     );
     const activityId = activityResult.insertId;
+    const duplicatesHidden = await deduplicateActivityGroup(connection, dedupKey);
     const normalizedJson = JSON.stringify(activity);
     const contentHash = crypto.createHash('sha256').update(normalizedJson).digest('hex');
     const [rawResult] = await connection.execute(
@@ -231,6 +312,7 @@ const saveActivity = async (pool, runId, activity, rawHtml) => {
       activityId,
       activityCreated: activityResult.affectedRows === 1,
       snapshotCreated: rawResult.affectedRows === 1,
+      duplicatesHidden,
     };
   } catch (error) {
     await connection.rollback();
@@ -243,6 +325,8 @@ const saveActivity = async (pool, runId, activity, rawHtml) => {
 module.exports = {
   acquireCrawlerLock,
   createPool,
+  deduplicateActivities,
+  deduplicateActivityGroup,
   ensureCrawlerSchema,
   finishRun,
   releaseCrawlerLock,
