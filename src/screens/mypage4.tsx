@@ -356,8 +356,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: '#7c4dff',
   },
   reviewHeader: {
     flexDirection: 'row',

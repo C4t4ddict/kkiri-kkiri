@@ -3935,7 +3935,7 @@ app.get('/teams/:teamId/daily-todos', (req, res) => {
         SELECT 1 FROM team_members tm
         WHERE tm.team_id = td.team_id AND tm.user_id = ?
       )
-    ORDER BY FIELD(td.status, '진행중', '미진행', '완료'), td.updated_at DESC, td.todo_id DESC
+    ORDER BY td.todo_id ASC
     LIMIT 100
   `;
 
@@ -4091,7 +4091,7 @@ app.get('/teams/:teamId/todos', (req, res) => {
       AND td.scope_type = ?
       AND td.scope_start_date <= ?
       AND td.scope_end_date >= ?
-    ORDER BY td.updated_at DESC, td.todo_id DESC
+    ORDER BY td.todo_id ASC
   `;
 
   db.query(exactSql, [teamId, userId, assignedUserId, scope_type, end, start], (err, results) => {
@@ -4100,8 +4100,8 @@ app.get('/teams/:teamId/todos', (req, res) => {
       return res.status(500).json({ message: '서버 오류' });
     }
 
-    if ((results || []).length > 0) {
-      return res.json(results.map(todo => normalizeTodo(todo)));
+    if ((results || []).length > 0 || req.query.exact_period === '1') {
+      return res.json((results || []).map(todo => normalizeTodo(todo)));
     }
 
     const fallbackSql = `
@@ -4112,7 +4112,7 @@ app.get('/teams/:teamId/todos', (req, res) => {
         AND requester.user_id = ?
         AND td.assigned_user_id = ?
         AND td.scope_type = '전체'
-      ORDER BY td.updated_at DESC, td.todo_id DESC
+      ORDER BY td.todo_id ASC
       LIMIT 30
     `;
 
@@ -4205,7 +4205,7 @@ app.get('/todos/:teamId', (req, res) => {
       AND scope_type = ?
       AND scope_start_date <= ?
       AND scope_end_date >= ?
-    ORDER BY updated_at DESC, todo_id DESC
+    ORDER BY todo_id ASC
   `;
 
   db.query(exactSql, [teamId, userId, scope_type, end, start], (err, results) => {
@@ -4214,8 +4214,8 @@ app.get('/todos/:teamId', (req, res) => {
       return res.status(500).json({ message: '서버 오류' });
     }
 
-    if ((results || []).length > 0) {
-      return res.json(results.map(todo => normalizeTodo(todo)));
+    if ((results || []).length > 0 || req.query.exact_period === '1') {
+      return res.json((results || []).map(todo => normalizeTodo(todo)));
     }
 
     const fallbackSql = `
@@ -4224,7 +4224,7 @@ app.get('/todos/:teamId', (req, res) => {
       WHERE team_id = ?
         AND assigned_user_id = ?
         AND scope_type = '전체'
-      ORDER BY updated_at DESC, todo_id DESC
+      ORDER BY todo_id ASC
       LIMIT 30
     `;
 

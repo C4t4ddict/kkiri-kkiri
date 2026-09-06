@@ -1,0 +1,152 @@
+/* Activity and matching: compact, readable work surfaces. */
+.activity-workspace-page { max-width: 1120px; margin-inline: auto; }
+.activity-workspace-page .page-title h1, .matching-page .page-title h1 { font-size: 30px; letter-spacing: -1px; }
+.activity-workspace-page .active-activity-picker { padding: 14px 18px; border-color: var(--border); border-radius: 12px; background: #fff; }
+.activity-workspace-page .active-activity-picker-label > span { display: none; }
+.activity-workspace-page .active-activity-picker-label small { display: none; }
+.activity-workspace-page .active-activity-picker select { border-color: var(--border); border-radius: 8px; }
+.activity-workspace-page .activity-category-tabs { margin-block: 14px; }
+.activity-workspace-page .activity-category-tabs button { min-height: 34px; border-radius: 8px; font-size: 14px; font-weight: 600; }
+.activity-workspace-page .workspace-layout { grid-template-columns: minmax(0, 1fr); }
+.activity-workspace-page .workspace-hero { padding: 20px 24px; border-radius: 12px; }
+.activity-workspace-page .workspace-title-row { align-items: center; }
+.activity-workspace-page .workspace-title-row h2 { font-size: 22px; font-weight: 700; }
+.activity-workspace-page .source-pill { padding: 0; color: #697080; background: transparent; font-size: 12px; font-weight: 600; }
+.activity-workspace-page .workspace-people > span { display: none; }
+.activity-workspace-page .workspace-manage-row { margin-top: 16px; padding: 0; background: transparent; }
+.activity-workspace-page .workspace-manage-row > span { display: none; }
+.activity-workspace-page .workspace-manage-row > div { flex-wrap: wrap; gap: 14px; }
+.activity-workspace-page .workspace-manage-row a { font-weight: 600; font-size: 14px; }
+.workspace-progress-summary { display: flex; align-items: center; gap: 20px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.workspace-progress-summary strong { font-size: 22px; font-weight: 700; }
+.workspace-progress-summary strong span { color: #727987; font-size: 14px; font-weight: 500; }
+.workspace-progress-summary small { display: block; margin-top: 3px; color: #727987; font-size: 12px; }
+.workspace-progress-summary p { margin: 0; color: #656d7a; font-size: 13px; }
+.workspace-progress-summary p span { margin-inline: 8px; }
+.workspace-completion-track { flex: 1; max-width: 330px; height: 5px; overflow: hidden; border-radius: 3px; background: #eeedf2; }
+.workspace-completion-track > span { display: block; height: 100%; background: var(--primary); }
+.activity-workspace-page .selected-team-panel { border-radius: 12px; }
+.activity-tool-customizer { padding: 16px 0 8px; border: 0; border-radius: 0; background: transparent; }
+.activity-tool-customizer strong { font-size: 18px; font-weight: 700; }
+.activity-tool-customizer .activity-tool-edit-toggle { border-color: var(--border); border-radius: 8px; color: #475467; background: #fff; font-weight: 600; }
+.activity-tool-index { display: flex; flex-wrap: wrap; gap: 6px 20px; padding: 6px 0 12px; }
+.activity-tool-index a { padding-block: 4px; color: #626a78; font-size: 14px; }
+.activity-tool-index a:hover { color: var(--primary-dark); text-decoration: underline; text-underline-offset: 4px; }
+.activity-tool-grid { grid-auto-flow: row; }
+.activity-tool-grid > .activity-tool-card { padding: 20px; border-radius: 12px; box-shadow: none; scroll-margin-top: 90px; }
+.activity-tool-content > .dashboard-section-head { flex-shrink: 0; align-items: flex-start; gap: 10px; min-height: 38px; padding-bottom: 12px; border-bottom: 1px solid #eeedf1; }
+.activity-tool-content .dashboard-section-head h3 { margin: 0; color: #252b35; font-size: 18px; font-weight: 700; letter-spacing: -.4px; }
+.activity-tool-content .dashboard-section-head p { margin: 5px 0 0; color: #79808d; font-size: 12px; font-weight: 400; }
+.activity-tool-content .dashboard-section-head > span { color: #79808d; font-size: 12px; }
+.activity-tool-content .dashboard-section-head > a { color: #697080; font-size: 12px; font-weight: 500; }
+.goal-scope-tabs { gap: 10px; padding: 0; border-radius: 0; background: transparent; }
+.goal-scope-tabs button { min-height: 30px; padding: 0 2px 6px; border-radius: 0; border-bottom: 2px solid transparent; background: transparent; font-size: 14px; font-weight: 500; }
+.goal-scope-tabs button.active { border-color: var(--primary); background: transparent; color: var(--primary-dark); box-shadow: none; font-weight: 700; }
+.goal-date-navigation { display: flex; align-items: center; gap: 5px; margin-top: 14px; }
+.goal-date-navigation button { flex-shrink: 0; width: 34px; min-height: 34px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 6px; color: #626a78; background: #fff; }
+.goal-date-navigation svg { width: 16px; height: 16px; }
+.goal-date-navigation label { min-width: 0; }
+.goal-date-navigation input { width: 156px; max-width: 100%; min-height: 34px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; color: #252b35; background: #fff; font-family: inherit; font-size: 14px; }
+.goal-date-navigation .goal-today { width: auto; padding-inline: 10px; margin-left: auto; font-size: 12px; }
+.goal-period-summary { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; color: #79808d; font-size: 12px; }
+.quick-goal-form { margin-top: 12px; padding: 6px 7px 6px 10px; border-radius: 7px; grid-template-columns: 18px minmax(0, 1fr) 44px; }
+.quick-goal-form input { min-width: 0; font-family: inherit; font-size: 14px; }
+.quick-goal-form button { border-radius: 5px; font-size: 12px; font-weight: 600; }
+.goal-list { gap: 2px; margin-top: 12px; align-content: start; scrollbar-gutter: stable; }
+.goal-row { grid-template-columns: 20px minmax(0, 1fr) 50px; gap: 12px; min-height: 48px; padding: 10px 9px; border: 1px solid transparent; border-radius: 6px; background: #fff; }
+.goal-row:hover { border-color: #e9e7ed; background: #f9f9fa; }
+.goal-row > div { min-width: 0; }
+.goal-row strong { overflow-wrap: anywhere; font-size: 15px; line-height: 1.65; font-weight: 500; }
+.goal-row > .goal-checkbox { width: 18px; height: 18px; border: 1.5px solid #b7bdc6; border-radius: 4px; background: transparent; color: #9299a4; }
+.goal-row > .goal-checkbox svg { width: 13px; height: 13px; }
+.goal-row.진행중 { background: #f5f2ff; }
+.goal-row.진행중 strong { display: inline; color: #49318b; background: #ece5ff; font-weight: 600; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.goal-row.진행중 > .goal-checkbox { border-color: #a18cda; color: #7657b6; background: transparent; }
+.goal-row.진행중 em { color: #7657b6; }
+.goal-row.완료 { color: #9399a3; background: #f8f8f9; }
+.goal-row.완료 strong { color: #9399a3; text-decoration: line-through; text-decoration-thickness: 1px; }
+.goal-row.완료 > .goal-checkbox { border-color: #c5c9cf; color: #9399a3; background: #eceef1; }
+.goal-row em { color: #89919d; font-size: 12px; font-weight: 400; white-space: nowrap; }
+.goal-row:disabled { cursor: wait; }
+.goal-state-hint { margin: auto 0 0; padding-top: 10px; color: #8a909b; font-size: 11px; }
+.goal-error { color: #b42318; font-size: 13px; }
+.goal-error button { margin-left: 8px; border: 0; padding: 4px; color: inherit; background: transparent; text-decoration: underline; }
+.activity-heatmap-card .dashboard-section-head { justify-content: center; text-align: center; }
+.activity-heatmap-weekdays, .activity-heatmap-grid { width: min(100%, 302px); grid-template-columns: repeat(7, minmax(0, 1fr)); justify-content: center; margin-inline: auto; gap: 5px; }
+.activity-heatmap-weekdays { margin-top: 24px; font-weight: 500; }
+.activity-heatmap-grid > span { border-radius: 4px; }
+.activity-heatmap-grid > span em { font-size: 11px; font-weight: 500; }
+.activity-heatmap-legend { justify-content: center; margin: 14px auto 0; }
+.activity-tool-content .activity-deadline-summary { display: flex; flex-shrink: 0; justify-content: space-between; align-items: center; gap: 12px; margin-top: 14px; padding: 0 0 14px; border-bottom: 1px solid #eeedf1; border-radius: 0; background: transparent; }
+.activity-deadline-summary > div { min-width: 0; }
+.activity-deadline-summary > div small { margin: 0 0 5px; color: #79808d; font-size: 12px; }
+.activity-deadline-summary > div strong { color: #303743; font-size: 18px; font-weight: 600; }
+.activity-tool-content .activity-deadline-summary > span { min-height: auto; padding: 5px 9px; border-radius: 5px; color: #636b78; background: #f0f1f3; font-size: 14px; font-weight: 600; }
+.activity-tool-content .activity-deadline-summary.overdue > span { color: #b42318; background: #fef3f2; }
+.next-goals-heading { margin: 14px 0 2px; color: #636b78; font-size: 12px; font-weight: 500; }
+.activity-next-goals { margin-top: 0; gap: 0; }
+.next-goal-item { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; align-items: start; padding: 11px 0; border-bottom: 1px solid #f0eff2; }
+.next-goal-item:last-child { border-bottom: 0; }
+.next-goal-item time { padding-top: 2px; color: #727987; font-size: 13px; }
+.next-goal-item strong { display: block; overflow-wrap: anywhere; color: #303743; font-size: 14px; font-weight: 500; line-height: 1.5; }
+.next-goal-item small { display: block; margin-top: 3px; color: #8a909b; font-size: 12px; }
+.activity-workspace-page .notice-quick-form { margin-top: 12px; }
+.activity-workspace-page .notice-quick-form input, .activity-workspace-page .notice-quick-form textarea { border-radius: 7px; font-family: inherit; }
+.activity-workspace-page .notice-quick-form button { border-radius: 5px; font-size: 12px; font-weight: 600; }
+.activity-workspace-page .week-bars { margin-top: 18px; }
+.activity-workspace-page .week-bar-track { background: #f3f3f5; border-radius: 5px; }
+.activity-workspace-page .week-bar-track > span { background: #a59bc7; border-radius: 3px; }
+.activity-workspace-page .week-bars .today .week-bar-track > span { background: var(--primary); }
+.activity-workspace-page .activity-tool-shortcuts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.activity-workspace-page .activity-tool-shortcuts > a { padding: 10px 0; border: 0; border-radius: 0; background: transparent; }
+.activity-workspace-page .activity-tool-shortcuts > a > span { color: #697080; background: transparent; }
+.activity-workspace-page .activity-tool-shortcuts strong { font-weight: 600; }
+.activity-workspace-page .activity-tool-state { color: #727987; background: transparent; font-size: 14px; }
+.activity-workspace-page .activity-recent-document-list > a { padding-inline: 0; border: 0; border-radius: 0; background: transparent; }
+.activity-workspace-page .activity-recent-document-list > a > span { color: #727987; background: transparent; }
+.matching-page { width: 100%; max-width: 1040px; margin-inline: auto; }
+.matching-page .title-actions { gap: 20px; }
+.matching-page .title-actions .button-row { flex-shrink: 0; }
+.matching-page .matching-explorer { padding: 18px 20px; border-radius: 12px; }
+.matching-page .matching-explorer h2 { font-size: 15px; font-weight: 600; }
+.matching-page .matching-explorer > header > button { border: 0; min-height: 30px; padding: 0; font-size: 12px; font-weight: 500; }
+.matching-page .matching-search { margin-top: 12px; border-radius: 7px; }
+.matching-page .matching-filter-grid label { font-weight: 500; }
+.matching-page .matching-filter-grid select { border-radius: 7px; }
+.matching-page .matching-result-count { margin: 22px 0 12px; padding: 0; border: 0; }
+.matching-page .matching-result-count strong { color: #303743; font-size: 15px; font-weight: 600; }
+.matching-page .matching-card-grid { gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.matching-page .matching-recruitment-card { padding: 22px; border-radius: 12px; transition: border-color .15s ease; }
+.matching-page .matching-recruitment-card:hover { transform: none; border-color: #b7adcd; box-shadow: none; }
+.matching-page .matching-recruitment-card .card-tags > span { padding: 0; color: #79688f; background: transparent; border-radius: 0; font-size: 12px; font-weight: 600; }
+.matching-page .matching-recruitment-card > header em { padding: 0; color: #7e8692; background: transparent; font-size: 12px; font-weight: 400; }
+.matching-page .matching-recruitment-card h3 { margin-top: 12px; font-size: 19px; font-weight: 700; line-height: 1.55; overflow-wrap: anywhere; }
+.matching-page .matching-recruitment-card > p { display: -webkit-box; min-height: 42px; white-space: normal; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 13px; line-height: 1.65; }
+.matching-page .matching-recruitment-card dl { grid-template-columns: 1fr 1fr; gap: 10px 20px; margin: 18px 0; padding: 16px 0; border-block: 1px solid #f0eff2; }
+.matching-page .matching-recruitment-card dl > div { padding: 0; border-radius: 0; background: transparent; }
+.matching-page .matching-recruitment-card dl .matching-period { grid-column: 1 / -1; }
+.matching-page .matching-recruitment-card dt { color: #8a909b; font-size: 12px; font-weight: 400; }
+.matching-page .matching-recruitment-card dd { white-space: normal; overflow-wrap: anywhere; color: #47505e; font-size: 14px; font-weight: 500; }
+.matching-page .matching-recruitment-card > footer { padding-top: 0; }
+.matching-page .matching-recruitment-card > footer strong { color: #697080; font-weight: 500; }
+.activity-workspace-page :is(button, a, input, select, textarea):focus-visible, .matching-page :is(button, a, input, select):focus-visible { outline: 2px solid #8b79bd; outline-offset: 3px; }
+
+@media (max-width: 1100px) and (min-width: 721px) {
+  .activity-tool-grid > .activity-tool-card { grid-column: 1 / -1; }
+}
+@media (max-width: 720px) {
+  .activity-workspace-page .workspace-hero { padding: 16px; }
+  .activity-workspace-page .workspace-title-row h2 { font-size: 19px; }
+  .workspace-progress-summary { flex-wrap: wrap; gap: 12px; }
+  .workspace-completion-track { max-width: none; min-width: 70px; }
+  .workspace-progress-summary p { flex-basis: 100%; }
+  .activity-tool-grid > .activity-tool-card { min-height: 0; padding: 18px 16px; scroll-margin-top: 80px; }
+  .activity-workspace-page .activity-tool-content > .goal-list { max-height: 360px; }
+  .activity-workspace-page .activity-tool-content > .notice-list-web { max-height: 260px; }
+  .goal-state-hint { margin-top: 10px; }
+  .activity-tool-index { gap: 4px 16px; }
+  .activity-workspace-page .activity-tool-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .matching-page .matching-card-grid { grid-template-columns: minmax(0, 1fr); }
+  .matching-page .matching-recruitment-card { padding: 20px; }
+  .matching-page .matching-recruitment-card > footer { flex-direction: row; }
+}
