@@ -893,11 +893,13 @@ app.get('/api/db-health', async (req, res) => {
       && Number(teamStats.orphan_memberships || 0) === 0
       && crawler?.status === 'completed'
       && Number(crawler?.error_count || 0) === 0;
-    const healthy = schemaOk && dataOk;
+    const available = schemaOk;
     db.state = 'connected';
-    res.status(healthy ? 200 : 503).json({
-      status: healthy ? 'ok' : 'degraded',
-      message: healthy ? '데이터베이스 연결·스키마·수집 데이터 품질을 확인했습니다' : '데이터베이스 검증 항목을 확인해주세요',
+    res.status(available ? 200 : 503).json({
+      status: available ? 'ok' : 'degraded',
+      message: dataOk
+        ? '데이터베이스 연결·스키마·수집 데이터 품질을 확인했습니다'
+        : '데이터베이스 연결과 스키마는 정상이며 일부 수집 데이터 품질을 확인해주세요',
       database: connection.database_name,
       port: Number(connection.port),
       account: connection.account,
