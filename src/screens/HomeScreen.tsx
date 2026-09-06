@@ -9,6 +9,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import AppHeader from '../components/AppHeader';
 import NotificationBell from '../components/NotificationBell';
 import AppRefreshControl from '../components/AppRefreshControl';
+import { useAuth } from '../context/AuthContext';
 import ScreenState from '../components/ScreenState';
 import { getActivityCategory, getVisibleActivityCategories } from '../constants/activityCategories';
 
@@ -27,11 +28,16 @@ type Activity = {
   open_recruitment_count?: number;
 };
 
+type ActivityPageResponse = {
+  items: Activity[];
+};
+
 const BASE_URL =
   Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 
 export default function HomeScreen() {
   const navigation = useNavigation();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -39,15 +45,17 @@ export default function HomeScreen() {
 
   const fetchActivities = useCallback(async (showError = true) => {
     try {
-      const res = await axios.get<Activity[]>(`${BASE_URL}/api/activities`);
-      setActivities(Array.isArray(res.data) ? res.data : []);
+      const res = await axios.get<ActivityPageResponse>(`${BASE_URL}/api/activities/open?page=1&limit=100`, {
+        headers: user?.id ? { 'x-user-id': String(user.id) } : undefined,
+      });
+      setActivities(Array.isArray(res.data?.items) ? res.data.items : []);
       setError(false);
     } catch (requestError) {
       console.warn('홈 활동 불러오기 오류:', requestError);
       setError(true);
       if (showError) Alert.alert('오류', '활동 목록을 불러오지 못했습니다.');
     }
-  }, []);
+  }, [user?.id]);
 
   useFocusEffect(
     useCallback(() => {

@@ -12,6 +12,22 @@ This is a new [**React Native**](https://reactnative.dev) project, bootstrapped 
 
 ## React 웹 실행
 
+### Windows 로컬 DB 최초 설정
+
+기존 PC의 MySQL과 충돌하지 않도록 개발용 인스턴스를 `127.0.0.1:3307`에 별도로 실행합니다. 데이터는 `%LOCALAPPDATA%\kkiri-kkiri\mysql-data`에 저장됩니다.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-local-mysql.ps1
+npm --prefix server run db:bootstrap
+npm --prefix server run seed:curricula
+```
+
+`server/.env`는 `server/.env.example`을 복사해 준비하고, 로컬 인스턴스를 사용할 때는 `DB_HOST=127.0.0.1`, `DB_PORT=3307`, `DB_NAME=kkiri_local`, `DB_USER=kkiri_app`으로 설정합니다. `db:bootstrap`은 관리자 계정과 앱 계정을 분리하고 반복 실행해도 같은 예시 데이터를 갱신합니다.
+
+개발용 로그인 계정은 `test@test.com` / `test123`입니다.
+
+### API와 웹 실행
+
 API 서버를 먼저 실행합니다.
 
 ```sh
@@ -32,9 +48,25 @@ npm run web
 VITE_API_BASE_URL=https://api.example.com npm run web:build
 ```
 
-웹에는 홈, 정보, 매칭, 활동, 마이페이지와 함께 지원서 템플릿 관리 및 지원 상태 타임라인 화면이 포함됩니다. 모바일 폭에서는 하단 내비게이션, 넓은 화면에서는 좌측 사이드바로 전환됩니다.
+웹에는 홈, 정보, 기업 커리큘럼, 매칭, 활동, 마이페이지와 함께 지원서 템플릿 관리 및 지원 상태 타임라인 화면이 포함됩니다. 모바일 폭에서는 하단 내비게이션, 넓은 화면에서는 좌측 사이드바로 전환됩니다.
 
 웹의 기능 중심 디렉터리 구조와 의존 규칙은 `web/README.md`를 참고합니다.
+
+## 기업 커리큘럼
+
+- 기업은 운영자 웹의 `커리큘럼 스튜디오`에서 기간, 월간·주간·일일 목표, 예상 학습시간을 구성합니다.
+- 사용자는 앱 또는 웹에서 시작일과 학습 요일을 선택하고, 커리큘럼을 개인 활동이나 팀 활동으로 추가합니다.
+- 추가된 목표는 기존 공모전 활동과 동일하게 활동 탭의 월간·주간·일일 일정과 달성률에 반영됩니다.
+- 팀 활동은 모집글을 함께 만들 수 있으며, 새 팀원이 합류하면 공통 목표가 자동으로 배정됩니다.
+- 커리큘럼은 버전별로 보존되어 기업이 내용을 개정해도 이미 시작한 사용자의 일정은 바뀌지 않습니다.
+
+개발용 가상 기업 커리큘럼 3개는 다음 명령으로 추가합니다.
+
+```sh
+npm --prefix server run seed:curricula
+```
+
+주요 API는 `GET /api/curricula`, `GET /api/curricula/:id`, `POST /api/curricula/:id/preview`, `POST /api/curricula/:id/enroll`, `POST /api/admin/curricula`입니다.
 
 ## 지원서 관리
 
@@ -54,6 +86,13 @@ VITE_API_BASE_URL=https://api.example.com npm run web:build
 - `ACTIVITY_CACHE_TTL_MS`: 활동 목록 캐시 유지 시간
 - `LOG_LEVEL`: 운영은 `info`, 상세 진단은 일시적으로 `debug` 권장
 - `ADMIN_EMAILS`: 쉼표로 구분한 운영자 이메일. 서버 시작 시 해당 계정에 운영 권한을 부여
+
+## 이메일·학교 인증과 매칭 범위
+
+- 회원가입과 비밀번호 재설정은 10분 동안 유효한 6자리 이메일 인증 코드를 사용합니다.
+- 운영 환경에서는 `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`을 설정해야 합니다. 개발 환경에서 SMTP가 없으면 서버 로그와 API의 `development_code`로 코드를 확인할 수 있습니다.
+- `SCHOOL_EMAIL_DOMAINS`에는 허용할 학교 이메일 도메인을 쉼표로 등록합니다. 기존 학교 계정의 `.ac.kr` 도메인도 서버 시작 시 등록 목록으로 이관됩니다.
+- 인증된 학교 계정은 `본교`와 `전국` 모집을 이용할 수 있고, 일반 계정은 `전국` 모집만 조회·작성·지원할 수 있습니다. 이 제한은 앱 화면뿐 아니라 API에서도 검증합니다.
 
 크롤러 운영 방법과 수집 이력 테이블은 `server/crawler/README.md`를 참고합니다.
 

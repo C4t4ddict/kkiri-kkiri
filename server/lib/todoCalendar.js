@@ -22,6 +22,20 @@ const addDay = (dateKey) => {
   return formatDateKey(date);
 };
 
+const findPeriodGoalCapacityConflict = (dates = [], ranges = [], maximumActiveGoals = 3) => {
+  for (const date of dates) {
+    const activeCount = ranges.filter((range) =>
+      Number(range.incomplete_count ?? 1) > 0
+      && date >= formatDateKey(range.start_date)
+      && date <= formatDateKey(range.end_date)
+    ).length;
+    if (activeCount >= maximumActiveGoals) {
+      return { date, active_count: activeCount };
+    }
+  }
+  return null;
+};
+
 const buildMonthTodoCalendar = (year, month, rows = []) => {
   const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
   const monthEnd = formatDateKey(new Date(year, month, 0));
@@ -109,4 +123,4 @@ const buildMonthTodoCalendar = (year, month, rows = []) => {
   };
 };
 
-module.exports = { buildMonthTodoCalendar, formatDateKey };
+module.exports = { buildMonthTodoCalendar, findPeriodGoalCapacityConflict, formatDateKey };

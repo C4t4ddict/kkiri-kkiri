@@ -104,15 +104,19 @@ const ActivityDetailScreen = () => {
   const fetchActivityDetail = useCallback(async () => {
     try {
       const [activityResponse, recruitmentResponse] = await Promise.all([
-        axios.get(`${BASE_URL}/api/activities/${id}`),
-        axios.get(`${BASE_URL}/api/activities/${id}/recruitments`),
+        axios.get(`${BASE_URL}/api/activities/${id}`, {
+          headers: user?.id ? { 'x-user-id': String(user.id) } : undefined,
+        }),
+        axios.get(`${BASE_URL}/api/activities/${id}/recruitments`, {
+          headers: user?.id ? { 'x-user-id': String(user.id) } : undefined,
+        }),
       ]);
       setActivity(activityResponse.data);
       setRecruitments(Array.isArray(recruitmentResponse.data) ? recruitmentResponse.data : []);
     } catch (error) {
       console.warn('활동 상세 조회 오류:', error);
     }
-  }, [id]);
+  }, [id, user?.id]);
 
   useFocusEffect(
     useCallback(() => {

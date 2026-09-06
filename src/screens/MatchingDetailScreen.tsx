@@ -36,6 +36,7 @@ type Recruitment = {
   status?: 'OPEN' | 'CLOSED';
   memo?: string;
   created_at?: string;
+  recruitment_scope?: 'NATIONWIDE' | 'SCHOOL';
   // 자격 조건 등 필요시 추가
 };
 
@@ -86,11 +87,12 @@ const MatchingDetailScreen = () => {
 
   const fetchDetail = useCallback(async () => {
     try {
-      const r = await axios.get(`${BASE_URL}/api/team-recruitments/${route.params.id}`);
+      const authHeaders = me?.id ? { 'x-user-id': String(me.id) } : undefined;
+      const r = await axios.get(`${BASE_URL}/api/team-recruitments/${route.params.id}`, { headers: authHeaders });
       setRecruit(r.data);
 
       // 작성자 프로필
-      const u = await axios.get(`${BASE_URL}/api/user/${r.data.owner_user_id}`);
+      const u = await axios.get(`${BASE_URL}/api/user/${r.data.owner_user_id}`, { headers: authHeaders });
       setOwner(u.data.user);
 
       // 지원 목록(작성자/일반 공통으로 필요)
@@ -101,7 +103,9 @@ const MatchingDetailScreen = () => {
 
       if (me?.id && Number(r.data.owner_user_id) !== Number(me.id)) {
         try {
-          const templateResponse = await axios.get<ApplicationTemplate[]>(`${BASE_URL}/api/application-templates`);
+          const templateResponse = await axios.get<ApplicationTemplate[]>(`${BASE_URL}/api/application-templates`, {
+            headers: authHeaders,
+          });
           const templateList = Array.isArray(templateResponse.data) ? templateResponse.data : [];
           setTemplates(templateList);
           const defaultTemplate = templateList.find((template) => Boolean(template.is_default));
@@ -118,7 +122,7 @@ const MatchingDetailScreen = () => {
       const enriched = await Promise.all(
         list.map(async (ap: Application) => {
           try {
-            const ures = await axios.get(`${BASE_URL}/api/user/${ap.applicant_id}`);
+            const ures = await axios.get(`${BASE_URL}/api/user/${ap.applicant_id}`, { headers: authHeaders });
             return { ...ap, applicant: ures.data.user };
           } catch {
             return ap;
@@ -309,6 +313,9 @@ const MatchingDetailScreen = () => {
         {/* 제목 */}
         <Text style={styles.title}>{recruit.post_name}</Text>
         <Text style={styles.activityName}>{recruit.activity_name}</Text>
+        <View style={styles.scopeBadge}>
+          <Text style={styles.scopeBadgeText}>{recruit.recruitment_scope === 'SCHOOL' ? '본교 모집' : '전국 모집'}</Text>
+        </View>
 
         {/* 작성자 요약 */}
         <View style={styles.metaRow}>
@@ -498,6 +505,8 @@ const styles = StyleSheet.create({
   ownerActionDivider: { color: '#D0D5DD', fontSize: 13 },
   ownerDeleteText: { color: '#B42318', fontSize: 13, fontWeight: '700' },
   activityName: { marginTop: -6, marginBottom: 14, paddingHorizontal: 16, color: '#7A5AF8', fontSize: 14, fontWeight: '700' },
+  scopeBadge: { alignSelf: 'flex-start', marginLeft: 16, marginTop: -6, marginBottom: 14, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 11, backgroundColor: '#F4F0FF' },
+  scopeBadgeText: { color: '#6941C6', fontSize: 11, fontWeight: '800' },
   metaRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16 },
   avatar: { width: 56, height: 56, borderRadius: 28, marginRight: 12, backgroundColor: '#E5E7EB' },
   ownerName: { fontSize: 16, fontWeight: '700', color: '#101828' },

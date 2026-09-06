@@ -1,0 +1,11 @@
+{
+  "name": "KKIRI Web Design System Generator",
+  "id": "1512837465901234567",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["none"]
+  }
+}

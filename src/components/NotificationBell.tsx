@@ -52,10 +52,10 @@ export default function NotificationBell() {
 }
 
 const styles = StyleSheet.create({
-  button: { position: 'relative', width: 31, height: 31, alignItems: 'center', justifyContent: 'center' },
+  button: { position: 'relative', width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   icon: { width: 25, height: 25 },
   badge: {
-    position: 'absolute', top: -4, right: -8, minWidth: 17, height: 17, paddingHorizontal: 4,
+    position: 'absolute', top: 2, right: 1, minWidth: 17, height: 17, paddingHorizontal: 4,
     borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary,
   },
   badgeText: { color: '#FFFFFF', fontSize: 9, fontWeight: '800', lineHeight: 12 },

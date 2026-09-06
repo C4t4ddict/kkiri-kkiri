@@ -44,6 +44,7 @@ type Recruitment = {
   memo?: string;
   status?: string;
   created_at?: string;
+  recruitment_scope?: 'NATIONWIDE' | 'SCHOOL';
 };
 
 type Application = {
@@ -78,7 +79,9 @@ const MatchingScreen = () => {
         })
         : Promise.resolve({ data: [] });
       const [recruitmentResult, applicationResult] = await Promise.allSettled([
-        axios.get(`${BASE_URL}/api/team-recruitments`),          // 또는 with-count
+        axios.get(`${BASE_URL}/api/team-recruitments`, {
+          headers: user?.id ? { 'x-user-id': String(user.id) } : undefined,
+        }),
         applicationRequest,
       ]);
       if (recruitmentResult.status === 'rejected') throw recruitmentResult.reason;
@@ -252,6 +255,10 @@ const MatchingScreen = () => {
                 {r.post_name}
               </Text>
 
+              <View style={styles.scopeBadge}>
+                <Text style={styles.scopeBadgeText}>{r.recruitment_scope === 'SCHOOL' ? '본교' : '전국'}</Text>
+              </View>
+
               <Text style={styles.itemSub} numberOfLines={1}>
                 {getActivityCategory({
                   category: r.activity_category || r.activity_type,
@@ -304,6 +311,8 @@ const styles = StyleSheet.create({
     color: '#101828',
     flex: 1,
   },
+  scopeBadge: { alignSelf: 'flex-start', marginTop: 7, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, backgroundColor: '#F4F0FF' },
+  scopeBadgeText: { color: '#6941C6', fontSize: 10, fontWeight: '800' },
   filterSection: {
     marginBottom: 8,
   },

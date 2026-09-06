@@ -1,0 +1,36 @@
+name: PR 메타데이터 검증
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  convention:
+    name: 제목 및 본문 형식
+    runs-on: ubuntu-latest
+    steps:
+      - name: PR 제목과 본문 검증
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pullRequest = context.payload.pull_request;
+            const titlePattern = /^(feat|fix|security|refactor|test|docs|style|perf|build|ci|chore)\([a-z0-9-]+\):\s.+$/;
+            const errors = [];
+
+            if (!titlePattern.test(pullRequest.title)) {
+              errors.push('PR 제목은 `type(scope): 한글 작업 요약` 형식을 사용해야 합니다.');
+            }
+
+            const requiredSections = ['## 변경 내용', '## 수정 파일', '## 검증', '## 연결 이슈'];
+            for (const section of requiredSections) {
+              if (!pullRequest.body?.includes(section)) {
+                errors.push(`PR 본문에 \`${section}\` 항목이 필요합니다.`);
+              }
+            }
+
+            if (errors.length > 0) {
+              core.setFailed(errors.join('\n'));
+            }

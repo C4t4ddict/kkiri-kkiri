@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildMonthTodoCalendar } = require('../todoCalendar');
+const { buildMonthTodoCalendar, findPeriodGoalCapacityConflict } = require('../todoCalendar');
 
 test('일별 할 일 개수와 목록을 월 달력으로 구성한다', () => {
   const calendar = buildMonthTodoCalendar(2026, 7, [
@@ -70,4 +70,31 @@ test('기간 목표를 하나의 시작일과 종료일 구간으로 묶는다',
       완료: 1,
     },
   }]);
+});
+
+test('같은 날짜에 미완료 기간 목표가 3개면 추가를 차단한다', () => {
+  const conflict = findPeriodGoalCapacityConflict(
+    ['2026-07-20', '2026-07-21', '2026-07-22'],
+    [
+      { start_date: '2026-07-19', end_date: '2026-07-21', incomplete_count: 2 },
+      { start_date: '2026-07-20', end_date: '2026-07-23', incomplete_count: 4 },
+      { start_date: '2026-07-21', end_date: '2026-07-24', incomplete_count: 1 },
+      { start_date: '2026-08-01', end_date: '2026-08-03', incomplete_count: 3 },
+    ],
+  );
+
+  assert.deepEqual(conflict, { date: '2026-07-21', active_count: 3 });
+});
+
+test('완료된 기간 목표는 새 목표의 자리를 차지하지 않는다', () => {
+  const conflict = findPeriodGoalCapacityConflict(
+    ['2026-07-21'],
+    [
+      { start_date: '2026-07-20', end_date: '2026-07-22', incomplete_count: 2 },
+      { start_date: '2026-07-20', end_date: '2026-07-22', incomplete_count: 1 },
+      { start_date: '2026-07-20', end_date: '2026-07-22', incomplete_count: 0 },
+    ],
+  );
+
+  assert.equal(conflict, null);
 });

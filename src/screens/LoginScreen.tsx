@@ -88,7 +88,9 @@ export default function LoginScreen() {
         <Text style={styles.buttonText}>로그인</Text>
       </TouchableOpacity>
 
-      <Text style={styles.link}>비밀번호를 잊으셨나요?</Text>
+      <Text style={styles.link} onPress={() => navigation.navigate('ForgotPassword')}>
+        비밀번호를 잊으셨나요?
+      </Text>
 
       <Text style={styles.signup}>
         계정이 없으신가요?{' '}
