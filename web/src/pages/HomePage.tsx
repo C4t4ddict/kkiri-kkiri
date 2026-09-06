@@ -1,5 +1,5 @@
 import { Bell, BookOpen, BriefcaseBusiness, ChevronRight, Eye, FileHeart, Heart, LogIn, Mail, Map, Search, Send, TriangleAlert, UserRound, UsersRound } from 'lucide-react';
-import { FormEvent, ReactNode, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../app/AuthContext';
 import { api } from '../shared/api/client';
@@ -10,6 +10,37 @@ import { UserAvatar } from '../shared/ui/UserAvatar';
 import { getApplicationStatusLabel } from '../features/applications/StatusPill';
 
 type Row = { id: string | number; title: string; meta?: string; badge?: string; to: string };
+
+const wordmarkPrefixes = ['끼리', '우리', '친구', '동기', '선후배', '동료', '코'] as const;
+
+function RotatingHomeWordmark() {
+  const [index, setIndex] = useState(0);
+  const [rolling, setRolling] = useState(false);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setRolling(true), 4_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!rolling) return;
+    const timeout = window.setTimeout(() => {
+      setIndex((current) => (current + 1) % wordmarkPrefixes.length);
+      setRolling(false);
+    }, 520);
+    return () => window.clearTimeout(timeout);
+  }, [rolling]);
+
+  const nextIndex = (index + 1) % wordmarkPrefixes.length;
+
+  return <Link className="home-rotating-wordmark" to="/" aria-label="끼리끼리 홈">
+    <span className={`home-wordmark-slot ${rolling ? 'rolling' : ''}`} aria-hidden="true">
+      <span className="home-wordmark-current">{wordmarkPrefixes[index]}</span>
+      <span className="home-wordmark-next">{wordmarkPrefixes[nextIndex]}</span>
+    </span>
+    <span aria-hidden="true">끼리</span>
+  </Link>;
+}
 
 const dday = (end?: string) => {
   if (!end) return '일정 확인';
@@ -47,6 +78,7 @@ export function HomePage() {
 
   return <div className="home-dashboard">
     <section className="home-search-hero">
+      <RotatingHomeWordmark />
       <form className="home-global-search" onSubmit={submitSearch}>
         <Search />
         <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="활동, 기업 커리큘럼, 팀 모집을 검색해보세요" aria-label="통합 검색어" />

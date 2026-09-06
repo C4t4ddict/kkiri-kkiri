@@ -93,7 +93,7 @@
 .markdown-preview .contains-task-list { padding-left: 3px; list-style: none; }
 .markdown-preview .task-list-item { display: flex; align-items: flex-start; gap: 7px; }
 .markdown-preview .task-list-item input { width: 16px; height: 16px; flex: 0 0 auto; margin-top: 6px; accent-color: var(--primary); }
-.markdown-preview blockquote { margin: 18px 0; padding: 9px 16px; border-left: 4px solid #a48cff; color: #5d6270; background: #faf9ff; }
+.markdown-preview blockquote { margin: 18px 0; padding: 9px 16px; border: 1px solid #e5e7eb; border-radius: 8px; color: #5d6270; background: #fafafa; }
 .markdown-preview blockquote p { margin: 0; }
 .markdown-preview code { padding: 2px 5px; border-radius: 5px; color: #6941c6; background: #f4f1ff; font: .9em/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 .markdown-preview pre { overflow-x: auto; padding: 17px; border-radius: 12px; color: #e4e7ec; background: #24212e; }

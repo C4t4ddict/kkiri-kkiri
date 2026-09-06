@@ -18,7 +18,6 @@ export function CurriculumCard({ curriculum }: { curriculum: Curriculum }) {
     to={`/curriculum/${curriculum.curriculum_id}`}
     style={{ '--brand-color': brandColor } as CSSProperties}
   >
-    <span className="curriculum-accent" />
     <div className="curriculum-company-row">
       <span className="company-monogram">{curriculum.organization_name.slice(0, 1)}</span>
       <span className="curriculum-company">
