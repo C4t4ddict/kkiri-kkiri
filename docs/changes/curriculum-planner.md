@@ -42,3 +42,9 @@
 [상세 화면](../../screenshots/2026-09-08-curriculum/detail-desktop.png) · [모바일 목록](../../screenshots/2026-09-08-curriculum/catalog-mobile.png) · [모바일 상세](../../screenshots/2026-09-08-curriculum/detail-mobile.png) · [모바일 일정 설정](../../screenshots/2026-09-08-curriculum/schedule-mobile.png) · [모바일 미리보기](../../screenshots/2026-09-08-curriculum/schedule-mobile-preview-final.png)
 
 관련 이슈: #119. 캘린더 PR #118 위에 쌓은 별도 변경이다.
+
+## 기업 아이콘 추가
+
+목록·검색 결과 카드와 상세에 공통 기업 아이콘을 추가했다. API의 `organization_logo_url`을 우선 사용하고 비율을 유지한다. 로고가 없거나 로딩에 실패하면 예시 기업은 조직 slug에 대응하는 기존 Lucide 아이콘, 일반 기업은 대표 문자를 사용한다. 같은 기업의 과정은 같은 아이콘이며 예시 아이콘은 공식 로고가 아니다. 별도 로고 수집 서비스나 DB 변경은 없다.
+
+웹 빌드와 PC·390px 모바일 표시, 8개 과정/4개 조직 아이콘 구분, 이미지 URL 표시·실패 시 대체·URL 변경 후 복구를 브라우저에서 확인했다. [목록](../../screenshots/2026-09-08-curriculum/icons-catalog-desktop.png) · [상세](../../screenshots/2026-09-08-curriculum/icons-detail-desktop.png) · [모바일](../../screenshots/2026-09-08-curriculum/icons-catalog-mobile.png). 이전 스크린샷은 보존했다.

@@ -57,6 +57,7 @@ export type Curriculum = {
   curriculum_id: number;
   organization_id: number;
   organization_name: string;
+  organization_slug?: string;
   organization_logo_url?: string;
   organization_website_url?: string;
   brand_color?: string;

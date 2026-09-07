@@ -7,6 +7,7 @@ import type { Curriculum } from '../shared/types/domain';
 import { PageState } from '../shared/ui/PageState';
 import { difficultyLabel } from '../features/curricula/CurriculumCard';
 import { CurriculumScheduleDialog } from '../features/curricula/CurriculumScheduleDialog';
+import { OrganizationIcon } from '../features/curricula/OrganizationIcon';
 import '../styles/curricula.css';
 
 export function CurriculumDetailPage() {
@@ -23,7 +24,7 @@ export function CurriculumDetailPage() {
 
   return <div className="cp-page cp-detail-page">
     <Link className="cp-back" to="/curriculum"><ArrowLeft size={16} /> 커리큘럼 목록</Link>
-    <header className="cp-detail-heading"><div className="cp-course-source"><span>{item.organization_name} · {item.role_title}</span>{item.is_example && <small>예시 과정</small>}</div><h1>{item.title}</h1><p>{item.summary}</p><div className="cp-course-facts"><span>{difficultyLabel[item.difficulty]}</span><span>{item.duration_weeks}주</span><span>주 {item.weekly_hours}시간</span><span>실행 과제 {daily.length}개</span></div></header>
+    <header className="cp-detail-heading"><div className="cp-company"><OrganizationIcon curriculum={item} /><div className="cp-course-source"><span>{item.organization_name} · {item.role_title}</span>{item.is_example && <small>예시 과정</small>}</div></div><h1>{item.title}</h1><p>{item.summary}</p><div className="cp-course-facts"><span>{difficultyLabel[item.difficulty]}</span><span>{item.duration_weeks}주</span><span>주 {item.weekly_hours}시간</span><span>실행 과제 {daily.length}개</span></div></header>
     <div className="cp-detail-layout"><div>
       <section className="cp-description"><h2>무엇을 만들게 되나요?</h2><p>{item.description || item.summary}</p></section>
       <section className="cp-syllabus"><header><h2>학습 순서</h2><span>{weeks.length}개 학습 묶음</span></header>
