@@ -57,10 +57,12 @@ export type Curriculum = {
   curriculum_id: number;
   organization_id: number;
   organization_name: string;
+  organization_slug?: string;
   organization_logo_url?: string;
   organization_website_url?: string;
   brand_color?: string;
   is_verified?: boolean;
+  is_example?: boolean;
   title: string;
   slug: string;
   role_title?: string;
@@ -81,6 +83,12 @@ export type CurriculumPlan = {
   start_date: string;
   end_date: string;
   available_weekdays: number[];
+  daily_minutes: number | null;
+  excluded_dates: string[];
+  moved_goal_count: number;
+  oversized_goal_count: number;
+  sessions: Array<{ date: string; minutes: number; goal_count: number }>;
+  warnings: string[];
   total_minutes: number;
   total_hours: number;
   level_counts: { 월간: number; 주간: number; 일일: number };

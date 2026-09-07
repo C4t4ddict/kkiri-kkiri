@@ -1,41 +1,16 @@
-import { ArrowUpRight, CalendarDays, CheckCircle2, Clock3 } from 'lucide-react';
-import type { CSSProperties } from 'react';
+import { ArrowUpRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { Curriculum } from '../../shared/types/domain';
+import { OrganizationIcon } from './OrganizationIcon';
+import '../../styles/curricula.css';
 
-const difficultyLabel = {
-  BEGINNER: '입문',
-  INTERMEDIATE: '중급',
-  ADVANCED: '심화',
-};
+export const difficultyLabel = { BEGINNER: '입문', INTERMEDIATE: '중급', ADVANCED: '심화' };
 
-export function CurriculumCard({ curriculum }: { curriculum: Curriculum }) {
-  const brandColor = /^#[0-9A-F]{6}$/i.test(curriculum.brand_color || '')
-    ? curriculum.brand_color
-    : '#6c5ce7';
-  return <Link
-    className="curriculum-card"
-    to={`/curriculum/${curriculum.curriculum_id}`}
-    style={{ '--brand-color': brandColor } as CSSProperties}
-  >
-    <div className="curriculum-company-row">
-      <span className="company-monogram">{curriculum.organization_name.slice(0, 1)}</span>
-      <span className="curriculum-company">
-        <strong>{curriculum.organization_name}{curriculum.is_verified && <CheckCircle2 size={14} />}</strong>
-        <small>{curriculum.role_title || '기술 직무 공통'}</small>
-      </span>
-      <span className={`difficulty-tag ${curriculum.difficulty.toLowerCase()}`}>{difficultyLabel[curriculum.difficulty]}</span>
-    </div>
-    <h3>{curriculum.title}</h3>
-    <p>{curriculum.summary}</p>
-    <div className="curriculum-meta">
-      <span><CalendarDays size={15} />{curriculum.duration_weeks}주</span>
-      <span><Clock3 size={15} />주 {curriculum.weekly_hours}시간</span>
-      <span><CheckCircle2 size={15} />{curriculum.goal_count}개 목표</span>
-    </div>
-    <div className="curriculum-card-foot">
-      <span>{curriculum.participant_count ? `${curriculum.participant_count}명이 학습 중` : '새로 공개된 과정'}</span>
-      <strong>과정 보기 <ArrowUpRight size={15} /></strong>
-    </div>
+export function CurriculumCard({ curriculum: item }: { curriculum: Curriculum }) {
+  return <Link className="cp-course" to={`/curriculum/${item.curriculum_id}`}>
+    <div className="cp-company"><OrganizationIcon curriculum={item} /><div className="cp-course-source"><span>{item.organization_name}</span>{item.is_example && <small>예시 과정</small>}</div></div>
+    <h2>{item.title}</h2><p>{item.summary}</p>
+    <div className="cp-course-facts"><span>{difficultyLabel[item.difficulty]}</span><span>{item.duration_weeks}주</span><span>주 {item.weekly_hours}시간</span><span>{item.goal_count}개 목표</span></div>
+    <footer><span>{item.role_title || '직무 공통'}</span><ArrowUpRight size={18} aria-hidden="true" /></footer>
   </Link>;
 }

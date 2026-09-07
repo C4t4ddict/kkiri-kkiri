@@ -6,6 +6,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { createCurriculum, ensureCurriculumSchema } = require('../curricula/service');
 
 const curricula = [
+  ...require('./curriculumExamples'),
   {
     organization_name: 'Orbit Cloud',
     organization_slug: 'demo-orbit-cloud',
