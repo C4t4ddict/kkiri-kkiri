@@ -993,8 +993,8 @@ app.post('/api/curricula/:id/preview', async (req, res) => {
     res.json(preview);
   } catch (error) {
     logger.warn('curriculum_preview_failed', { curriculumId, error: error.message });
-    res.status(error.code === 'INVALID_START_DATE' ? 400 : 500).json({
-      message: error.code === 'INVALID_START_DATE' ? error.message : '개인 일정을 만들지 못했습니다',
+    res.status(error.statusCode || (['INVALID_START_DATE', 'INVALID_SCHEDULE'].includes(error.code) ? 400 : 500)).json({
+      message: ['INVALID_START_DATE', 'INVALID_SCHEDULE'].includes(error.code) ? error.message : '개인 일정을 만들지 못했습니다',
     });
   }
 });

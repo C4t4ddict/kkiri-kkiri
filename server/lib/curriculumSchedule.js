@@ -26,14 +26,7 @@ const normalizeAvailableWeekdays = (value) => {
   return [...new Set(normalized)].length ? [...new Set(normalized)] : [1, 2, 3, 4, 5];
 };
 
-const findAvailableDate = (candidate, weekdays, latest) => {
-  let current = candidate;
-  for (let offset = 0; offset < 14; offset += 1) {
-    if (weekdays.includes(current.getUTCDay()) && (!latest || current <= latest)) return current;
-    current = addDays(current, 1);
-  }
-  return candidate;
-};
+const invalidSchedule = (message) => Object.assign(new Error(message), { code: 'INVALID_SCHEDULE', statusCode: 400 });
 
 const mapLevelToScope = (level) => ({
   MONTHLY: '월간',
@@ -50,6 +43,20 @@ const buildCurriculumPlan = (nodes, options = {}) => {
   }
 
   const weekdays = normalizeAvailableWeekdays(options.availableWeekdays);
+  if (options.availableWeekdays !== undefined && (!Array.isArray(options.availableWeekdays)
+    || !options.availableWeekdays.length || options.availableWeekdays.length > 7
+    || options.availableWeekdays.some(day => !Number.isInteger(Number(day)) || Number(day) < 0 || Number(day) > 7))) {
+    throw invalidSchedule('학습할 요일을 하나 이상 선택해주세요');
+  }
+  const dailyMinutes = options.dailyMinutes == null ? null : Number(options.dailyMinutes);
+  if (dailyMinutes !== null && (!Number.isInteger(dailyMinutes) || dailyMinutes < 30 || dailyMinutes > 480)) {
+    throw invalidSchedule('하루 학습량은 30~480분으로 설정해주세요');
+  }
+  const excludedDates = options.excludedDates ?? [];
+  if (!Array.isArray(excludedDates) || excludedDates.length > 120 || excludedDates.some(day => !parseDateOnly(day))) {
+    throw invalidSchedule('쉬는 날짜는 올바른 날짜로 최대 120개까지 선택해주세요');
+  }
+  const excluded = new Set(excludedDates);
   const sortedNodes = [...(Array.isArray(nodes) ? nodes : [])].sort((first, second) => (
     Number(first.sort_order || 0) - Number(second.sort_order || 0)
     || Number(first.relative_start_day || 0) - Number(second.relative_start_day || 0)
@@ -58,14 +65,9 @@ const buildCurriculumPlan = (nodes, options = {}) => {
   const goals = sortedNodes.map((node) => {
     const relativeStart = Math.max(0, Number(node.relative_start_day || 0));
     const relativeEnd = Math.max(relativeStart, Number(node.relative_end_day ?? relativeStart));
-    let scheduledStart = addDays(startDate, relativeStart);
-    let scheduledEnd = addDays(startDate, relativeEnd);
+    const scheduledStart = addDays(startDate, relativeStart);
+    const scheduledEnd = addDays(startDate, relativeEnd);
     const scopeType = mapLevelToScope(node.level);
-
-    if (scopeType === '일일') {
-      scheduledStart = findAvailableDate(scheduledStart, weekdays, scheduledEnd);
-      scheduledEnd = scheduledStart;
-    }
 
     return {
       curriculum_node_id: Number(node.node_id),
@@ -82,6 +84,52 @@ const buildCurriculumPlan = (nodes, options = {}) => {
       sort_order: Number(node.sort_order || 0),
     };
   });
+
+  // Preserve learning order, move only forward, and never fall back to an unavailable day.
+  const dailyGoals = goals.filter(goal => goal.scope_type === '일일').sort((a, b) =>
+    a.scope_start_date.localeCompare(b.scope_start_date) || a.sort_order - b.sort_order);
+  const sessions = new Map();
+  let previousDay = formatDateOnly(startDate);
+  let movedGoals = 0;
+  let oversizedGoals = 0;
+  for (const goal of dailyGoals) {
+    const originalDay = goal.scope_start_date;
+    let candidate = parseDateOnly(originalDay > previousDay ? originalDay : previousDay);
+    const minutes = goal.estimated_minutes || 60;
+    let placed = false;
+    for (let attempt = 0; attempt < 1095; attempt += 1) {
+      const key = formatDateOnly(candidate);
+      const used = sessions.get(key)?.minutes || 0;
+      if (weekdays.includes(candidate.getUTCDay()) && !excluded.has(key)
+        && (!dailyMinutes || used === 0 || used + minutes <= dailyMinutes)) {
+        goal.scope_start_date = key;
+        goal.scope_end_date = key;
+        previousDay = key;
+        if (key !== originalDay) movedGoals += 1;
+        if (dailyMinutes && minutes > dailyMinutes) oversizedGoals += 1;
+        const session = sessions.get(key) || { date: key, minutes: 0, goal_count: 0 };
+        session.minutes += minutes;
+        session.goal_count += 1;
+        sessions.set(key, session);
+        placed = true;
+        break;
+      }
+      candidate = addDays(candidate, 1);
+    }
+    if (!placed) throw invalidSchedule('일정을 배치할 수 없습니다. 학습 요일이나 쉬는 날짜를 조정해주세요');
+  }
+  // If a daily task moves beyond its parent, expand the weekly/monthly goal with it.
+  const byId = new Map(goals.map(goal => [goal.curriculum_node_id, goal]));
+  for (const goal of dailyGoals) {
+    let parent = byId.get(goal.parent_node_id);
+    const visited = new Set([goal.curriculum_node_id]);
+    while (parent && !visited.has(parent.curriculum_node_id)) {
+      visited.add(parent.curriculum_node_id);
+      if (parent.scope_start_date > goal.scope_start_date) parent.scope_start_date = goal.scope_start_date;
+      if (parent.scope_end_date < goal.scope_end_date) parent.scope_end_date = goal.scope_end_date;
+      parent = byId.get(parent.parent_node_id);
+    }
+  }
 
   const estimatedMinutes = goals.reduce((sum, goal) => sum + goal.estimated_minutes, 0);
   const recommendedMinutes = Number(options.weeklyHours) > 0 && Number(options.durationWeeks) > 0
@@ -101,6 +149,15 @@ const buildCurriculumPlan = (nodes, options = {}) => {
     start_date: formatDateOnly(startDate),
     end_date: endDate,
     available_weekdays: weekdays,
+    daily_minutes: dailyMinutes,
+    excluded_dates: [...excluded].sort(),
+    moved_goal_count: movedGoals,
+    oversized_goal_count: oversizedGoals,
+    sessions: [...sessions.values()],
+    warnings: [
+      ...(oversizedGoals ? [`하루 학습량보다 긴 과제 ${oversizedGoals}개는 나누지 않고 단독 배치했습니다.`] : []),
+      ...(dailyGoals.some(goal => !goal.estimated_minutes) ? ['시간이 지정되지 않은 과제는 배치 계산에 60분을 사용했습니다.'] : []),
+    ],
     total_minutes: totalMinutes,
     total_hours: Math.round((totalMinutes / 60) * 10) / 10,
     level_counts: levelCounts,

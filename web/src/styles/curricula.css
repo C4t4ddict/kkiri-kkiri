@@ -1,0 +1,112 @@
+.cp-page { max-width: 1080px; margin: 0 auto; }
+.cp-page *, .cp-course *, .cp-schedule * { box-sizing: border-box; }
+.cp-page :is(button,input,select), .cp-schedule :is(button,input,select) { font-family: inherit; }
+.cp-page :is(button,input,select,a,summary):focus-visible, .cp-course:focus-visible, .cp-schedule :is(button,input,select,summary):focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.cp-heading { margin-bottom: 28px; }
+.cp-heading h1 { margin: 0 0 10px; font-size: 30px; letter-spacing: -1px; }
+.cp-heading p, .cp-detail-heading > p { color: var(--text-sub); line-height: 1.8; font-size: 15px; margin: 0; }
+.cp-catalog-tools { display: flex; gap: 10px; }
+.cp-catalog-tools select, .cp-search { min-height: 44px; border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--text-sub); font-size: 14px; }
+.cp-catalog-tools select { padding: 8px 12px; max-width: 230px; }
+.cp-search { display: flex; align-items: center; gap: 9px; flex: 1; padding: 0 14px; min-width: 0; }
+.cp-search input { width: 100%; min-width: 0; padding: 10px 0; border: 0; background: transparent; font-size: 15px; color: #101828; }
+.cp-search svg { flex-shrink: 0; }
+.cp-catalog-levels { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 20px 0 16px; }
+.cp-catalog-levels nav { display: flex; gap: 4px; }
+.cp-catalog-levels button { border: 0; border-radius: 6px; padding: 7px 13px; background: transparent; color: var(--text-sub); font-size: 14px; }
+.cp-catalog-levels [aria-pressed=true] { color: var(--primary-dark); background: var(--primary-soft); font-weight: 600; }
+.cp-catalog-levels > span { color: var(--text-sub); font-size: 13px; }
+.cp-course-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
+.cp-course { display: flex; flex-direction: column; min-width: 0; padding: 24px; border: 1px solid var(--border); border-radius: 10px; background: #fff; color: #101828; transition: border-color .15s ease; }
+.cp-course:hover { border-color: var(--primary-light); }
+.cp-course-source { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-sub); font-size: 13px; }
+.cp-course-source small { padding: 2px 6px; border-radius: 4px; background: #f2f4f7; font-size: 11px; }
+.cp-course h2 { margin: 14px 0 9px; font-size: 20px; line-height: 1.5; letter-spacing: -.6px; }
+.cp-course > p { flex: 1; margin: 0; color: var(--text-sub); font-size: 14px; line-height: 1.8; }
+.cp-course-facts { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-top: 20px; font-size: 13px; color: #475467; }
+.cp-course-facts > span + span::before { content: '·'; margin-right: 14px; color: #98a2b3; }
+.cp-course footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 20px; font-size: 12px; color: var(--text-sub); }
+.cp-course footer svg { color: var(--primary); }
+.cp-catalog-note { margin-top: 28px; color: var(--text-sub); font-size: 13px; line-height: 1.8; }
+.cp-catalog-note details { margin-top: 16px; }
+.cp-catalog-note summary { width: fit-content; cursor: pointer; color: #475467; }
+.cp-catalog-note details p { max-width: 750px; }
+.cp-empty { text-align: center; padding: 50px 15px; color: var(--text-sub); }
+.cp-empty h2 { font-size: 19px; color: #101828; }
+.cp-empty button, .cp-show-all { padding: 8px 0; border: 0; background: transparent; color: var(--primary-dark); font-size: 14px; }
+.cp-back { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 28px; font-size: 14px; color: var(--text-sub); }
+.cp-detail-heading { margin-bottom: 36px; }
+.cp-detail-heading h1 { max-width: 850px; margin: 14px 0 12px; font-size: 34px; line-height: 1.4; letter-spacing: -1.2px; }
+.cp-detail-layout { display: grid; grid-template-columns: minmax(0,1fr) 280px; gap: 36px; align-items: start; }
+.cp-description h2, .cp-syllabus h2, .cp-start-panel h2 { margin: 0 0 12px; font-size: 18px; letter-spacing: -.4px; }
+.cp-description > p { margin: 0; color: #475467; font-size: 15px; line-height: 1.9; white-space: pre-line; }
+.cp-syllabus { margin-top: 32px; }
+.cp-syllabus > header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.cp-syllabus > header > span { color: var(--text-sub); font-size: 12px; }
+.cp-milestones { margin: 4px 0 18px; color: var(--text-sub); font-size: 14px; }
+.cp-milestones summary { cursor: pointer; }
+.cp-week { margin-top: 10px; border: 1px solid var(--border); border-radius: 9px; background: #fff; overflow: hidden; }
+.cp-week > summary { display: flex; align-items: center; gap: 15px; padding: 18px 20px; cursor: pointer; list-style: none; }
+.cp-week > summary::-webkit-details-marker { display: none; }
+.cp-week > summary::after { content: '+'; margin-left: auto; color: var(--text-sub); font-size: 20px; }
+.cp-week[open] > summary::after { content: '−'; }
+.cp-week > summary > span { color: #98a2b3; font-size: 14px; }
+.cp-week strong { font-size: 15px; font-weight: 600; line-height: 1.6; }
+.cp-week summary small { display: block; margin-top: 4px; font-size: 12px; color: var(--text-sub); }
+.cp-week-body { padding: 0 20px 8px; }
+.cp-week-body > p { font-size: 14px; color: var(--text-sub); line-height: 1.7; }
+.cp-task-list { list-style: none; padding: 0; margin: 0; }
+.cp-task-list li { display: flex; justify-content: space-between; gap: 14px; padding: 14px 0; }
+.cp-week-body .cp-task-list li { border-top: 1px solid #f2f4f7; }
+.cp-task-list li > div { min-width: 0; }
+.cp-task-list strong { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.cp-task-list p { margin: 5px 0 0; color: var(--text-sub); font-size: 12px; line-height: 1.7; }
+.cp-task-list small { flex-shrink: 0; color: var(--text-sub); font-size: 12px; }
+.cp-week > .cp-task-list { padding: 0 20px; }
+.cp-start-panel { position: sticky; top: 96px; padding: 22px; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+.cp-start-panel > p { font-size: 14px; line-height: 1.8; color: var(--text-sub); }
+.cp-start-panel dl { margin: 24px 0; font-size: 13px; }
+.cp-start-panel dl div { display: flex; justify-content: space-between; margin: 12px 0; gap: 12px; }
+.cp-start-panel dt { color: var(--text-sub); }.cp-start-panel dd { margin: 0; }
+.cp-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 16px; border: 0; border-radius: 8px; background: var(--primary); color: #fff; font-size: 14px; font-weight: 600; }
+.cp-start-panel .cp-primary { width: 100%; }
+.cp-start-panel > small { display: block; margin-top: 10px; color: var(--text-sub); font-size: 11px; line-height: 1.7; }
+.cp-start-panel .cp-privacy { margin: 24px 0 0; font-size: 12px; }
+.cp-schedule { width: min(900px,calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: 0; margin: auto; border: 1px solid var(--border); border-radius: 12px; background: #fff; color: #101828; }
+.cp-schedule::backdrop { background: rgba(16,24,40,.4); }
+.cp-schedule > header { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 24px 26px 18px; background: #fff; }
+.cp-schedule h2 { margin: 0; font-size: 23px; letter-spacing: -.7px; }.cp-schedule header p { margin: 6px 0 0; font-size: 13px; color: var(--text-sub); }
+.cp-schedule > header button { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; border: 0; background: transparent; color: var(--text-sub); }
+.cp-schedule-layout { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 30px; padding: 0 26px 22px; }
+.cp-schedule-fields { min-width: 0; border: 0; padding: 0; margin: 0; }
+.cp-schedule-fields label { display: grid; gap: 8px; margin-top: 18px; font-size: 14px; font-weight: 500; }
+.cp-schedule-fields > label:first-of-type { margin-top: 0; }
+.cp-schedule :is(input:not([type=checkbox]),select) { min-width: 0; width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; color: #101828; background: #fff; font-size: 14px; }
+.cp-quick { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; }
+.cp-quick button { padding: 3px 0; border: 0; background: transparent; color: var(--text-sub); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.cp-field-title { margin: 20px 0 10px; font-size: 14px; font-weight: 500; }
+.cp-presets { display: flex; gap: 8px; margin-bottom: 10px; }
+.cp-presets button { border: 0; background: transparent; padding: 5px 6px; font-size: 12px; color: var(--text-sub); }
+.cp-presets [aria-pressed=true] { color: var(--primary-dark); background: var(--primary-soft); border-radius: 4px; }
+.cp-days { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 5px; }
+.cp-days button { min-height: 39px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--text-sub); font-size: 13px; }
+.cp-days [aria-pressed=true] { color: var(--primary-dark); border-color: var(--primary-light); background: var(--primary-soft); }
+.cp-hint { color: var(--text-sub); font-size: 12px; line-height: 1.8; }
+.cp-exclusions { margin: 18px 0; font-size: 13px; color: #475467; }.cp-exclusions summary { cursor: pointer; }
+.cp-exclude-input { display: flex; gap: 8px; margin-top: 12px; }.cp-exclude-input input { flex: 1; }.cp-exclude-input button { flex-shrink: 0; border: 1px solid var(--border); padding: 5px 12px; border-radius: 6px; background: #fff; color: #475467; }
+.cp-excluded { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }.cp-excluded button { display: flex; align-items: center; gap: 4px; padding: 5px 8px; border: 0; border-radius: 5px; background: #f2f4f7; color: #475467; font-size: 12px; }
+.cp-team-settings .cp-checkbox { display: flex; align-items: center; gap: 8px; font-size: 13px; }.cp-checkbox input { accent-color: var(--primary); }
+.cp-schedule-preview { min-width: 0; border-left: 1px solid var(--border); padding-left: 26px; scroll-margin-top: 110px; }
+.cp-schedule-preview h3 { margin: 0 0 12px; font-size: 16px; }.cp-plan-period { font-size: 14px; font-weight: 600; line-height: 1.8; }.cp-plan-summary { color: var(--text-sub); font-size: 13px; line-height: 1.8; }
+.cp-adjustment { color: var(--primary-dark); font-size: 12px; line-height: 1.8; }
+.cp-session-list { list-style: none; margin: 18px 0 0; padding: 0; }.cp-session-list li { padding: 12px 0; border-top: 1px solid #f2f4f7; }.cp-session-list header { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }.cp-session-list time { font-weight: 600; }.cp-session-list small { color: var(--text-sub); }.cp-session-list p { margin: 7px 0 0; color: #475467; font-size: 13px; line-height: 1.6; }
+.cp-schedule > footer { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 26px; border-top: 1px solid var(--border); background: #fff; }
+.cp-schedule > footer > span { font-size: 12px; color: var(--text-sub); }.cp-error { color: #b42318; font-size: 13px; line-height: 1.7; }.cp-schedule footer .cp-error { flex-basis: 100%; margin: 0; }.cp-error button { border: 0; background: transparent; color: inherit; text-decoration: underline; }
+.cp-page button:disabled, .cp-schedule button:disabled { opacity: .5; cursor: not-allowed; }
+@media(max-width: 850px) { .cp-detail-layout { grid-template-columns: minmax(0,1fr); gap: 24px; }.cp-start-panel { position: static; grid-row: 1; }.cp-start-panel dl { display: flex; gap: 25px; margin: 12px 0; }.cp-start-panel dl div { gap: 10px; }.cp-start-panel .cp-privacy { margin-top: 12px; } }
+@media(max-width: 600px) {
+  .cp-heading h1 { font-size: 27px; }.cp-heading p { font-size: 14px; }.cp-catalog-tools { flex-wrap: wrap; }.cp-search { flex-basis: 100%; }.cp-catalog-tools select { flex: 1; min-width: 0; max-width: none; font-size: 13px; }
+  .cp-course-grid { grid-template-columns: minmax(0,1fr); gap: 12px; }.cp-course { padding: 20px; }.cp-course h2 { font-size: 19px; }.cp-course-facts { gap: 6px 9px; font-size: 12px; }.cp-course-facts > span + span::before { margin-right: 9px; }
+  .cp-detail-heading h1 { font-size: 27px; }.cp-detail-heading { margin-bottom: 24px; }.cp-detail-layout { gap: 28px; }.cp-week > summary { padding: 16px; }.cp-week-body { padding-inline: 16px; }.cp-task-list li { gap: 8px; }
+  .cp-schedule { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); }.cp-schedule > header { padding: 20px 18px; }.cp-schedule h2 { font-size: 21px; }.cp-schedule-layout { grid-template-columns: minmax(0,1fr); padding: 0 18px 20px; gap: 26px; }.cp-schedule-preview { border-left: 0; border-top: 1px solid var(--border); padding: 22px 0 0; }.cp-schedule > footer { padding: 12px 18px; }.cp-schedule > footer > span { flex-basis: 100%; }.cp-schedule > footer .cp-primary { width: 100%; }
+}
