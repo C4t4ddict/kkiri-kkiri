@@ -48,6 +48,11 @@ const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     description: '전체 목표 진행률을 한눈에 확인해요',
     icon: 'stats-chart-outline',
   },
+  roadmap: {
+    title: '학습 로드맵',
+    description: '기존 목표를 학습 구간과 진행 순서로 자동 구성해요',
+    icon: 'map-outline',
+  },
   issue: {
     title: '이슈트래커',
     description: '오늘 진행할 팀 목표를 상태별로 보여줘요',
