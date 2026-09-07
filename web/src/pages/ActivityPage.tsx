@@ -94,8 +94,11 @@ export function ActivityPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const active = useAsync(() => api<TeamSummary[]>('/my-teams'), []);
   const [selectedId, setSelectedId] = useState<number | null>(() => Number(searchParams.get('team')) || null);
-  const [scope, setScope] = useState<GoalScope>('일일');
-  const [viewDate, setViewDate] = useState(() => dateKey(new Date()));
+  const [scope, setScope] = useState<GoalScope>(() => (['일일', '주간', '월간'].includes(searchParams.get('scope') || '') ? searchParams.get('scope') : '일일') as GoalScope);
+  const [viewDate, setViewDate] = useState(() => {
+    const value = searchParams.get('date');
+    return value && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) ? value : dateKey(new Date());
+  });
   const [goalError, setGoalError] = useState('');
   const [pendingTodoId, setPendingTodoId] = useState<number | null>(null);
   const statusBusy = useRef(false);
@@ -118,7 +121,7 @@ export function ActivityPage() {
   }, [active.data, selectedId]);
 
   useEffect(() => {
-    if (selectedId) setSearchParams({ team: String(selectedId) }, { replace: true });
+    if (selectedId) setSearchParams(current => { const next = new URLSearchParams(current); next.set('team', String(selectedId)); return next; }, { replace: true });
   }, [selectedId, setSearchParams]);
 
   const selected = active.data?.find((team) => team.team_id === selectedId) || null;

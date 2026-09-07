@@ -1,4 +1,9 @@
 /* Activity and matching: compact, readable work surfaces. */
+@media (max-width: 720px) {
+  .mobile-nav { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .mobile-nav a { min-width: 0; font-size: 10px; letter-spacing: -.4px; white-space: nowrap; }
+  .mobile-nav a svg { width: 18px; height: 18px; }
+}
 .activity-workspace-page { max-width: 1120px; margin-inline: auto; }
 .activity-workspace-page .page-title h1, .matching-page .page-title h1 { font-size: 30px; letter-spacing: -1px; }
 .activity-workspace-page .active-activity-picker { padding: 14px 18px; border-color: var(--border); border-radius: 12px; background: #fff; }

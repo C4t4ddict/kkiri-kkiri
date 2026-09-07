@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Activity, Bell, BookOpen, Database, Gauge, Home, LogIn, Map, PenTool, UserRound, UsersRound, WifiOff } from 'lucide-react';
+import { Activity, Bell, BookOpen, CalendarDays, Database, Gauge, Home, LogIn, Map, PenTool, UserRound, UsersRound, WifiOff } from 'lucide-react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from './AuthContext';
 import { api } from '../shared/api/client';
@@ -9,6 +9,7 @@ const navItems = [
   ['/', '홈', Home],
   ['/info', '정보', BookOpen],
   ['/activity', '활동', Activity],
+  ['/calendar', '캘린더', CalendarDays],
   ['/curriculum', '커리큘럼', Map],
   ['/matching', '매칭', UsersRound],
 ] as const;

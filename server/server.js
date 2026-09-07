@@ -86,6 +86,8 @@ const {
 } = require('./messaging/service');
 const { createActivityDocumentsRouter } = require('./activity-documents/router');
 const { ensureActivityDocumentsSchema } = require('./activity-documents/service');
+const { ensureCalendarSchema } = require('./calendar/service');
+const { createCalendarRouter } = require('./calendar/router');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -391,6 +393,8 @@ activityDocumentSchemaReady.catch((schemaError) => {
   console.error('활동 문서 테이블 준비 오류:', schemaError);
 });
 let crawlerScheduler = null;
+const masterCalendarSchemaReady = ensureCalendarSchema(portfolioDb);
+masterCalendarSchemaReady.catch(error => console.error('캘린더 테이블 준비 오류:', error.message));
 
 const queuePortfolioJob = (job) => {
   const result = portfolioQueue.then(job, job);
@@ -940,6 +944,11 @@ app.use((req, res, next) => {
     database: process.env.DB_NAME || 'myappdb',
   });
 });
+
+app.use('/api/calendar', createCalendarRouter({
+  database: portfolioDb,
+  getSchemaReady: () => Promise.all([masterCalendarSchemaReady, todoCalendarSchemaReady, curriculumSchemaReady]),
+}));
 
 app.get('/api/curricula', async (req, res) => {
   if (!db || db.state === 'disconnected') return res.json([]);
