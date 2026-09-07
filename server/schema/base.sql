@@ -161,6 +161,26 @@ CREATE TABLE IF NOT EXISTS todos (
   INDEX idx_todos_curriculum_member (curriculum_enrollment_id, assigned_user_id, curriculum_node_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS calendar_events (
+  event_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  team_id INT NULL,
+  title VARCHAR(160) NOT NULL,
+  notes TEXT NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  all_day TINYINT(1) NOT NULL DEFAULT 1,
+  start_time TIME NULL,
+  end_time TIME NULL,
+  important TINYINT(1) NOT NULL DEFAULT 0,
+  completed TINYINT(1) NOT NULL DEFAULT 0,
+  version INT NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at DATETIME NULL,
+  INDEX idx_calendar_events_owner_dates (user_id, deleted_at, start_date, end_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS reviews (
   review_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   reviewer_id INT NOT NULL,

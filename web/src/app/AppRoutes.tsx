@@ -28,6 +28,7 @@ import { AppShell } from './AppShell';
 
 const ActivityDocumentsPage = lazy(() => import('../pages/ActivityDocumentsPage')
   .then((module) => ({ default: module.ActivityDocumentsPage })));
+const CalendarPage = lazy(() => import('../pages/CalendarPage').then(module => ({ default: module.CalendarPage })));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -60,6 +61,7 @@ export function AppRoutes() {
       <Route path="matching/:id" element={<MatchingDetailPage />} />
       <Route path="matching/:id/edit" element={<RequireAuth><RecruitmentEditorPage /></RequireAuth>} />
       <Route path="activity" element={<RequireAuth><ActivityPage /></RequireAuth>} />
+      <Route path="calendar" element={<RequireAuth><Suspense fallback={<PageState loading />}><CalendarPage /></Suspense></RequireAuth>} />
       <Route path="activity/:teamId/manage" element={<RequireAuth><ActivityManagePage /></RequireAuth>} />
       <Route path="activity/:teamId/documents" element={<RequireAuth><Suspense fallback={<PageState loading />}><ActivityDocumentsPage /></Suspense></RequireAuth>} />
       <Route path="notifications" element={<RequireAuth><NotificationsPage /></RequireAuth>} />
