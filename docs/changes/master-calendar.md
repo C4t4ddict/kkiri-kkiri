@@ -33,3 +33,12 @@
 [모바일 화면](../../screenshots/2026-09-08-calendar/final-calendar-mobile.png) · [검증용 약속 두 개로 확인한 충돌 표시](../../screenshots/2026-09-08-calendar/final-calendar-overlap-qa.png)
 
 관련 이슈: #117. 선행 화면 개선 PR #116 위의 별도 캘린더 커밋으로 구성한다.
+
+## 디자인 피드백 반영 (2026-09-08)
+
+- 별도 보라·청록·갈색 팔레트를 제거하고 공통 `--primary`, `--primary-dark`, `--primary-soft`, `--text-sub`, `--border`를 사용한다. 오류·충돌에는 기존 앱의 오류 색상을 사용한다.
+- 오늘은 주색 채움 원, 다른 선택 날짜는 주색 테두리 원으로 구분한다. 오늘을 선택해도 강조는 하나만 표시하며 날짜 칸 상단/하단의 중복 배경은 없앴다.
+- 장식용 격자 배경과 도구 영역·상세 목록의 불필요한 가로선을 제거했다. 주 구분선은 유지한다.
+- 상세 영역도 홈과 같은 흰색 표면과 공통 테두리로 통일했다. 전체 페이지 배경은 공통 레이아웃을 그대로 사용한다.
+- 실제 API 데이터로 오늘/다른 날짜 선택, 홈과 배경색 일치, 390/820/1100/1560px 가로 넘침, 목록 전환과 편집창 확인 및 웹 빌드를 통과했다. 검증 중 일정 데이터는 변경하지 않았다.
+- 기존 스크린샷을 보존하고 수정 후 화면을 별도 저장했다: [데스크톱](../../screenshots/2026-09-08-calendar/brand-calendar-desktop.png) · [다른 날짜 선택](../../screenshots/2026-09-08-calendar/brand-calendar-selection.png) · [모바일](../../screenshots/2026-09-08-calendar/brand-calendar-mobile.png) · [검증 기록](../../screenshots/2026-09-08-calendar/brand-verification.json).
