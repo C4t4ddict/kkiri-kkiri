@@ -88,6 +88,8 @@ const { createActivityDocumentsRouter } = require('./activity-documents/router')
 const { ensureActivityDocumentsSchema } = require('./activity-documents/service');
 const { ensureCalendarSchema } = require('./calendar/service');
 const { createCalendarRouter } = require('./calendar/router');
+const { ensureJourneySchema, deleteJourneyUserData } = require('./journey/service');
+const { createJourneyRouter } = require('./journey/router');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -388,6 +390,7 @@ let feedbackSchemaReady = Promise.resolve();
 let curriculumSchemaReady = Promise.resolve();
 let activityDiscoverySchemaReady = Promise.resolve();
 let messagingSchemaReady = Promise.resolve();
+let journeySchemaReady = Promise.resolve();
 const activityDocumentSchemaReady = ensureActivityDocumentsSchema(portfolioDb);
 activityDocumentSchemaReady.catch((schemaError) => {
   console.error('활동 문서 테이블 준비 오류:', schemaError);
@@ -788,6 +791,8 @@ db.getConnection((err, connection) => {
       .then(() => adminSchemaReady)
       .then(() => ensurePortfolioSchema(portfolioDb))
       .then(() => ensureAwardsSchema(portfolioDb));
+    journeySchemaReady = Promise.all([awardSchemaReady, activityDocumentSchemaReady]).then(() => ensureJourneySchema(portfolioDb));
+    journeySchemaReady.catch(error => console.error('팀 활동 흐름 테이블 준비 오류:', error.message));
     if (RUN_BACKGROUND_JOBS) {
       awardSchemaReady
         .then(() => runArchiveMaintenance())
@@ -948,6 +953,12 @@ app.use((req, res, next) => {
 app.use('/api/calendar', createCalendarRouter({
   database: portfolioDb,
   getSchemaReady: () => Promise.all([masterCalendarSchemaReady, todoCalendarSchemaReady, curriculumSchemaReady]),
+}));
+
+app.use('/api/journey', createJourneyRouter({
+  database: portfolioDb,
+  getSchemaReady: () => journeySchemaReady,
+  provisionCurriculumGoalsForMember,
 }));
 
 app.get('/api/curricula', async (req, res) => {
@@ -3075,8 +3086,7 @@ app.get('/my-teams', (req, res) => {
     LEFT JOIN enterprise_curricula c ON c.curriculum_id = CASE WHEN t.source_type = 'ENTERPRISE_CURRICULUM' THEN t.source_id ELSE NULL END
     LEFT JOIN enterprise_organizations o ON o.organization_id = c.organization_id
     WHERE tm.user_id = ?
-      AND t.activity_status = 'IN_PROGRESS'
-      AND t.status <> 'ARCHIVED'
+      ${req.query.include === 'all' ? '' : "AND t.activity_status = 'IN_PROGRESS' AND t.status <> 'ARCHIVED'"}
     ORDER BY t.created_at DESC, t.team_id DESC
   `;
 
@@ -4279,6 +4289,11 @@ app.post('/todos/period', async (req, res) => {
   const connection = await portfolioDb.getConnection();
   try {
     await connection.beginTransaction();
+    const [activeTeams] = await connection.query("SELECT team_id FROM teams WHERE team_id=? AND activity_status='IN_PROGRESS' AND status<>'ARCHIVED' FOR UPDATE",[teamId]);
+    if (!activeTeams.length) {
+      await connection.rollback();
+      return res.status(409).json({message:'완료한 활동에는 목표를 추가할 수 없습니다'});
+    }
     const [members] = await connection.query(
       'SELECT team_id FROM team_members WHERE team_id = ? AND user_id = ? FOR UPDATE',
       [teamId, userId],
@@ -4382,14 +4397,16 @@ app.post('/todos', (req, res) => {
 
   const insertSql = `
     INSERT INTO todos (team_id, assigned_user_id, title, status, scope_type, scope_start_date, scope_end_date)
-    VALUES (?, ?, ?, '미진행', ?, ?, ?)
+    SELECT ?, ?, ?, '미진행', ?, ?, ? FROM teams t JOIN team_members tm ON tm.team_id=t.team_id
+    WHERE t.team_id=? AND tm.user_id=? AND t.activity_status='IN_PROGRESS' AND t.status<>'ARCHIVED'
   `;
 
-  db.query(insertSql, [team_id, userId, title, scope_type, scope_start_date, scope_end_date], (err, result) => {
+  db.query(insertSql, [team_id, userId, title, scope_type, scope_start_date, scope_end_date, team_id, userId], (err, result) => {
     if (err) {
       console.error('투두 생성 오류:', err);
       return res.status(500).json({ message: '서버 오류' });
     }
+    if (!result.affectedRows) return res.status(403).json({message:'진행 중인 내 활동에만 작업을 추가할 수 있습니다'});
 
     const selectSql = `
       SELECT todo_id, team_id, assigned_user_id, title, status, scope_type, scope_start_date, scope_end_date, created_at, updated_at
@@ -4437,6 +4454,7 @@ app.put('/todos/:todoId', (req, res) => {
       AND team_id IN (
         SELECT team_id FROM team_members WHERE user_id = ?
       )
+      AND team_id IN (SELECT team_id FROM teams WHERE activity_status='IN_PROGRESS' AND status<>'ARCHIVED')
   `;
 
   db.query(sql, [...values, todoId, userId], (err, result) => {
@@ -4467,6 +4485,7 @@ app.delete('/todos/:todoId', (req, res) => {
       AND team_id IN (
         SELECT team_id FROM team_members WHERE user_id = ?
       )
+      AND team_id IN (SELECT team_id FROM teams WHERE activity_status='IN_PROGRESS' AND status<>'ARCHIVED')
   `, [todoId, userId], (err, result) => {
     if (err) {
       console.error('투두 삭제 오류:', err);
@@ -4925,70 +4944,40 @@ app.get('/api/reviews/existing/:reviewerId/:revieweeId/:activityId', (req, res) 
 });
 
 // 평가 저장/수정 (MyPage3에서 사용)
-app.post('/api/reviews', (req, res) => {
-  const { reviewer_id, reviewee_id, related_team_id, review_high, review_medium, review_low, comment, is_update } = req.body;
-  const requestUserId = getRequestUserId(req);
-
-  if (!requestUserId) {
-    return res.status(401).json({ success: false, message: '로그인이 필요합니다' });
+app.post('/api/reviews', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const teamId = Number(req.body.related_team_id);
+  const revieweeId = Number(req.body.reviewee_id);
+  const ratings = ['review_high', 'review_medium', 'review_low'].map(key => Number(req.body[key]));
+  const comment = typeof req.body.comment === 'string' ? req.body.comment.trim() : '';
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (Number(req.body.reviewer_id) !== userId) return res.status(403).json({ message: '본인의 평가만 작성할 수 있습니다' });
+  if (!Number.isSafeInteger(teamId) || teamId < 1 || !Number.isSafeInteger(revieweeId) || revieweeId < 1 || revieweeId === userId || !ratings.every(value => value === 0 || value === 1) || ratings.reduce((a,b) => a+b,0) !== 1 || !comment || comment.length > 500) {
+    return res.status(400).json({ message: '다른 팀원과 평가 하나를 선택하고 500자 이내의 코멘트를 입력해주세요' });
   }
-  if (Number(reviewer_id) !== requestUserId) {
-    return res.status(403).json({ success: false, message: '본인의 평가만 작성할 수 있습니다' });
-  }
-  
-  // 더미 응답 (DB 연결 전)
-  if (!db || db.state === 'disconnected') {
-    console.log('더미 평가 저장 (MySQL 미연결)');
-    return res.json({
-      success: true,
-      message: is_update ? '평가가 수정되었습니다' : '평가가 저장되었습니다'
-    });
-  }
-
-  if (is_update) {
-    // 기존 평가 수정
-    const updateQuery = `
-      UPDATE reviews 
-      SET review_high = ?, review_medium = ?, review_low = ?, comment = ?, updated_at = NOW()
-      WHERE reviewer_id = ? AND reviewee_id = ? AND related_team_id = ?
-    `;
-    
-    db.query(updateQuery, [review_high, review_medium, review_low, comment, reviewer_id, reviewee_id, related_team_id], (err, result) => {
-      if (err) {
-        console.error('평가 수정 에러:', err);
-        return res.status(500).json({
-          success: false,
-          message: '평가 수정 실패'
-        });
-      }
-      
-      res.json({
-        success: true,
-        message: '평가가 수정되었습니다'
-      });
-    });
-  } else {
-    // 새 평가 저장
-    const insertQuery = `
-      INSERT INTO reviews (reviewer_id, reviewee_id, related_team_id, review_high, review_medium, review_low, comment, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
-    `;
-    
-    db.query(insertQuery, [reviewer_id, reviewee_id, related_team_id, review_high, review_medium, review_low, comment], (err, result) => {
-      if (err) {
-        console.error('평가 저장 에러:', err);
-        return res.status(500).json({
-          success: false,
-          message: '평가 저장 실패'
-        });
-      }
-      
-      res.json({
-        success: true,
-        message: '평가가 저장되었습니다'
-      });
-    });
-  }
+  const connection = await portfolioDb.getConnection();
+  try {
+    await connection.beginTransaction();
+    // Serialize repeated submissions; completed teams remain eligible for evaluation.
+    const [teams] = await connection.query('SELECT team_id FROM teams WHERE team_id=? FOR UPDATE',[teamId]);
+    const [members] = await connection.query('SELECT user_id FROM team_members WHERE team_id=? AND user_id IN (?,?)',[teamId,userId,revieweeId]);
+    if (!teams.length || members.length !== 2) {
+      await connection.rollback();
+      return res.status(403).json({message:'같이 참여한 팀원만 평가할 수 있습니다'});
+    }
+    const [existing] = await connection.query('SELECT review_id FROM reviews WHERE reviewer_id=? AND reviewee_id=? AND related_team_id=? FOR UPDATE',[userId,revieweeId,teamId]);
+    if (existing.length) {
+      await connection.query('UPDATE reviews SET review_high=?,review_medium=?,review_low=?,comment=?,updated_at=NOW() WHERE reviewer_id=? AND reviewee_id=? AND related_team_id=?',[...ratings,comment,userId,revieweeId,teamId]);
+    } else {
+      await connection.query('INSERT INTO reviews (reviewer_id,reviewee_id,related_team_id,review_high,review_medium,review_low,comment,created_at) VALUES (?,?,?,?,?,?,?,NOW())',[userId,revieweeId,teamId,...ratings,comment]);
+    }
+    await connection.commit();
+    return res.json({success:true,message:'평가를 저장했습니다'});
+  } catch (error) {
+    await connection.rollback();
+    console.error('평가 저장 오류:',error.message);
+    return res.status(500).json({message:'평가를 저장하지 못했습니다'});
+  } finally { connection.release(); }
 });
 
 // 사용자의 평가 통계 조회 (MyPage4에서 사용)
@@ -5266,6 +5255,8 @@ app.delete('/api/delete-user/:id', async (req, res) => {
   const connection = await portfolioDb.getConnection();
   try {
     await connection.beginTransaction();
+    await journeySchemaReady;
+    await deleteJourneyUserData(connection, userId);
     await connection.query('DELETE FROM reviews WHERE reviewer_id = ? OR reviewee_id = ?', [userId, userId]);
     await connection.query('DELETE FROM user_activity_participations WHERE user_id = ?', [userId]);
     await connection.query('DELETE FROM users WHERE id = ?', [userId]);

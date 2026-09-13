@@ -141,12 +141,10 @@ export function ActivityManagePage() {
   };
 
   const completeActivity = async () => {
-    // eslint-disable-next-line no-alert
-    if (!window.confirm('이 활동을 마무리하고 지난 활동으로 옮길까요?')) return;
     await run(async () => {
-      await api(`/teams/${teamId}/complete`, { method: 'POST' });
-      navigate('/mypage/archive');
-    }, '활동을 마무리했습니다.');
+      await api(`/api/journey/teams/${teamId}/phase`, { method: 'PUT', body: JSON.stringify({ phase: 'WRAPPING' }) });
+      navigate(`/activity/${teamId}/work`);
+    }, '마무리 단계로 이동했습니다.');
   };
 
   if (!teamId) return <PageState error="올바른 활동 ID가 필요합니다." />;
@@ -155,7 +153,7 @@ export function ActivityManagePage() {
 
   return <>
     <Link className="back-link" to={`/activity?team=${teamId}`}><ArrowLeft /> 나의 활동으로 돌아가기</Link>
-    <PageTitle title="팀원 목표·활동 설정" description="모바일 앱의 팀원 할 일과 활동 편집 기능을 웹에서도 그대로 관리합니다." />
+    <PageTitle title="팀원 목표·활동 설정" description="담당 목표와 역할을 나누고 활동을 관리하세요." />
     {(message || error) && <div className={error ? 'form-error' : 'form-success'}>{error || message}</div>}
 
     <div className="activity-manage-grid">

@@ -13,7 +13,6 @@ import {
   Plus,
   Save,
   Settings2,
-  Sparkles,
   Target,
   Trash2,
   UsersRound,
@@ -358,7 +357,7 @@ export function ActivityPage() {
       minRows: 6,
       content: <>
         <div className="dashboard-section-head"><div><h3>최근 활동 문서</h3></div><Link to={`/activity/${selectedId}/documents`}>전체 보기 <ChevronRight /></Link></div>
-        {recentDocuments.loading ? <div className="activity-tool-state">문서를 불러오는 중입니다.</div> : recentDocuments.error ? <div className="activity-tool-state error"><span>{recentDocuments.error}</span><button onClick={recentDocuments.reload}>다시 시도</button></div> : recentDocuments.data?.length ? <div className="activity-recent-document-list">{recentDocuments.data.slice(0, 5).map((document) => <Link to={`/activity/${selectedId}/documents`} key={document.document_id}><span><FileText /></span><div><strong>{document.title || '제목 없는 문서'}</strong><small>{document.editor_name || document.creator_name || '팀 문서'} · {new Date(document.updated_at).toLocaleDateString('ko-KR')}</small></div><ChevronRight /></Link>)}</div> : <div className="activity-tool-state"><FileText /><span>아직 문서가 없습니다.</span><Link to={`/activity/${selectedId}/documents`}>첫 문서 만들기</Link></div>}
+        {recentDocuments.loading ? <div className="activity-tool-state">문서를 불러오는 중입니다.</div> : recentDocuments.error ? <div className="activity-tool-state error"><span>{recentDocuments.error}</span><button onClick={recentDocuments.reload}>다시 시도</button></div> : recentDocuments.data?.length ? <div className="activity-recent-document-list">{recentDocuments.data.slice(0, 5).map((document) => <Link to={`/activity/${selectedId}/documents?document=${document.document_id}`} key={document.document_id}><span><FileText /></span><div><strong>{document.title || '제목 없는 문서'}</strong><small>{document.editor_name || document.creator_name || '팀 문서'} · {new Date(document.updated_at).toLocaleDateString('ko-KR')}</small></div><ChevronRight /></Link>)}</div> : <div className="activity-tool-state"><FileText /><span>아직 문서가 없습니다.</span><Link to={`/activity/${selectedId}/documents`}>첫 문서 만들기</Link></div>}
       </>,
     },
     {
@@ -402,18 +401,20 @@ export function ActivityPage() {
 
   return <div className="activity-workspace-page">
     <PageTitle title="나의 활동" description="참여 중인 활동의 목표와 기록을 관리하세요." />
+    <div className="button-row"><Link className="ghost-button" to="/activity/new"><Plus size={17} /> 우리 팀 활동 시작</Link><Link className="text-link" to="/mypage/archive">완료한 활동·기록</Link></div>
     {active.error && <div className="home-data-error"><div><strong>참여 중인 활동을 불러오지 못했습니다.</strong><span>{active.error}</span></div></div>}
     {Boolean(active.data?.length) && <section className="active-activity-picker">
       <div className="active-activity-picker-label"><span><BriefcaseBusiness /></span><div><strong>현재 참여 중인 활동 선택</strong><small>선택하면 목표·진행률·공지가 해당 활동 기준으로 바뀝니다.</small></div></div>
       <label><span className="sr-only">현재 활동</span><select value={selectedId || ''} onChange={(event) => setSelectedId(Number(event.target.value))}>{filteredTeams.map((team) => <option value={team.team_id} key={team.team_id}>{team.team_name} · {team.activity_category || (team.source_type === 'ENTERPRISE_CURRICULUM' ? '기업 커리큘럼' : '팀 활동')}</option>)}</select></label>
     </section>}
     {Boolean(active.data?.length) && <div className="activity-category-tabs" aria-label="활동 카테고리">{categories.map((item) => <button className={category === item ? 'active' : ''} onClick={() => setCategory(item)} key={item}>{item}<span>{item === '전체' ? active.data?.length : active.data?.filter((team) => (team.activity_category || (team.source_type === 'ENTERPRISE_CURRICULUM' ? '기업 커리큘럼' : '팀 활동')) === item).length}</span></button>)}</div>}
-    {!active.data?.length ? <section className="activity-empty-panel"><Sparkles /><h2>진행 중인 활동이 없습니다</h2><p>공모전 팀에 참여하거나 기업 커리큘럼을 내 활동으로 추가해보세요.</p><a className="primary-button" href="/curriculum">기업 커리큘럼 둘러보기</a></section> : <div className="workspace-layout">
+    {!active.data?.length ? <section className="activity-empty-panel"><UsersRound /><h2>우리 팀의 첫 활동을 시작해보세요</h2><p>이미 모인 팀은 바로 시작하고, 함께할 사람이 필요하면 팀을 찾아보세요.</p><div className="button-row"><Link className="primary-button" to="/activity/new">우리 팀으로 시작</Link><Link className="ghost-button" to="/matching">함께할 팀 찾기</Link><Link className="text-link" to="/curriculum">커리큘럼으로 시작</Link></div></section> : <div className="workspace-layout">
 
       <div className="workspace-main">
+        <section className="journey-launch"><div><h2>함께한 작업을 내 경험으로</h2><p>담당 작업에 문서·결과물을 연결하면 내 포트폴리오에 기록이 쌓입니다.</p></div><div className="button-row"><Link className="primary-button" to={`/activity/${selectedId}/work`}>공동 작업·기여 기록</Link><Link className="ghost-button" to={`/activity/${selectedId}/portfolio`}>내 포트폴리오</Link></div></section>
         <section className="workspace-hero">
           <div className="workspace-title-row">
-            <div><span className={`source-pill ${selected?.source_type === 'ENTERPRISE_CURRICULUM' ? 'enterprise' : ''}`}>{selected?.source_type === 'ENTERPRISE_CURRICULUM' ? '기업 커리큘럼' : '공모전 활동'} · {selected?.participation_mode === 'PERSONAL' ? '개인' : '팀'}</span><h2>{selected?.team_name}</h2><p>{selected?.part || '역할 설정 전'} · {selected?.due_date ? `${new Date(selected.due_date).toLocaleDateString('ko-KR')}까지` : '종료일 미정'}</p></div>
+            <div><span className={`source-pill ${selected?.source_type === 'ENTERPRISE_CURRICULUM' ? 'enterprise' : ''}`}>{selected?.source_type === 'ENTERPRISE_CURRICULUM' ? '기업 커리큘럼' : selected?.source_type === 'USER_CREATED' ? '팀 프로젝트' : '공모전 활동'} · {selected?.participation_mode === 'PERSONAL' ? '개인' : '팀'}</span><h2>{selected?.team_name}</h2><p>{selected?.part || '역할 설정 전'} · {selected?.due_date ? `${new Date(selected.due_date).toLocaleDateString('ko-KR')}까지` : '종료일 미정'}</p></div>
             <div className="workspace-people"><span>{selected?.participation_mode === 'PERSONAL' ? <Target /> : <UsersRound />}</span><div><strong>{selected?.participation_mode === 'PERSONAL' ? '개인 활동' : '팀 활동'}</strong><small>{selected?.visibility === 'RECRUITING' ? '팀원 모집 중' : '실행 중'}</small></div></div>
           </div>
           <div className="workspace-manage-row"><span>선택한 활동의 목표와 팀 문서를 한곳에서 관리하세요.</span><div><Link to={`/activity/${selectedId}/documents`}><FileText /> 활동 문서</Link><Link to={`/activity/${selectedId}/manage`}><UsersRound /> {selected?.participation_mode === 'PERSONAL' ? '목표·활동 설정' : '팀원 목표·활동 설정'}</Link></div></div>

@@ -293,25 +293,13 @@ const archiveExpiredTeams = async (db) => {
      FROM teams t
      LEFT JOIN team_recruitments tr ON tr.recruitment_id = t.recruitment_id
      WHERE t.status <> 'ARCHIVED'
-       AND (
-         t.activity_status = 'COMPLETED'
-         OR (t.due_date IS NOT NULL AND t.due_date < CURDATE())
-         OR (
-           t.due_date IS NULL
-           AND tr.activity_period REGEXP '^[0-9]+주$'
-           AND DATE_ADD(
-             DATE(t.created_at),
-             INTERVAL CAST(REGEXP_SUBSTR(tr.activity_period, '[0-9]+') AS UNSIGNED) WEEK
-           ) < CURDATE()
-         )
-       )
+       AND t.activity_status = 'COMPLETED'
      ORDER BY t.team_id`,
   );
 
   const results = [];
   for (const team of teams) {
-    const reason = team.activity_status === 'COMPLETED' ? 'AUTO_COMPLETED' : 'PERIOD_EXPIRED';
-    results.push(await archiveTeam(db, team.team_id, reason));
+    results.push(await archiveTeam(db, team.team_id, 'AUTO_COMPLETED'));
   }
   return results;
 };

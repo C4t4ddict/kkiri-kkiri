@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import remarkGfm from 'remark-gfm';
 import { ApiError, api } from '../shared/api/client';
 import type { ActivityDocument, TeamSummary } from '../shared/types/domain';
@@ -118,6 +118,8 @@ function SafeMarkdownLink({ href, children }: React.ComponentPropsWithoutRef<'a'
 
 export function ActivityDocumentsPage() {
   const { teamId: teamIdParam } = useParams();
+  const [searchParams] = useSearchParams();
+  const requestedDocumentId = Number(searchParams.get('document')) || null;
   const teamId = Number(teamIdParam);
   const navigate = useNavigate();
   const [team, setTeam] = useState<TeamSummary | null>(null);
@@ -227,14 +229,14 @@ export function ActivityDocumentsPage() {
     const requestId = ++documentRequestRef.current;
     try {
       const [teams, result] = await Promise.all([
-        api<TeamSummary[]>('/my-teams'),
+        api<TeamSummary[]>('/my-teams?include=all'),
         api<ApiDocument[]>(`/teams/${teamId}/documents`),
       ]);
       if (!isCurrentGeneration(context) || requestId !== documentRequestRef.current) return;
       let nextDocuments = result.map(normalizeDocument);
       setTeam(teams.find((item) => item.team_id === teamId) ?? null);
-      const nextId = preferredId ?? selectedIdRef.current;
-      const selectedMeta = nextDocuments.find((item) => item.document_id === nextId) ?? nextDocuments[0] ?? null;
+      const nextId = preferredId ?? selectedIdRef.current ?? requestedDocumentId;
+      const selectedMeta = nextDocuments.find((item) => item.document_id === nextId) ?? (nextId ? { document_id: nextId } : nextDocuments[0] ?? null);
       if (selectedMeta) {
         const detail = normalizeDocument(await api<ApiDocument>(`/teams/${teamId}/documents/${selectedMeta.document_id}`));
         if (!isCurrentGeneration(context) || requestId !== documentRequestRef.current) return;
@@ -252,7 +254,7 @@ export function ActivityDocumentsPage() {
     } finally {
       if (isCurrentGeneration(context) && requestId === documentRequestRef.current) setLoading(false);
     }
-  }, [isCurrentGeneration, openDocument, replaceDocuments, teamId]);
+  }, [isCurrentGeneration, openDocument, replaceDocuments, teamId, requestedDocumentId]);
 
   // 팀이 바뀔 때만 새 목록과 선택 문서를 가져옵니다.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -673,7 +675,7 @@ export function ActivityDocumentsPage() {
   return <div className="activity-documents-page">
     <header className="document-page-header">
       <div>
-        <Link className="back-link" to={`/activity?team=${teamId}`}><ArrowLeft /> 활동으로 돌아가기</Link>
+        <Link className="back-link" to={`/activity/${teamId}/work`}><ArrowLeft /> 팀 활동으로 돌아가기</Link>
         <span className="eyebrow">ACTIVITY DOCUMENTS</span>
         <h1>{team?.team_name || '활동 문서'}</h1>
         <p>아이디어, 회의록, 조사 자료를 Markdown으로 함께 작성하고 활동별로 보관하세요.</p>
@@ -682,6 +684,7 @@ export function ActivityDocumentsPage() {
         {creating ? <LoaderCircle className="spin" /> : <FilePlus2 />} 새 문서
       </button>
     </header>
+    <nav className="journey-nav" aria-label="문서와 연결된 작업"><Link to={`/activity/${teamId}/work?document=${selectedId || ''}#journey-new-task`}>이 문서에서 할 일 만들기</Link><Link to={`/activity/${teamId}/portfolio`}>내 기록·포트폴리오</Link></nav>
 
     {pageError && <div className="document-inline-alert error" role="alert"><CloudOff /><span>{pageError}</span><button type="button" onClick={() => { retryLoadDocuments(); }} disabled={creating}>다시 시도</button></div>}
 

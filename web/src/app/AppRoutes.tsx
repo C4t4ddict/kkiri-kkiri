@@ -25,10 +25,16 @@ import { SearchResultsPage } from '../pages/SearchResultsPage';
 import { PageState } from '../shared/ui/PageState';
 import { useAuth } from './AuthContext';
 import { AppShell } from './AppShell';
+import '../pages/journey.css';
 
 const ActivityDocumentsPage = lazy(() => import('../pages/ActivityDocumentsPage')
   .then((module) => ({ default: module.ActivityDocumentsPage })));
 const CalendarPage = lazy(() => import('../pages/CalendarPage').then(module => ({ default: module.CalendarPage })));
+const JourneyWorkspacePage = lazy(() => import('../pages/JourneyPages').then(module => ({ default: module.JourneyWorkspacePage })));
+const JourneyPortfolioPage = lazy(() => import('../pages/JourneyPages').then(module => ({ default: module.JourneyPortfolioPage })));
+const NewTeamPage = lazy(() => import('../pages/JourneyPages').then(module => ({ default: module.NewTeamPage })));
+const JoinTeamPage = lazy(() => import('../pages/JourneyPages').then(module => ({ default: module.JoinTeamPage })));
+const PublicPortfolioPage = lazy(() => import('../pages/JourneyPages').then(module => ({ default: module.PublicPortfolioPage })));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -46,6 +52,8 @@ export function AppRoutes() {
     <Route path="/login" element={<LoginPage />} />
     <Route path="/register" element={<RegisterPage />} />
     <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+    <Route path="/join/:token" element={<Suspense fallback={<PageState loading />}><JoinTeamPage /></Suspense>} />
+    <Route path="/portfolio/shared/:token" element={<Suspense fallback={<PageState loading />}><PublicPortfolioPage /></Suspense>} />
     <Route element={<AppShell />}>
       <Route index element={<HomePage />} />
       <Route path="search" element={<SearchResultsPage />} />
@@ -61,6 +69,9 @@ export function AppRoutes() {
       <Route path="matching/:id" element={<MatchingDetailPage />} />
       <Route path="matching/:id/edit" element={<RequireAuth><RecruitmentEditorPage /></RequireAuth>} />
       <Route path="activity" element={<RequireAuth><ActivityPage /></RequireAuth>} />
+      <Route path="activity/new" element={<RequireAuth><Suspense fallback={<PageState loading />}><NewTeamPage /></Suspense></RequireAuth>} />
+      <Route path="activity/:teamId/work" element={<RequireAuth><Suspense fallback={<PageState loading />}><JourneyWorkspacePage /></Suspense></RequireAuth>} />
+      <Route path="activity/:teamId/portfolio" element={<RequireAuth><Suspense fallback={<PageState loading />}><JourneyPortfolioPage /></Suspense></RequireAuth>} />
       <Route path="calendar" element={<RequireAuth><Suspense fallback={<PageState loading />}><CalendarPage /></Suspense></RequireAuth>} />
       <Route path="activity/:teamId/manage" element={<RequireAuth><ActivityManagePage /></RequireAuth>} />
       <Route path="activity/:teamId/documents" element={<RequireAuth><Suspense fallback={<PageState loading />}><ActivityDocumentsPage /></Suspense></RequireAuth>} />

@@ -9,6 +9,8 @@ export function LoginPage() {
   const { login, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const requestedDestination = location.state?.from;
+  const destination = typeof requestedDestination === 'string' && requestedDestination.startsWith('/') && !requestedDestination.startsWith('//') ? requestedDestination : '/';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -24,7 +26,6 @@ export function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
       login(result.token, result.user);
-      const destination = typeof location.state?.from === 'string' ? location.state.from : '/';
       navigate(destination, { replace: true });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '로그인에 실패했습니다');
@@ -33,7 +34,7 @@ export function LoginPage() {
     }
   };
 
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to={destination} replace />;
 
   const asciiFrames = [
     String.raw`       .                 *

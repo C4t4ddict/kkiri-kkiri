@@ -1,6 +1,6 @@
 import { BellRing, Check, MailOpen, UsersRound } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../shared/api/client';
 import { useAsync } from '../shared/hooks/useAsync';
 import type { NotificationItem } from '../shared/types/domain';
@@ -20,6 +20,7 @@ const relativeTime = (value: string) => {
 };
 
 export function NotificationsPage() {
+  const navigate = useNavigate();
   const result = useAsync(() => api<NotificationItem[]>('/notifications'), []);
   const [responding, setResponding] = useState<number | null>(null);
   const [message, setMessage] = useState('');
@@ -31,7 +32,8 @@ export function NotificationsPage() {
   const respond = async (offerId: number, decision: 'ACCEPTED' | 'REJECTED') => {
     setResponding(offerId); setMessage('');
     try {
-      await api(`/api/team-join-offers/${offerId}/respond`, { method: 'PUT', body: JSON.stringify({ decision }) });
+      const response = await api<{ team_id?: number }>(`/api/team-join-offers/${offerId}/respond`, { method: 'PUT', body: JSON.stringify({ decision }) });
+      if (decision === 'ACCEPTED' && response.team_id) { navigate(`/activity/${response.team_id}/work`); return; }
       setMessage(decision === 'ACCEPTED' ? '팀에 합류했습니다. 나의 활동에서 확인하세요.' : '합류 제안을 거절했습니다.');
       await result.reload();
     } catch (reason) { setMessage(reason instanceof Error ? reason.message : '합류 제안을 처리하지 못했습니다.'); }
@@ -47,7 +49,7 @@ export function NotificationsPage() {
       <div className="notification-copy"><div className="notification-meta"><strong>{channel(item.type)}</strong><span>{relativeTime(item.created_at)}</span></div><h3>{item.title}</h3><p>{item.content}</p>
         {item.type === 'team_invitation' && item.offer_id && item.offer_status === 'PENDING' && <div className="button-row compact"><button className="ghost-button" disabled={responding === item.offer_id} onClick={() => respond(item.offer_id!, 'REJECTED')}>거절</button><button className="primary-button" disabled={responding === item.offer_id} onClick={() => respond(item.offer_id!, 'ACCEPTED')}>합류하기</button></div>}
         {item.type === 'team_invitation' && item.offer_status && item.offer_status !== 'PENDING' && <span className="notification-result"><Check />{item.offer_status === 'ACCEPTED' ? '합류 완료' : '처리 완료'}</span>}
-        {item.team_id && <Link className="text-link" to={`/activity?team=${item.team_id}`}>활동 바로가기</Link>}
+        {item.team_id && <Link className="text-link" to={`/activity/${item.team_id}/work`}>활동 바로가기</Link>}
       </div>
     </article>)}</div>
   </>;

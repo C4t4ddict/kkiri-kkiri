@@ -1,5 +1,6 @@
 import { Frown, Meh, MessageSquareText, Smile, Star, UsersRound } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../app/AuthContext';
 import { api } from '../shared/api/client';
 import { useAsync } from '../shared/hooks/useAsync';
@@ -32,14 +33,15 @@ const ratingFrom = (review?: ExistingReview | null): Rating | null => review?.re
 
 export function EvaluationsPage() {
   const { user } = useAuth();
-  const [teamId, setTeamId] = useState<number | null>(null);
+  const [params] = useSearchParams();
+  const [teamId, setTeamId] = useState<number | null>(() => Number(params.get('team')) || null);
   const [memberId, setMemberId] = useState<number | null>(null);
   const [rating, setRating] = useState<Rating | null>(null);
   const [comment, setComment] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const teams = useAsync(() => api<TeamSummary[]>('/my-teams'), []);
+  const teams = useAsync(() => api<TeamSummary[]>('/my-teams?include=all'), []);
   useEffect(() => {
     if (!teamId && teams.data?.length) {
       setTeamId(teams.data.find((team) => team.participation_mode === 'TEAM')?.team_id || teams.data[0].team_id);
@@ -110,9 +112,9 @@ export function EvaluationsPage() {
     <div className="evaluation-page-grid">
       <section className="content-card teammate-review-card">
         <div className="dashboard-section-head"><div><h3>팀원 평가</h3></div><UsersRound /></div>
-        {!teams.data?.length ? <PageState empty="평가할 진행 활동이 없습니다." /> : <form onSubmit={submit}>
-          <label>활동 선택<select value={teamId || ''} onChange={(event) => setTeamId(Number(event.target.value))}>{teams.data.map((team) => <option value={team.team_id} key={team.team_id}>{team.team_name}</option>)}</select></label>
-          <label>팀원 선택<select value={memberId || ''} onChange={(event) => setMemberId(Number(event.target.value))}>{(members.data || []).filter((member) => member.user_id !== user?.id).map((member) => <option value={member.user_id} key={member.user_id}>{member.name} · {member.part || '역할 미정'}</option>)}</select></label>
+        {teams.error ? <PageState error={teams.error} /> : !teams.data?.length ? <PageState empty="함께 참여한 팀 활동이 없습니다." /> : <form onSubmit={submit}>
+          <label>활동 선택<select aria-label="활동 선택" value={teamId || ''} onChange={(event) => setTeamId(Number(event.target.value))}>{teams.data.map((team) => <option value={team.team_id} key={team.team_id}>{team.team_name}{team.activity_status === 'COMPLETED' ? ' · 완료' : ''}</option>)}</select></label>
+          <label>팀원 선택<select aria-label="팀원 선택" value={memberId || ''} onChange={(event) => setMemberId(Number(event.target.value))}>{(members.data || []).filter((member) => member.user_id !== user?.id).map((member) => <option value={member.user_id} key={member.user_id}>{member.name} · {member.part || '역할 미정'}</option>)}</select></label>
           {memberId ? <><div className="rating-options">{ratingOptions.map(({ value, label, icon: Icon }) => <button type="button" className={rating === value ? 'active' : ''} onClick={() => setRating(value)} key={value}><Icon /><strong>{label}</strong></button>)}</div><label>평가 코멘트<textarea rows={6} maxLength={500} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="함께 활동하며 좋았던 점과 도움이 될 의견을 남겨주세요." /></label><button className="primary-button" disabled={!rating || !comment.trim()}>{existing.data?.existingReview ? '평가 수정' : '평가 저장'}</button></> : <PageState empty="평가할 다른 팀원이 없습니다." />}
           {(message || error) && <div className={error ? 'form-error' : 'form-success'}>{error || message}</div>}
         </form>}
