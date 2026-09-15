@@ -5,6 +5,7 @@ import { useAuth } from '../app/AuthContext';
 import { api } from '../shared/api/client';
 import type { Curriculum } from '../shared/types/domain';
 import { PageTitle } from '../shared/ui/PageTitle';
+import { CurriculumImage } from '../features/curricula/CurriculumImage';
 
 type DraftNode = {
   id: string;
@@ -36,6 +37,9 @@ export function CurriculumStudioPage() {
   ]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [cover, setCover] = useState('');
+  const [logo, setLogo] = useState('');
+  const [uploading, setUploading] = useState(false);
   if (!user?.is_admin) return <Navigate to="/" replace />;
 
   const updateNode = (id: string, patch: Partial<DraftNode>) => {
@@ -51,6 +55,8 @@ export function CurriculumStudioPage() {
         method: 'POST',
         body: JSON.stringify({
           organization_name: form.get('organization_name'),
+          organization_logo_url: logo,
+          cover_image_url: cover,
           brand_color: form.get('brand_color'),
           title: form.get('title'),
           role_title: form.get('role_title'),
@@ -78,6 +84,17 @@ export function CurriculumStudioPage() {
     }
   };
 
+  const uploadImage = async (file: File | undefined, setImage: (url: string) => void) => {
+    if (!file) return;
+    setUploading(true); setError('');
+    try {
+      const data = new FormData(); data.append('image', file);
+      const result = await api<{ imageUrl: string }>('/api/admin/curricula/images', { method: 'POST', body: data });
+      setImage(result.imageUrl);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : '이미지를 업로드하지 못했습니다.'); }
+    finally { setUploading(false); }
+  };
+
   return <>
     <PageTitle title="기업 커리큘럼 만들기" description="기업의 기술 요구를 사용자가 실행할 수 있는 월간·주간·일일 목표로 구성하세요." />
     <form className="curriculum-studio" onSubmit={submit}>
@@ -87,6 +104,7 @@ export function CurriculumStudioPage() {
           <div className="studio-grid two">
             <label>기업명<input name="organization_name" placeholder="예: 끼리끼리 테크 파트너" required /></label>
             <label>브랜드 컬러<input name="brand_color" type="color" defaultValue="#6C5CE7" /></label>
+            <div className="wide studio-image-fields"><CurriculumImage cover={cover} logo={logo} name="기업 이미지 미리보기" /><div><label>기업 대표 이미지 URL<input type="url" value={cover} onChange={event => setCover(event.target.value)} placeholder="https://…" /></label><label>대표 이미지 파일<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={event => { uploadImage(event.target.files?.[0], setCover); event.target.value = ''; }} /></label><label>기업 로고 URL<input type="url" value={logo} onChange={event => setLogo(event.target.value)} placeholder="https://…" /></label><label>로고 파일<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={event => { uploadImage(event.target.files?.[0], setLogo); event.target.value = ''; }} /></label><small>사용 권한이 있는 JPG·PNG·WEBP를 등록해주세요. 대표 이미지는 카드에, 로고는 기업명 옆에 표시됩니다.</small></div></div>
             <label className="wide">커리큘럼 제목<input name="title" placeholder="예: Kubernetes 실무 로드맵" required /></label>
             <label>대상 직무<input name="role_title" placeholder="Cloud Platform Engineer" /></label>
             <label>난이도<select name="difficulty" defaultValue="BEGINNER"><option value="BEGINNER">입문</option><option value="INTERMEDIATE">중급</option><option value="ADVANCED">심화</option></select></label>
@@ -120,7 +138,7 @@ export function CurriculumStudioPage() {
       <aside className="studio-aside">
         <section><h3>배포 전 확인</h3><ul><li><span>{nodes.length > 0 && <Save />}</span>최소 1개 이상의 목표</li><li><span>{nodes.some((node) => node.level === 'MONTHLY') && <Save />}</span>월간 마일스톤</li><li><span>{nodes.some((node) => node.level === 'DAILY') && <Save />}</span>실행 가능한 일일 목표</li></ul><label className="publish-check"><input type="checkbox" name="publish_now" defaultChecked /><span><strong>바로 공개하기</strong><small>저장 즉시 사용자가 탐색할 수 있습니다.</small></span></label></section>
         {error && <div className="form-error">{error}</div>}
-        <button className="primary-button studio-submit" disabled={saving}>{saving ? '저장 중…' : '커리큘럼 저장'} <ArrowRight /></button>
+        <button className="primary-button studio-submit" disabled={saving || uploading}>{uploading ? '이미지 업로드 중…' : saving ? '저장 중…' : '커리큘럼 저장'} <ArrowRight /></button>
       </aside>
     </form>
   </>;

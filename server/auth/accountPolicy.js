@@ -2,6 +2,12 @@ const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
 
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
 
+const isStrongPassword = (value) => {
+  if (typeof value !== 'string' || value.length < 10 || value.length > 128) return false;
+  if (Buffer.byteLength(value, 'utf8') > 72) return false;
+  return /\p{L}/u.test(value) && /\p{N}/u.test(value);
+};
+
 const getEmailDomain = (value) => {
   const email = normalizeEmail(value);
   return isValidEmail(email) ? email.split('@').pop() : null;
@@ -36,6 +42,7 @@ module.exports = {
   getAccountIdentity,
   getEmailDomain,
   getSchoolDomain,
+  isStrongPassword,
   isValidEmail,
   normalizeEmail,
 };

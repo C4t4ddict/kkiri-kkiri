@@ -1,18 +1,8 @@
-import type { User } from '../types/domain';
+export const getStoredToken = () => localStorage.getItem('kkiri_token');
 
-export const getStoredSession = () => {
-  try {
-    const token = localStorage.getItem('kkiri_token');
-    const user = JSON.parse(localStorage.getItem('kkiri_user') || 'null') as User | null;
-    return token && user ? { token, user } : null;
-  } catch {
-    return null;
-  }
-};
-
-export const setStoredSession = (token: string, user: User) => {
+export const setStoredSession = (token: string) => {
   localStorage.setItem('kkiri_token', token);
-  localStorage.setItem('kkiri_user', JSON.stringify(user));
+  localStorage.removeItem('kkiri_user');
 };
 
 export const clearStoredSession = () => {

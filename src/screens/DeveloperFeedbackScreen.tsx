@@ -159,7 +159,7 @@ const styles = StyleSheet.create({
   historyCard: { marginBottom: 10, padding: 15, borderRadius: 15, backgroundColor: colors.inputBackground },
   historyMeta: { color: colors.primary, fontSize: 11, fontWeight: '800' },
   historyContent: { marginTop: 7, color: colors.textMain, fontSize: 13, lineHeight: 19 },
-  replyCard: { marginTop: 11, padding: 12, borderLeftWidth: 3, borderLeftColor: colors.primary, borderRadius: 10, backgroundColor: '#FFFFFF' },
+  replyCard: { marginTop: 11, padding: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 10, backgroundColor: '#FFFFFF' },
   replyLabel: { color: colors.primary, fontSize: 10, fontWeight: '900' },
   replyContent: { marginTop: 6, color: colors.textMain, fontSize: 12, lineHeight: 18 },
 });

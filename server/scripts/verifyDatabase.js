@@ -16,6 +16,8 @@ const requiredTables = [
   'activity_documents',
   'user_friendships',
   'direct_messages',
+  'reviews',
+  'user_notification_preferences',
 ];
 
 const verifyImage = async (activity) => {
@@ -117,9 +119,23 @@ const run = async () => {
         SUM(activity_status = 'IN_PROGRESS' AND status <> 'ARCHIVED') AS active_teams,
         (SELECT COUNT(*) FROM team_members) AS memberships,
         (SELECT COUNT(*) FROM team_members member LEFT JOIN teams team ON team.team_id = member.team_id WHERE team.team_id IS NULL) AS orphan_memberships,
+        (SELECT COUNT(*) FROM team_members member LEFT JOIN users user_record ON user_record.id = member.user_id WHERE user_record.id IS NULL) AS orphan_member_users,
         (SELECT COUNT(*) FROM todos todo LEFT JOIN teams team ON team.team_id = todo.team_id WHERE team.team_id IS NULL) AS orphan_todos,
         (SELECT COUNT(*) FROM team_issues issue_item LEFT JOIN teams team ON team.team_id = issue_item.team_id WHERE team.team_id IS NULL) AS orphan_issues,
         ${orphanDocumentsSelect},
+        (SELECT COUNT(*)
+         FROM reviews review_item
+         LEFT JOIN users reviewer ON reviewer.id = review_item.reviewer_id
+         LEFT JOIN users reviewee ON reviewee.id = review_item.reviewee_id
+         LEFT JOIN teams review_team ON review_team.team_id = review_item.related_team_id
+         LEFT JOIN team_members reviewer_member
+           ON reviewer_member.team_id = review_item.related_team_id AND reviewer_member.user_id = review_item.reviewer_id
+         LEFT JOIN team_members reviewee_member
+           ON reviewee_member.team_id = review_item.related_team_id AND reviewee_member.user_id = review_item.reviewee_id
+         WHERE reviewer.id IS NULL OR reviewee.id IS NULL OR review_team.team_id IS NULL
+           OR reviewer_member.user_id IS NULL OR reviewee_member.user_id IS NULL
+           OR review_item.reviewer_id = review_item.reviewee_id
+           OR (review_item.review_high + review_item.review_medium + review_item.review_low) <> 1) AS invalid_reviews,
         (SELECT COUNT(*)
          FROM teams sourced_team
          JOIN team_members sourced_member ON sourced_member.team_id = sourced_team.team_id AND sourced_member.user_id = 1
@@ -153,9 +169,11 @@ const run = async () => {
       unique_sources: Number(duplicateSources.duplicate_groups || 0) === 0,
       raw_snapshots: Number(missingRawItems.missing_raw_items || 0) === 0,
       relationships: Number(teamStats.orphan_memberships || 0) === 0
+        && Number(teamStats.orphan_member_users || 0) === 0
         && Number(teamStats.orphan_todos || 0) === 0
         && Number(teamStats.orphan_issues || 0) === 0
-        && Number(teamStats.orphan_documents || 0) === 0,
+        && Number(teamStats.orphan_documents || 0) === 0
+        && Number(teamStats.invalid_reviews || 0) === 0,
       kim_sourced_team: Number(teamStats.kim_sourced_teams || 0) > 0,
       crawler: crawler?.status === 'completed' && Number(crawler?.error_count || 0) === 0,
       images: failedImages.length === 0 && Number(activityStats.sourced_without_images || 0) === 0,
@@ -177,9 +195,11 @@ const run = async () => {
         active: Number(teamStats.active_teams || 0),
         memberships: Number(teamStats.memberships || 0),
         orphan_memberships: Number(teamStats.orphan_memberships || 0),
+        orphan_member_users: Number(teamStats.orphan_member_users || 0),
         orphan_todos: Number(teamStats.orphan_todos || 0),
         orphan_issues: Number(teamStats.orphan_issues || 0),
         orphan_documents: Number(teamStats.orphan_documents || 0),
+        invalid_reviews: Number(teamStats.invalid_reviews || 0),
         kim_sourced_teams: Number(teamStats.kim_sourced_teams || 0),
       },
       crawler,

@@ -71,11 +71,23 @@ const createDefaultLayout = (tools: ActivityToolDefinition[]): ToolLayout => ({
   }])),
 });
 
+const legacyDefaultOrder = ['weekly', 'goals', 'notices', 'heatmap', 'documents', 'deadline', 'shortcuts'];
+const legacyDefaultSizes: Record<string, [number, number]> = {
+  weekly: [12, 7], goals: [6, 10], notices: [6, 10], heatmap: [6, 8],
+  documents: [6, 8], deadline: [6, 7], shortcuts: [6, 7],
+};
+
 const normalizeLayout = (value: unknown, tools: ActivityToolDefinition[]): ToolLayout => {
   const defaults = createDefaultLayout(tools);
   if (!value || typeof value !== 'object') return defaults;
   const saved = value as Partial<ToolLayout>;
   const savedItems = saved.items && typeof saved.items === 'object' ? saved.items : {};
+  // 자동 저장된 예전 기본 배치만 갱신하고, 사용자가 편집한 배치는 유지합니다.
+  const untouchedLegacy = JSON.stringify(saved.order) === JSON.stringify(legacyDefaultOrder)
+    && legacyDefaultOrder.every(id => savedItems[id]?.visible === true
+      && savedItems[id]?.columns === legacyDefaultSizes[id][0]
+      && savedItems[id]?.rows === legacyDefaultSizes[id][1]);
+  if (untouchedLegacy) return defaults;
   const knownIds = new Set(tools.map((tool) => tool.id));
   const savedOrder = Array.isArray(saved.order)
     ? [...new Set(saved.order.filter((id): id is string => typeof id === 'string' && knownIds.has(id)))]
@@ -253,7 +265,7 @@ export function ActivityToolGrid({ userId, tools }: { userId?: number; tools: Ac
 
   return <section className={`activity-tools-section ${editing ? 'is-editing' : ''}`}>
     <header className="activity-tool-customizer">
-      <div><span><LayoutGrid /></span><div><strong>활동 도구</strong><small>{editing ? '손잡이로 이동하고 오른쪽 아래 모서리로 크기를 조절하세요.' : '내 작업 순서에 맞게 배치할 수 있습니다.'}</small></div></div>
+      <div><div><strong>활동 도구</strong>{editing && <small>손잡이로 이동 · 오른쪽 아래 모서리로 크기 조절</small>}</div></div>
       <div>
         {editing && <button type="button" className="activity-tool-reset" onClick={resetLayout}><RotateCcw /> 기본 배치</button>}
         <button type="button" className={`activity-tool-edit-toggle ${editing ? 'active' : ''}`} aria-pressed={editing} onClick={() => setEditing((current) => !current)}>
@@ -261,6 +273,8 @@ export function ActivityToolGrid({ userId, tools }: { userId?: number; tools: Ac
         </button>
       </div>
     </header>
+
+    {!editing && <nav className="activity-tool-index" aria-label="활동 도구 바로가기">{visibleTools.map(tool => <a key={tool.id} href={`#activity-tool-${tool.id}`}>{tool.title}</a>)}</nav>}
 
     {editing && <div className="activity-tool-catalog" aria-label="활동 도구 표시 설정">
       <span>도구 추가·숨김</span>
@@ -295,6 +309,8 @@ export function ActivityToolGrid({ userId, tools }: { userId?: number; tools: Ac
           '--tool-rows': placement.rows,
         } as CSSProperties;
         return <section
+          id={`activity-tool-${tool.id}`}
+          aria-label={tool.title}
           className={`${tool.className} activity-tool-card ${draggedId === tool.id ? 'is-dragging' : ''} ${dragOverId === tool.id ? 'is-drag-over' : ''}`}
           style={style}
           onDragOver={(event) => { if (editing && draggedId && draggedId !== tool.id) { event.preventDefault(); setDragOverId(tool.id); } }}

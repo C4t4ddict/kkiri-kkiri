@@ -5,6 +5,7 @@ import { useAsync } from '../shared/hooks/useAsync';
 import type { ApplicationTemplate } from '../shared/types/domain';
 import { PageState } from '../shared/ui/PageState';
 import { PageTitle } from '../shared/ui/PageTitle';
+import { ApplicationNavigation } from '../features/applications/ApplicationNavigation';
 
 export function TemplatesPage() {
   const result = useAsync(() => api<ApplicationTemplate[]>('/api/application-templates'), []);
@@ -28,6 +29,7 @@ export function TemplatesPage() {
   };
 
   return <>
+    <ApplicationNavigation />
     <div className="title-actions"><PageTitle title="지원서 관리" description="자주 사용하는 지원 내용을 저장하고 모집글에서 불러오세요." /><button className="primary-button compact" onClick={() => setEditing(null)}>새 템플릿</button></div>
     <PageState loading={result.loading} error={result.error} empty={!result.loading && !result.data?.length ? '첫 지원서 템플릿을 만들어보세요.' : undefined} />
     <div className="template-grid">{result.data?.map((template) => <article className="template-card" key={template.template_id}><div><h3>{template.title} {template.is_default && <span>기본</span>}</h3><p>{template.content}</p></div><div className="button-row"><button className="ghost-button" onClick={() => setEditing(template)}>수정</button><button className="text-danger" onClick={() => setPendingDelete(template)}>삭제</button></div></article>)}</div>

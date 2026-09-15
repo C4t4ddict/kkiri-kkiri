@@ -1,0 +1,73 @@
+.learning-login {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  color: var(--theme-text, #101828);
+  background: var(--theme-canvas, #f7f8fc);
+  font-family: var(--font-sans);
+}
+.learning-login-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 24px 48px;
+}
+.learning-login-wordmark { font-size: 26px; font-weight: 900; letter-spacing: -1.4px; white-space: nowrap; }
+.learning-login-header-actions { display: flex; align-items: center; gap: 24px; }
+.learning-login-header-actions > a { display: inline-flex; align-items: center; gap: 9px; min-height: 44px; font-size: 14px; color: var(--text-sub); }
+.learning-login-main { flex: 1; width: 100%; padding: 48px 24px 64px; }
+.learning-login-intro { text-align: center; margin: 0 auto 36px; }
+.learning-login-kicker { margin: 0 0 16px; color: var(--text-sub); font-size: 14px; font-weight: 500; letter-spacing: -.2px; }
+.learning-login-intro h1 { margin: 0; font-size: clamp(28px, 3.2vw, 42px); line-height: 1.5; letter-spacing: -1.8px; font-weight: 750; word-break: keep-all; }
+.learning-login-intro h1 span { color: var(--theme-accent, #6846de); }
+.learning-login-description { margin: 18px 0 0; font-size: 15px; color: var(--text-sub); line-height: 1.85; word-break: keep-all; }
+.learning-login-form { width: min(100%, 400px); margin: 0 auto; }
+.learning-login-form label { display: block; font-size: 14px; font-weight: 600; }
+.learning-login-form input { display: block; width: 100%; min-height: 52px; margin-top: 9px; padding: 13px 15px; border: 1px solid var(--theme-border, #d4d8e2); border-radius: 8px; background: var(--theme-surface, #fff); color: inherit; font: 400 16px/1.5 var(--font-sans); outline: none; }
+.learning-login-form input::placeholder { color: var(--theme-text-muted, #7b8495); }
+.learning-login-form input:focus { border-color: var(--theme-accent, #6846de); outline: 3px solid var(--theme-accent-soft, #ece6ff); outline-offset: 1px; }
+.learning-login-password-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 22px; }
+.learning-login-password-label a { color: var(--text-sub); font-size: 13px; }
+.learning-login-password { position: relative; }
+.learning-login-password input { padding-right: 52px; }
+.learning-login-password button { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 6px; background: transparent; color: var(--text-sub); cursor: pointer; }
+.learning-login-password button:hover { background: var(--theme-surface-subtle, #f2f3f8); }
+.learning-login-submit { display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; min-height: 52px; margin-top: 24px; padding: 13px 18px; border: 0; border-radius: 8px; background: var(--primary); color: #fff; font: 600 16px/1.5 var(--font-sans); cursor: pointer; }
+.learning-login-submit:hover:not(:disabled) { background: #6846de; }
+.learning-login-submit:disabled { cursor: wait; opacity: .7; }
+.learning-login-signup { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 24px 0 0; color: var(--text-sub); font-size: 14px; }
+.learning-login-signup a { color: var(--theme-accent, #6846de); font-weight: 600; }
+.learning-login-error { margin: 16px 0 0; color: var(--theme-danger, #b42318); font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
+.learning-login-account-note { margin: 27px 0 0; color: var(--text-sub); text-align: center; font-size: 12px; line-height: 1.8; }
+.learning-login-footer { width: min(100% - 96px, 960px); margin: 0 auto; padding: 28px 0 32px; border-top: 1px solid var(--border); }
+.learning-login-footer ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; padding: 0; margin: 0; list-style: none; }
+.learning-login-footer li { display: flex; justify-content: center; gap: 13px; }
+.learning-login-footer li > span { padding-top: 2px; font-size: 12px; color: var(--theme-accent, #6846de); font-weight: 600; }
+.learning-login-footer strong { font-size: 14px; font-weight: 600; }
+.learning-login-footer p { margin: 7px 0 0; font-size: 12px; color: var(--text-sub); line-height: 1.8; word-break: keep-all; }
+.learning-login a:hover { text-decoration: underline; text-underline-offset: 4px; }
+.learning-login :is(a, button):focus-visible { outline: 2px solid var(--theme-accent, #6846de); outline-offset: 4px; }
+@media (max-width: 720px) {
+  .learning-login-header { padding: 16px 20px; }
+  .learning-login-wordmark { font-size: 23px; }
+  .learning-login-header-actions { gap: 12px; }
+  .learning-login-header-actions > a { display: none; }
+  .learning-login-header .theme-toggle-label { display: none; }
+  .learning-login-main { padding: 38px 24px 44px; }
+  .learning-login-intro h1 { font-size: clamp(26px, 5.8vw, 34px); letter-spacing: -1.2px; }
+  .learning-login-description { font-size: 14px; }
+  .learning-login-kicker { font-size: 12px; }
+  .learning-login-footer { width: calc(100% - 48px); padding: 24px 0; }
+  .learning-login-footer ol { grid-template-columns: 1fr; gap: 18px; }
+  .learning-login-footer li { justify-content: flex-start; }
+  .learning-login-footer li > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+  .learning-login-footer strong { font-size: 13px; }
+  .learning-login-footer p { margin: 0; }
+}
+@media (max-width: 360px) {
+  .learning-login-main { padding-inline: 20px; }
+  .learning-login-break { display: none; }
+  .learning-login-description { max-width: 260px; margin-inline: auto; }
+}

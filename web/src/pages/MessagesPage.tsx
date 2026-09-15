@@ -1,6 +1,6 @@
 import { Check, MessageCircle, Search, Send, UserPlus, UsersRound, X } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../app/AuthContext';
 import { api } from '../shared/api/client';
 import { useAsync } from '../shared/hooks/useAsync';
@@ -12,7 +12,8 @@ const timeLabel = (value?: string | null) => value
   ? new Date(value).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   : '';
 
-export function MessagesPage() {
+export function MessagesPage({ friendsOnly = false }: { friendsOnly?: boolean }) {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [params, setParams] = useSearchParams();
   const selectedFriendId = Number(params.get('friend') || 0);
@@ -28,10 +29,10 @@ export function MessagesPage() {
     : Promise.resolve<MessageThread | null>(null), [selectedFriendId]);
 
   useEffect(() => {
-    if (!selectedFriendId && conversations.data?.[0]) {
+    if (!friendsOnly && !selectedFriendId && conversations.data?.[0]) {
       setParams({ friend: String(conversations.data[0].friend_id) }, { replace: true });
     }
-  }, [conversations.data, selectedFriendId, setParams]);
+  }, [conversations.data, selectedFriendId, setParams, friendsOnly]);
 
   useEffect(() => {
     const term = query.trim();
@@ -88,23 +89,23 @@ export function MessagesPage() {
     }
   };
 
-  return <div className="messages-page">
-    <header className="messages-page-head"><h1>쪽지함</h1><p>친구와 활동 아이디어와 팀 소식을 편하게 나눠보세요.</p></header>
+  return <div className={`messages-page${friendsOnly ? " friends-page" : ""}`}>
+    <header className="messages-page-head"><h1>{friendsOnly ? "친구 목록" : "쪽지함"}</h1><p>{friendsOnly ? "함께할 친구를 찾고 친구 요청을 관리하세요." : "친구와 활동 아이디어와 팀 소식을 편하게 나눠보세요."}</p></header>
     {error && <div className="form-error">{error}</div>}
     <div className="messages-layout">
       <aside className="message-sidebar">
         <label className="message-friend-search"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="이름, 이메일로 친구 찾기" /></label>
         {query.trim().length >= 2 && <div className="friend-search-results"><strong>{searching ? '검색 중…' : '사용자 검색'}</strong>{searchResults.map((item) => <article key={item.user_id}><UserAvatar user={{ id: item.user_id, name: item.name, email: item.email, department: item.department, profile_picture: item.profile_picture }} /><div><b>{item.name}</b><small>{item.department || item.email}</small></div>{item.relationship === 'NONE' && <button onClick={() => requestFriend(item.user_id)} aria-label={`${item.name}님에게 친구 요청`}><UserPlus /></button>}{item.relationship === 'OUTGOING' && <em>요청됨</em>}{item.relationship === 'FRIEND' && <em>친구</em>}{item.relationship === 'INCOMING' && item.friendship_id && <span><button onClick={() => updateRequest(Number(item.friendship_id), 'ACCEPTED')}><Check /></button><button onClick={() => updateRequest(Number(item.friendship_id), 'REJECTED')}><X /></button></span>}</article>)}</div>}
         {Boolean(friends.data?.incoming.length) && <section className="friend-requests"><h2>받은 친구 요청 <span>{friends.data?.incoming.length}</span></h2>{friends.data?.incoming.map((item) => <article key={item.friendship_id}><UserAvatar user={{ id: item.user_id, name: item.name, email: item.email, department: item.department, profile_picture: item.profile_picture }} /><div><strong>{item.name}</strong><small>{item.department || item.email}</small></div><span><button onClick={() => updateRequest(item.friendship_id, 'ACCEPTED')} aria-label="수락"><Check /></button><button onClick={() => updateRequest(item.friendship_id, 'REJECTED')} aria-label="거절"><X /></button></span></article>)}</section>}
-        <section className="conversation-list"><h2>친구 쪽지</h2><PageState loading={conversations.loading} error={conversations.error} empty={!conversations.loading && !conversations.data?.length ? '친구를 추가하면 쪽지를 보낼 수 있어요.' : undefined} />{conversations.data?.map((item) => <button className={selectedFriendId === item.friend_id ? 'active' : ''} onClick={() => setParams({ friend: String(item.friend_id) })} key={item.friend_id}><UserAvatar user={{ id: item.friend_id, name: item.name, email: '', department: item.department, profile_picture: item.profile_picture }} /><div><strong>{item.name}</strong><p>{item.last_message || '새 대화를 시작해보세요'}</p></div><span><small>{timeLabel(item.last_message_at)}</small>{Boolean(item.unread_count) && <em>{item.unread_count}</em>}</span></button>)}</section>
+        {friendsOnly ? <section className="conversation-list"><h2>내 친구 {friends.data?.friends.length || 0}</h2><PageState loading={friends.loading} error={friends.error} empty={!friends.loading && !friends.data?.friends.length ? "아직 등록한 친구가 없습니다. 위에서 친구를 검색해보세요." : undefined} />{friends.data?.friends.map(item => <button key={item.user_id} onClick={() => navigate(`/messages?friend=${item.user_id}`)}><UserAvatar user={item} /><div><strong>{item.name}</strong><p>{item.department || item.email}</p></div><MessageCircle size={18} /></button>)}{Boolean(friends.data?.outgoing.length) && <><h2>보낸 친구 요청</h2>{friends.data?.outgoing.map(item => <p key={item.friendship_id}>{item.name} · 수락 대기</p>)}</>}</section> : <section className="conversation-list"><h2>친구 쪽지</h2><PageState loading={conversations.loading} error={conversations.error} empty={!conversations.loading && !conversations.data?.length ? '친구를 추가하면 쪽지를 보낼 수 있어요.' : undefined} />{conversations.data?.map((item) => <button className={selectedFriendId === item.friend_id ? 'active' : ''} onClick={() => setParams({ friend: String(item.friend_id) })} key={item.friend_id}><UserAvatar user={{ id: item.friend_id, name: item.name, email: '', department: item.department, profile_picture: item.profile_picture }} /><div><strong>{item.name}</strong><p>{item.last_message || '새 대화를 시작해보세요'}</p></div><span><small>{timeLabel(item.last_message_at)}</small>{Boolean(item.unread_count) && <em>{item.unread_count}</em>}</span></button>)}</section>}
       </aside>
-      <section className="message-thread">
+      {!friendsOnly && <section className="message-thread">
         {selectedFriendId && thread.data?.friend ? <>
           <header><UserAvatar user={{ id: thread.data.friend.user_id, name: thread.data.friend.name, email: '', department: thread.data.friend.department, profile_picture: thread.data.friend.profile_picture }} /><div><h2>{thread.data.friend.name}</h2><p>{thread.data.friend.department || '끼리끼리 친구'}</p></div></header>
           <div className="message-bubbles">{thread.data.messages.length ? thread.data.messages.map((item) => <article className={item.sender_id === user?.id ? 'mine' : ''} key={item.message_id}><p>{item.content}</p><time>{timeLabel(item.created_at)}</time></article>) : <div className="thread-empty"><MessageCircle /><h3>첫 쪽지를 보내보세요</h3><p>활동이나 커리큘럼 이야기를 시작해보세요.</p></div>}</div>
           <form className="message-compose" onSubmit={sendMessage}><textarea value={message} onChange={(event) => setMessage(event.target.value)} maxLength={2000} rows={2} placeholder="쪽지를 입력하세요" /><button disabled={!message.trim()} aria-label="쪽지 보내기"><Send /></button></form>
         </> : <div className="thread-placeholder"><UsersRound /><h2>대화할 친구를 선택하세요</h2><p>왼쪽에서 친구를 선택하거나 새로운 친구를 찾아보세요.</p></div>}
-      </section>
+      </section>}
     </div>
   </div>;
 }
