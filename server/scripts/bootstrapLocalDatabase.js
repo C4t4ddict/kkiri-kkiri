@@ -5,6 +5,10 @@ const mysql = require('mysql2/promise');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
+if (process.env.NODE_ENV === 'production' || String(process.env.ALLOW_DEMO_DATA || '').toLowerCase() !== 'true') {
+  throw new Error('데모 데이터 초기화는 개발 환경에서 ALLOW_DEMO_DATA=true로 명시한 경우에만 실행할 수 있습니다.');
+}
+
 const databaseName = process.env.DB_NAME || 'myappdb';
 const databaseUser = process.env.DB_USER || 'kkiri_app';
 if (!/^[A-Za-z0-9_]+$/.test(databaseName) || !/^[A-Za-z0-9_]+$/.test(databaseUser)) {
@@ -31,7 +35,7 @@ const readSchemaStatements = () => fs
   .filter(Boolean);
 
 const upsertUser = async (connection, user) => {
-  const passwordHash = bcrypt.hashSync(user.password, 10);
+  const passwordHash = bcrypt.hashSync(user.password, 12);
   await connection.execute(
     `INSERT INTO users
       (id, email, email_verified, account_type, password, name, department,

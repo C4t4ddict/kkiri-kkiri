@@ -78,7 +78,7 @@ const listAwards = async (db, userId) => {
     LEFT JOIN teams t ON t.team_id = mp.team_id
     LEFT JOIN team_recruitments tr ON tr.recruitment_id = mp.recruitment_id
     LEFT JOIN user_awards ua ON ua.portfolio_id = mp.portfolio_id AND ua.user_id = mp.user_id
-    WHERE mp.user_id = ?
+    WHERE mp.user_id = ? AND COALESCE(mp.archived_reason, '') <> 'DRAFT'
     ORDER BY COALESCE(mp.archived_at, mp.created_at) DESC, mp.portfolio_id DESC`,
     [userId],
   );
@@ -95,7 +95,7 @@ const listAwards = async (db, userId) => {
 
 const upsertAward = async (db, userId, portfolioId, input) => {
   const [portfolios] = await db.query(
-    'SELECT portfolio_id FROM miniportfolios WHERE portfolio_id = ? AND user_id = ?',
+    "SELECT portfolio_id FROM miniportfolios WHERE portfolio_id = ? AND user_id = ? AND COALESCE(archived_reason, '') <> 'DRAFT'",
     [portfolioId, userId],
   );
   if (!portfolios.length) return null;

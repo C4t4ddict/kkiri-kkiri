@@ -18,6 +18,7 @@ import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../App';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../config/api';
 
 // ✅ Navigation 타입 정의
 type LoginScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Login'>;
@@ -44,9 +45,7 @@ const LoginScreen = ({
   const { setUser } = useAuth();
 
   // ✅ API URL 설정
-  const API_URL = Platform.OS === 'android' 
-    ? 'http://10.0.2.2:3000/api/login' 
-    : 'http://localhost:3000/api/login';
+  const API_URL = `${API_BASE_URL}/api/login`;
 
   // 로그인 API 호출 함수
   const loginAPI = async (email: string, password: string) => {

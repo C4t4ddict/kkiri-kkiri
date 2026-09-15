@@ -70,6 +70,10 @@ yarn-error.log
 # Project-local runtime data (for example the isolated MySQL development instance)
 /.local/
 
+# User-uploaded runtime files are not source assets.
+/server/uploads/
+__pycache__/
+
 # testing
 /coverage
 

@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { StatusBar, Platform } from 'react-native';
+import { StatusBar } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import AppHeader from '../components/AppHeader';
 import NotificationBell from '../components/NotificationBell';
@@ -23,11 +23,9 @@ import { loadWidgetPrefs } from '../utils/widgetPrefs';
 import { WIDGET_COMPONENTS, WidgetPref, DEFAULT_WIDGET_PREFS } from '../constants/widgets';
 import Ringgraph from '../Widget/Ringgraph';
 import colors from '../config/colors';
+import { API_BASE_URL } from '../config/api';
 
 
-
-const API_BASE_URL =
-  Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 

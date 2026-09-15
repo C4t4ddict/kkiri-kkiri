@@ -4,6 +4,8 @@ on:
   pull_request:
     branches:
       - main
+      - develop
+      - codex/integration-core
   push:
     branches:
       - develop
@@ -23,7 +25,7 @@ jobs:
       - name: Node.js 설정
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: 앱 의존성 설치
@@ -48,7 +50,7 @@ jobs:
       - name: Node.js 설정
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: server/package-lock.json
 
