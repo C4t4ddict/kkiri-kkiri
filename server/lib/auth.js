@@ -1,11 +1,20 @@
 const crypto = require('crypto');
 
-const TOKEN_TTL_SECONDS = Number(process.env.AUTH_TOKEN_TTL_SECONDS || 60 * 60 * 24 * 7);
+const requestedTokenTtl = Number(process.env.AUTH_TOKEN_TTL_SECONDS || 60 * 60 * 24);
+const TOKEN_TTL_SECONDS = Number.isFinite(requestedTokenTtl)
+  ? Math.min(60 * 60 * 24 * 30, Math.max(60, Math.floor(requestedTokenTtl)))
+  : 60 * 60 * 24;
 const configuredSecret = String(process.env.AUTH_TOKEN_SECRET || '').trim();
 const tokenSecret = configuredSecret || crypto.randomBytes(32).toString('hex');
 
-if (!configuredSecret && process.env.NODE_ENV === 'production') {
-  throw new Error('운영 환경에서는 AUTH_TOKEN_SECRET을 설정해야 합니다.');
+if (
+  process.env.NODE_ENV === 'production'
+  && (
+    Buffer.byteLength(configuredSecret, 'utf8') < 32
+    || /(?:replace|change|example|default)/i.test(configuredSecret)
+  )
+) {
+  throw new Error('운영 환경에서는 추측하기 어려운 32바이트 이상의 AUTH_TOKEN_SECRET을 설정해야 합니다.');
 }
 
 const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -20,7 +29,9 @@ const issueAuthToken = (userId) => {
 
 const verifyAuthToken = (token) => {
   if (!token || typeof token !== 'string') return null;
-  const [payload, signature] = token.split('.');
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [payload, signature] = parts;
   if (!payload || !signature) return null;
 
   const expected = sign(payload);
@@ -32,7 +43,17 @@ const verifyAuthToken = (token) => {
 
   try {
     const decoded = decode(payload);
-    if (!Number.isInteger(decoded.sub) || decoded.sub <= 0 || decoded.exp <= Math.floor(Date.now() / 1000)) {
+    const now = Math.floor(Date.now() / 1000);
+    if (
+      !Number.isInteger(decoded.sub)
+      || decoded.sub <= 0
+      || !Number.isInteger(decoded.iat)
+      || !Number.isInteger(decoded.exp)
+      || decoded.iat > now + 60
+      || decoded.exp <= decoded.iat
+      || decoded.exp - decoded.iat > 60 * 60 * 24 * 30
+      || decoded.exp <= now
+    ) {
       return null;
     }
     return decoded;
@@ -53,17 +74,27 @@ const attachAuth = (req, _res, next) => {
 };
 
 const allowLegacyUserHeader =
-  String(process.env.ALLOW_LEGACY_USER_HEADER ?? (process.env.NODE_ENV !== 'production')).toLowerCase() === 'true';
+  process.env.NODE_ENV !== 'production'
+  && String(process.env.ALLOW_LEGACY_USER_HEADER || 'false').toLowerCase() === 'true';
+
+const isLoopbackAddress = (address) => {
+  const normalized = String(address || '').trim().toLowerCase();
+  return normalized === '127.0.0.1'
+    || normalized === '::1'
+    || normalized === '::ffff:127.0.0.1';
+};
 
 const getAuthenticatedUserId = (req) => {
   if (req.authUserId) return Number(req.authUserId);
-  if (!allowLegacyUserHeader) return 0;
-  return Number(req.get('x-user-id') || req.body?.user_id || req.query?.user_id) || 0;
+  if (!allowLegacyUserHeader || !isLoopbackAddress(req.ip || req.socket?.remoteAddress)) return 0;
+  const legacyUserId = Number(req.get('x-user-id'));
+  return Number.isInteger(legacyUserId) && legacyUserId > 0 ? legacyUserId : 0;
 };
 
 module.exports = {
   attachAuth,
   getAuthenticatedUserId,
+  isLoopbackAddress,
   issueAuthToken,
   verifyAuthToken,
 };

@@ -6,7 +6,7 @@ import colors from '../config/colors';
 
 type Notification = {
   notification_id: number;
-  type: 'notice' | 'notice_comment' | 'team_invitation';
+  type: 'notice' | 'notice_comment' | 'team_invitation' | 'developer_reply';
   title: string;
   content: string;
   created_at: string;
@@ -56,9 +56,10 @@ export default function NotificationScreen() {
   }, [user?.id]);
 
   useFocusEffect(useCallback(() => { loadNotifications(); }, [loadNotifications]));
+  const isNotice = (item: Notification) => ['notice', 'developer_reply'].includes(item.type);
   const data = tab === '활동'
-    ? items.filter((item) => item.type !== 'notice')
-    : items.filter((item) => item.type === 'notice');
+    ? items.filter((item) => !isNotice(item))
+    : items.filter(isNotice);
 
   const respondToOffer = async (item: Notification, decision: 'ACCEPTED' | 'REJECTED') => {
     if (!user?.id || !item.offer_id || respondingOfferId) return;
@@ -89,7 +90,7 @@ export default function NotificationScreen() {
             <Text style={[styles.tabText, tab === item && styles.tabTextActive]}>{item}</Text>
           </TouchableOpacity>
         ))}
-        <View style={[styles.tabActiveBar, tab === '활동' ? { left: 0 } : { left: '50%' }]} />
+        <View style={[styles.tabActiveBar, tab === '활동' ? styles.tabActivity : styles.tabNotice]} />
       </View>
       {loading ? <ActivityIndicator style={styles.loading} color={colors.primary} /> : (
         <FlatList
@@ -99,12 +100,18 @@ export default function NotificationScreen() {
             <View style={[styles.card, !item.is_read && styles.unreadCard]}>
               <View style={styles.cardTop}>
                 <Text style={styles.channel}>
-                  {item.type === 'team_invitation' ? '팀 합류 제안' : item.type === 'notice_comment' ? '댓글 알림' : '공지 알림'}
+                  {item.type === 'team_invitation'
+                    ? '팀 합류 제안'
+                    : item.type === 'notice_comment'
+                      ? '댓글 알림'
+                      : item.type === 'developer_reply'
+                        ? '개발자 답장'
+                        : '공지 알림'}
                 </Text>
                 <Text style={styles.time}>{relativeTime(item.created_at)}</Text>
               </View>
               <Text style={styles.title}>{item.title}</Text>
-              <Text style={styles.content} numberOfLines={1}>{item.content}</Text>
+              <Text style={styles.content} numberOfLines={item.type === 'developer_reply' ? 5 : 2}>{item.content}</Text>
               {item.type === 'team_invitation' && item.offer_id ? (
                 item.offer_status === 'PENDING' ? (
                   <View style={styles.offerActions}>
@@ -152,6 +159,8 @@ const styles = StyleSheet.create({
   tabTextActive: { color: colors.textMain, fontWeight: '700' },
   tabBaseLine: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 1, backgroundColor: colors.border },
   tabActiveBar: { position: 'absolute', bottom: 0, width: '50%', height: 2, backgroundColor: colors.primary, borderRadius: 1 },
+  tabActivity: { left: 0 },
+  tabNotice: { left: '50%' },
   loading: { marginTop: 28 },
   card: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   unreadCard: { backgroundColor: '#FAF9FF' },

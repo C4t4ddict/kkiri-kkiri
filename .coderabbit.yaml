@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+# CodeRabbit의 PR 리뷰와 대화는 한국어로 작성합니다.
+language: ko-KR
+tone_instructions: "리뷰 의견은 간결하고 명확한 한국어로 작성하세요. 재현 방법과 영향 범위를 함께 설명하세요."
+
+reviews:
+  profile: assertive
+  # CodeRabbit이 PR 본문에 자동으로 추가하는 요약을 사용하지 않습니다.
+  high_level_summary: false
+  poem: false
+  review_status: true
+  auto_review:
+    enabled: true
+    # 이 저장소는 Draft PR에서도 자동 검토를 받습니다.
+    drafts: true
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/Pods/**"
+    - "!**/build/**"
+    - "!**/dist/**"
+    - "!**/*.lock"
+    - "!**/*.ttf"
+    - "!**/uploads/**"
+
+chat:
+  auto_reply: true

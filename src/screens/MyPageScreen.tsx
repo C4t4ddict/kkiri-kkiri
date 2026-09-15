@@ -44,6 +44,14 @@ const normalizeUser = (raw: any): User => ({
   birth: raw.birth ?? raw.birth_date ?? '',
   profile_picture: raw.profile_picture ?? undefined,
   is_admin: Boolean(raw.is_admin),
+  email_verified: Boolean(raw.email_verified),
+  emailVerified: Boolean(raw.email_verified ?? raw.emailVerified),
+  account_type: raw.account_type ?? raw.accountType ?? 'GENERAL',
+  accountType: raw.account_type ?? raw.accountType ?? 'GENERAL',
+  school_domain: raw.school_domain ?? raw.schoolDomain ?? null,
+  schoolDomain: raw.school_domain ?? raw.schoolDomain ?? null,
+  school_name: raw.school_name ?? raw.schoolName ?? null,
+  schoolName: raw.school_name ?? raw.schoolName ?? null,
 });
 
 export default function MyPageScreen() {
@@ -208,6 +216,11 @@ export default function MyPageScreen() {
       label: '수상내역',
       icon: 'trophy-outline',
       onPress: () => navigation.navigate('Awards'),
+    },
+    {
+      label: '개발자에게 한마디',
+      icon: 'chatbubble-ellipses-outline',
+      onPress: () => navigation.navigate('DeveloperFeedback'),
     },
     ...(user.is_admin ? [{
       label: '운영 관리',

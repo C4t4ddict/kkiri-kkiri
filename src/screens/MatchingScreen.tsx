@@ -44,15 +44,8 @@ type Recruitment = {
   memo?: string;
   status?: string;
   created_at?: string;
-};
-
-type Application = {
-  application_id: number;
-  recruitment_id: number;
-  applicant_id: number;
-  memo?: string;
-  status?: string; // 'pending' | 'approved' | 'rejected' 등일 수 있음
-  created_at?: string;
+  recruitment_scope?: 'NATIONWIDE' | 'SCHOOL';
+  active_application_count?: number;
 };
 
 const MatchingScreen = () => {
@@ -62,7 +55,6 @@ const MatchingScreen = () => {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedMeetingType, setSelectedMeetingType] = useState('전체');
   const [recruitments, setRecruitments] = useState<Recruitment[]>([]);
-  const [applications, setApplications] = useState<Application[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -72,22 +64,8 @@ const MatchingScreen = () => {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const applicationRequest = user?.id
-        ? axios.get(`${BASE_URL}/api/applications`, {
-          headers: { 'x-user-id': String(user.id) },
-        })
-        : Promise.resolve({ data: [] });
-      const [recruitmentResult, applicationResult] = await Promise.allSettled([
-        axios.get(`${BASE_URL}/api/team-recruitments`),          // 또는 with-count
-        applicationRequest,
-      ]);
-      if (recruitmentResult.status === 'rejected') throw recruitmentResult.reason;
-      setRecruitments(Array.isArray(recruitmentResult.value.data) ? recruitmentResult.value.data : []);
-      setApplications(
-        applicationResult.status === 'fulfilled' && Array.isArray(applicationResult.value.data)
-          ? applicationResult.value.data
-          : []
-      );
+      const result = await axios.get(`${BASE_URL}/api/team-recruitments`);
+      setRecruitments(Array.isArray(result.data) ? result.data : []);
       setLoadError(false);
     } catch (e) {
       console.warn('매칭 데이터 불러오기 오류:', e);
@@ -95,7 +73,7 @@ const MatchingScreen = () => {
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, []);
 
   // 화면에 다시 포커스될 때마다 새로고침
   useFocusEffect(
@@ -110,17 +88,6 @@ const MatchingScreen = () => {
       topic_category: recruitment.activity_topic_category,
     })));
   }, [recruitments]);
-
-  // ---- 현재 인원 집계 (status가 cancel/rejected가 아닌 것만 카운트) ----
-  const headcountsByRecruitment = useMemo(() => {
-    const map = new Map<number, number>();
-    for (const app of applications) {
-      const s = (app.status || '').toLowerCase();
-      if (s === 'rejected' || s === 'canceled' || s === 'cancelled') continue;
-      map.set(app.recruitment_id, (map.get(app.recruitment_id) || 0) + 1);
-    }
-    return map;
-  }, [applications]);
 
   // ---- 필터 적용 ----
   const filtered = useMemo(() => {
@@ -239,7 +206,7 @@ const MatchingScreen = () => {
           <ScreenState kind="empty" title="현재 모집 중인 글이 없어요" description="조건을 바꾸거나 새로운 팀을 만들어보세요." />
         ) : null}
         {filtered.map((r) => {
-          const current = headcountsByRecruitment.get(r.recruitment_id) || 0;
+          const current = Number(r.active_application_count || 0);
           return (
             <TouchableOpacity
               key={r.recruitment_id}
@@ -251,6 +218,10 @@ const MatchingScreen = () => {
               <Text style={styles.itemTitle} numberOfLines={1}>
                 {r.post_name}
               </Text>
+
+              <View style={styles.scopeBadge}>
+                <Text style={styles.scopeBadgeText}>{r.recruitment_scope === 'SCHOOL' ? '본교' : '전국'}</Text>
+              </View>
 
               <Text style={styles.itemSub} numberOfLines={1}>
                 {getActivityCategory({
@@ -304,6 +275,8 @@ const styles = StyleSheet.create({
     color: '#101828',
     flex: 1,
   },
+  scopeBadge: { alignSelf: 'flex-start', marginTop: 7, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, backgroundColor: '#F4F0FF' },
+  scopeBadgeText: { color: '#6941C6', fontSize: 10, fontWeight: '800' },
   filterSection: {
     marginBottom: 8,
   },

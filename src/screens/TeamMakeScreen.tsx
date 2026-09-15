@@ -38,6 +38,7 @@ type Activity = {
 
 type ActivitySource = 'open' | 'favorite';
 type CalendarTarget = 'start' | 'end' | null;
+type RecruitmentScope = 'NATIONWIDE' | 'SCHOOL';
 
 const toDateString = (date: Date) => [
   date.getFullYear(),
@@ -67,6 +68,7 @@ export default function TeamMakeScreen() {
   const [departmentOpen, setDepartmentOpen] = useState(false);
   const [members, setMembers] = useState('4');
   const [meetingType, setMeetingType] = useState<'대면' | '비대면' | '혼합'>('대면');
+  const [recruitmentScope, setRecruitmentScope] = useState<RecruitmentScope>('NATIONWIDE');
   const [conditions, setConditions] = useState('');
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(defaultEnd);
@@ -110,6 +112,7 @@ export default function TeamMakeScreen() {
         setDepartment(recruitment.qualification_department || '모집학과');
         setMembers(String(recruitment.required_members || 4));
         setMeetingType(recruitment.meeting_type || '대면');
+        setRecruitmentScope(recruitment.recruitment_scope === 'SCHOOL' ? 'SCHOOL' : 'NATIONWIDE');
         setConditions(recruitment.memo || '');
         setStartDate(recruitment.activity_start_date || today);
         setEndDate(recruitment.activity_end_date || defaultEnd);
@@ -140,7 +143,9 @@ export default function TeamMakeScreen() {
     const fetchActivities = async () => {
       setLoadingActivities(true);
       try {
-        const requests = [axios.get<Activity[]>(`${BASE_URL}/api/activities/open`)];
+        const requests = [axios.get<Activity[]>(`${BASE_URL}/api/activities/open`, {
+          headers: user?.id ? { 'x-user-id': String(user.id) } : undefined,
+        })];
         if (user?.id) {
           requests.push(axios.get<Activity[]>(`${BASE_URL}/api/favorite-activities`, {
             headers: { 'x-user-id': String(user.id) },
@@ -258,6 +263,7 @@ export default function TeamMakeScreen() {
           activity_start_date: startDate,
           activity_end_date: endDate,
           meeting_type: meetingType,
+          recruitment_scope: recruitmentScope,
           memo: conditions.trim(),
         },
         headers: { 'x-user-id': String(user.id) },
@@ -341,6 +347,26 @@ export default function TeamMakeScreen() {
         )}
 
         <Text style={styles.sectionLabel}>팀 조건</Text>
+        <Text style={styles.scopeTitle}>모집 범위</Text>
+        <View style={styles.scopeRow}>
+          <ScopeButton
+            title="전국"
+            description="학교와 관계없이 지원"
+            active={recruitmentScope === 'NATIONWIDE'}
+            onPress={() => setRecruitmentScope('NATIONWIDE')}
+          />
+          <ScopeButton
+            title="본교"
+            description="인증된 같은 학교만"
+            active={recruitmentScope === 'SCHOOL'}
+            disabled={!(user?.emailVerified ?? user?.email_verified)
+              || (user?.accountType ?? user?.account_type) !== 'STUDENT'}
+            onPress={() => setRecruitmentScope('SCHOOL')}
+          />
+        </View>
+        {(user?.accountType ?? user?.account_type) !== 'STUDENT' ? (
+          <Text style={styles.scopeHelper}>일반 계정은 전국 모집만 만들 수 있어요.</Text>
+        ) : null}
         <SelectField
           label={department}
           placeholder={department === '모집학과'}
@@ -446,6 +472,36 @@ function DateField({ label, value, onPress }: { label: string; value: string; on
       <View style={styles.dateValueRow}>
         <Icon name="calendar-outline" size={18} color={colors.primary} />
         <Text style={styles.dateValue}>{formatDate(value)}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function ScopeButton({
+  title,
+  description,
+  active,
+  disabled = false,
+  onPress,
+}: {
+  title: string;
+  description: string;
+  active: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.scopeButton, active && styles.scopeButtonActive, disabled && styles.scopeButtonDisabled]}
+      disabled={disabled}
+      onPress={onPress}
+    >
+      <View style={[styles.scopeRadio, active && styles.scopeRadioActive]}>
+        {active ? <View style={styles.scopeRadioDot} /> : null}
+      </View>
+      <View style={styles.scopeBody}>
+        <Text style={[styles.scopeButtonTitle, active && styles.scopeButtonTitleActive]}>{title}</Text>
+        <Text style={styles.scopeDescription}>{description}</Text>
       </View>
     </TouchableOpacity>
   );
@@ -592,6 +648,19 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#FFFFFF' },
   container: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 42 },
   sectionLabel: { marginBottom: 9, color: colors.textSub, fontSize: 13, fontWeight: '800' },
+  scopeTitle: { marginBottom: 8, color: colors.textMain, fontSize: 14, fontWeight: '800' },
+  scopeRow: { flexDirection: 'row', gap: 10, marginBottom: 8 },
+  scopeButton: { flex: 1, minHeight: 68, padding: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 15, flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF' },
+  scopeButtonActive: { borderColor: colors.primaryLight, backgroundColor: colors.primarySurface },
+  scopeButtonDisabled: { opacity: 0.4 },
+  scopeRadio: { width: 18, height: 18, marginRight: 9, borderWidth: 1.5, borderColor: colors.textSub, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  scopeRadioActive: { borderColor: colors.primary },
+  scopeRadioDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.primary },
+  scopeBody: { flex: 1 },
+  scopeButtonTitle: { color: colors.textMain, fontSize: 14, fontWeight: '800' },
+  scopeButtonTitleActive: { color: colors.primaryDark },
+  scopeDescription: { marginTop: 3, color: colors.textSub, fontSize: 10 },
+  scopeHelper: { marginBottom: 12, color: colors.textSub, fontSize: 11 },
   inputBox: {
     minHeight: 50,
     marginBottom: 16,

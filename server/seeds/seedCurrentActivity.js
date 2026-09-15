@@ -3,7 +3,8 @@ const mysql = require('mysql2/promise');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-const MARKER = '[demo-current-competition]';
+const MARKER = '[current-sourced-competition]';
+const LEGACY_MARKER = '[demo-current-competition]';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const toDateKey = (date) => {
@@ -73,7 +74,9 @@ const run = async () => {
       `SELECT activity_id, title, category, topic_category,
               application_period_end, operation_period_end
        FROM activitys
-       WHERE application_period_start <= NOW()
+       WHERE source_name IN ('위비티', '씽굿')
+         AND COALESCE(is_hidden, 0) = 0
+         AND application_period_start <= NOW()
          AND application_period_end >= NOW()
        ORDER BY (activity_id = 89) DESC, application_period_end ASC, activity_id DESC
        LIMIT 1`
@@ -91,13 +94,13 @@ const run = async () => {
     const sourceEndDate = sourceEnd ? new Date(sourceEnd) : new Date(today);
     const minimumDueDate = new Date(today.getTime() + 90 * DAY_MS);
     const dueDate = sourceEndDate > minimumDueDate ? sourceEndDate : minimumDueDate;
-    const postName = `[예시] ${activity.title}`.slice(0, 255);
+    const postName = `${activity.title} 팀원 협업`.slice(0, 255);
     const activityType = (activity.topic_category || activity.category || '공모전').slice(0, 50);
-    const memo = `${MARKER}\n현재 접수 중인 공모전 정보를 기반으로 활동·할 일 기능을 확인하기 위한 예시 팀입니다.`;
+    const memo = `${MARKER}\n실제 수집된 공고를 기반으로 진행하는 김끼리님의 팀 활동입니다.`;
 
     const [existingRecruitments] = await connection.execute(
-      'SELECT recruitment_id, team_id FROM team_recruitments WHERE memo LIKE ? ORDER BY recruitment_id LIMIT 1',
-      [`${MARKER}%`]
+      'SELECT recruitment_id, team_id FROM team_recruitments WHERE memo LIKE ? OR memo LIKE ? ORDER BY recruitment_id LIMIT 1',
+      [`${MARKER}%`, `${LEGACY_MARKER}%`]
     );
     let recruitmentId = existingRecruitments[0]?.recruitment_id;
     let teamId = existingRecruitments[0]?.team_id;
@@ -105,19 +108,19 @@ const run = async () => {
     if (!recruitmentId) {
       const [result] = await connection.execute(
         `INSERT INTO team_recruitments
-          (owner_user_id, post_name, activity_name, activity_type, required_members,
+          (owner_user_id, activity_id, post_name, activity_name, activity_type, required_members,
            activity_period, meeting_type, memo, status)
-         VALUES (1, ?, ?, ?, 3, ?, '혼합', ?, 'CLOSED')`,
-        [postName, activity.title, activityType, `~ ${toDateKey(dueDate)}`, memo]
+         VALUES (1, ?, ?, ?, ?, 3, ?, '혼합', ?, 'CLOSED')`,
+        [activity.activity_id, postName, activity.title, activityType, `~ ${toDateKey(dueDate)}`, memo]
       );
       recruitmentId = result.insertId;
     } else {
       await connection.execute(
         `UPDATE team_recruitments
          SET owner_user_id = 1, post_name = ?, activity_name = ?, activity_type = ?,
-             required_members = 3, activity_period = ?, meeting_type = '혼합', memo = ?, status = 'CLOSED'
+             activity_id = ?, required_members = 3, activity_period = ?, meeting_type = '혼합', memo = ?, status = 'CLOSED'
          WHERE recruitment_id = ?`,
-        [postName, activity.title, activityType, `~ ${toDateKey(dueDate)}`, memo, recruitmentId]
+        [postName, activity.title, activityType, activity.activity_id, `~ ${toDateKey(dueDate)}`, memo, recruitmentId]
       );
     }
 
@@ -131,18 +134,20 @@ const run = async () => {
     if (!teamId) {
       const [result] = await connection.execute(
         `INSERT INTO teams
-          (recruitment_id, team_name, leader_user_id, required_members, status, due_date, activity_status)
-         VALUES (?, ?, 1, 3, 'ACTIVE', ?, 'IN_PROGRESS')`,
-        [recruitmentId, `${activity.title} 팀`.slice(0, 255), toDateKey(dueDate)]
+          (recruitment_id, team_name, leader_user_id, required_members, status, due_date, activity_status,
+           source_type, source_id, participation_mode, visibility)
+         VALUES (?, ?, 1, 3, 'ACTIVE', ?, 'IN_PROGRESS', 'COMPETITION', ?, 'TEAM', 'CLOSED')`,
+        [recruitmentId, `${activity.title} 팀`.slice(0, 255), toDateKey(dueDate), activity.activity_id]
       );
       teamId = result.insertId;
     } else {
       await connection.execute(
         `UPDATE teams
          SET team_name = ?, leader_user_id = 1, required_members = 3,
-             status = 'ACTIVE', due_date = ?, activity_status = 'IN_PROGRESS'
+             status = 'ACTIVE', due_date = ?, activity_status = 'IN_PROGRESS',
+             source_type = 'COMPETITION', source_id = ?, participation_mode = 'TEAM', visibility = 'CLOSED'
          WHERE team_id = ?`,
-        [`${activity.title} 팀`.slice(0, 255), toDateKey(dueDate), teamId]
+        [`${activity.title} 팀`.slice(0, 255), toDateKey(dueDate), activity.activity_id, teamId]
       );
     }
     await connection.execute(
@@ -184,6 +189,32 @@ const run = async () => {
       if (!users.some((user) => user.id === userId)) continue;
       await addTodo(connection, { teamId, userId, scope, title, status, start, end });
     }
+
+    await connection.execute(
+      `INSERT INTO team_notices (team_id, author_id, title, content)
+       SELECT ?, 1, '킥오프 자료와 일정', '공식 공고를 기준으로 제출 일정과 역할별 산출물을 확인해주세요.'
+       WHERE NOT EXISTS (
+         SELECT 1 FROM team_notices WHERE team_id = ? AND title = '킥오프 자료와 일정'
+       )`,
+      [teamId, teamId]
+    );
+    await connection.execute(
+      `INSERT INTO team_issues (team_id, reporter_id, assignee_id, title, description, status, priority, due_date)
+       SELECT ?, 1, 3, '공고 제출 규격 검증', '제출 파일 형식과 용량 제한을 공식 공고에서 다시 확인합니다.', 'IN_PROGRESS', 'HIGH', ?
+       WHERE NOT EXISTS (
+         SELECT 1 FROM team_issues WHERE team_id = ? AND title = '공고 제출 규격 검증'
+       )`,
+      [teamId, toDateKey(dueDate), teamId]
+    );
+
+    await connection.execute(
+      `UPDATE teams t
+       JOIN activitys a ON a.activity_id = t.source_id
+       SET t.status = 'ARCHIVED', t.activity_status = 'COMPLETED'
+       WHERE t.leader_user_id = 1 AND t.team_id <> ?
+         AND t.source_type = 'COMPETITION' AND a.source_name = 'local-demo'`,
+      [teamId]
+    );
 
     await connection.commit();
     console.log(JSON.stringify({ activityId: activity.activity_id, activityTitle: activity.title, recruitmentId, teamId }, null, 2));

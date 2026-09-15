@@ -21,7 +21,7 @@ export function ApplicationDetailPage() {
 
   return <>
     <button className="back-link" onClick={() => navigate(-1)}><ArrowLeft size={16} /> 나의 지원</button>
-    <PageTitle eyebrow="APPLICATION STATUS" title={detail.post_name} description={detail.activity_name} />
+    <PageTitle title={detail.post_name} description={detail.activity_name} />
     <div className="detail-grid">
       <section className="content-card"><SectionHead title="지원 진행 상황" /><div className="timeline">{detail.timeline.map((step) => <div className={`timeline-step ${step.state}`} key={step.key}><span className="timeline-dot">{step.state === 'completed' && <Check size={12} />}</span><div><strong>{step.label}</strong><small>{step.state === 'current' ? '현재 단계' : step.occurred_at ? new Date(step.occurred_at).toLocaleString('ko-KR') : '예정'}</small></div></div>)}</div></section>
       <section className="content-card"><SectionHead title="제출한 지원 내용" /><p className="long-copy">{detail.memo}</p>{detail.offer_id && detail.offer_status === 'PENDING' ? <div className="button-row"><button className="ghost-button" onClick={() => respond(`/api/team-join-offers/${detail.offer_id}/respond`, { decision: 'REJECTED' })}>거절</button><button className="primary-button" onClick={() => respond(`/api/team-join-offers/${detail.offer_id}/respond`, { decision: 'ACCEPTED' })}>팀 합류하기</button></div> : ['PENDING', 'APPROVED'].includes(detail.application_status) && <button className="danger-button" onClick={() => respond(`/api/applications/${detail.application_id}/cancel`)}>지원 취소</button>}</section>

@@ -17,7 +17,8 @@
 cd server
 npm install
 npm run crawl:competitions:dry
-npm run crawl:competitions -- --source all --pages 3 --limit 50
+npm run crawl:competitions -- --source all --pages 20 --limit 300
+npm run crawl:deduplicate
 ```
 
 사이트 하나만 검증할 수 있습니다.
@@ -37,11 +38,11 @@ CRAWLER_REQUEST_DELAY_MS=1000
 CRAWLER_TIMEOUT_MS=15000
 CRAWLER_RETRIES=3
 CRAWLER_RESPECT_ROBOTS=true
-CRAWLER_PAGES=3
-CRAWLER_LIMIT=50
+CRAWLER_PAGES=20
+CRAWLER_LIMIT=300
 ```
 
-기본 설정은 사이트별 3페이지, 최대 50건을 조회하고 `robots.txt`를 확인하며 요청 사이에 1초를 둡니다. 한 사이트나 한 항목이 실패해도 나머지 항목은 계속 처리되며 실패 내용은 DB에 남습니다.
+기본 설정은 사이트별 20페이지, 최대 300건을 조회하고 `robots.txt`를 확인하며 요청 사이에 1초를 둡니다. 제목을 정규화한 값과 접수 마감일로 교차 출처 중복 지문을 만들며, 같은 공모전이 씽굿과 위비티에 함께 올라오면 정보가 풍부한 한 건만 앱에 노출합니다. 한 사이트나 한 항목이 실패해도 나머지 항목은 계속 처리되며 실패 내용은 DB에 남습니다.
 
 ## 자동 업데이트
 
@@ -59,7 +60,7 @@ CRAWLER_AUTO_INITIAL_DELAY_SECONDS=30
 
 ```bash
 cd server
-npm run crawl:competitions -- --source all --pages 3 --limit 50
+npm run crawl:competitions -- --source all --pages 20 --limit 300
 ```
 
 활동 탭 기능 확인용 예시 팀은 현재 접수 중인 공모전을 기준으로 아래 명령으로 생성하거나 갱신할 수 있습니다.

@@ -1,6 +1,7 @@
 import { AuthProvider } from './AuthContext';
 import { AppRoutes } from './AppRoutes';
+import { StandaloneThemeToggle } from '../shared/ui/ThemeToggle';
 
 export default function App() {
-  return <AuthProvider><AppRoutes /></AuthProvider>;
+  return <AuthProvider><StandaloneThemeToggle /><AppRoutes /></AuthProvider>;
 }

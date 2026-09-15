@@ -1,5 +1,6 @@
 const createTtlCache = ({ ttlMs = 30_000, maxEntries = 100 } = {}) => {
   const entries = new Map();
+  const inFlight = new Map();
 
   const get = (key) => {
     const entry = entries.get(key);
@@ -19,7 +20,30 @@ const createTtlCache = ({ ttlMs = 30_000, maxEntries = 100 } = {}) => {
     while (entries.size > maxEntries) entries.delete(entries.keys().next().value);
   };
 
-  return { get, set, clear: () => entries.clear(), size: () => entries.size };
+  const remember = async (key, loader) => {
+    const cached = get(key);
+    if (cached !== undefined) return cached;
+    if (inFlight.has(key)) return inFlight.get(key);
+
+    const pending = Promise.resolve()
+      .then(loader)
+      .then((value) => {
+        set(key, value);
+        return value;
+      })
+      .finally(() => inFlight.delete(key));
+    inFlight.set(key, pending);
+    return pending;
+  };
+
+  return {
+    get,
+    set,
+    remember,
+    clear: () => entries.clear(),
+    size: () => entries.size,
+    pending: () => inFlight.size,
+  };
 };
 
 module.exports = { createTtlCache };

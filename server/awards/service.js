@@ -49,6 +49,7 @@ const normalizeAward = (row) => {
   const taxApplied = Boolean(row.tax_applied);
   return {
     ...row,
+    is_recorded: Boolean(row.award_id),
     is_awarded: Boolean(row.is_awarded),
     has_prize: Boolean(row.has_prize),
     prize_amount: prizeAmount,
@@ -77,7 +78,7 @@ const listAwards = async (db, userId) => {
     LEFT JOIN teams t ON t.team_id = mp.team_id
     LEFT JOIN team_recruitments tr ON tr.recruitment_id = mp.recruitment_id
     LEFT JOIN user_awards ua ON ua.portfolio_id = mp.portfolio_id AND ua.user_id = mp.user_id
-    WHERE mp.user_id = ?
+    WHERE mp.user_id = ? AND COALESCE(mp.archived_reason, '') <> 'DRAFT'
     ORDER BY COALESCE(mp.archived_at, mp.created_at) DESC, mp.portfolio_id DESC`,
     [userId],
   );
@@ -94,20 +95,12 @@ const listAwards = async (db, userId) => {
 
 const upsertAward = async (db, userId, portfolioId, input) => {
   const [portfolios] = await db.query(
-    'SELECT portfolio_id FROM miniportfolios WHERE portfolio_id = ? AND user_id = ?',
+    "SELECT portfolio_id FROM miniportfolios WHERE portfolio_id = ? AND user_id = ? AND COALESCE(archived_reason, '') <> 'DRAFT'",
     [portfolioId, userId],
   );
   if (!portfolios.length) return null;
 
   const award = sanitizeAwardInput(input);
-  if (!award.isAwarded) {
-    await db.query(
-      'DELETE FROM user_awards WHERE user_id = ? AND portfolio_id = ?',
-      [userId, portfolioId],
-    );
-    return listAwards(db, userId);
-  }
-
   await db.query(
     `INSERT INTO user_awards (
       user_id, portfolio_id, is_awarded, award_title, has_prize, prize_amount, tax_applied
@@ -136,6 +129,7 @@ module.exports = {
   calculateNetPrize,
   ensureAwardsSchema,
   listAwards,
+  normalizeAward,
   normalizePrizeAmount,
   sanitizeAwardInput,
   upsertAward,

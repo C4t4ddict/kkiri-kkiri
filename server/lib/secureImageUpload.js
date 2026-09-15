@@ -37,7 +37,7 @@ const createSecureImageUpload = (uploadsDir, maximumBytes = 5 * 1024 * 1024) => 
     },
   }).single('image');
 
-  return (req, res, next) => parser(req, res, (parseError) => {
+  return (req, res, next) => parser(req, res, async (parseError) => {
     if (parseError) {
       const message = parseError.code === 'LIMIT_FILE_SIZE'
         ? '이미지는 5MB 이하만 업로드할 수 있습니다'
@@ -52,15 +52,19 @@ const createSecureImageUpload = (uploadsDir, maximumBytes = 5 * 1024 * 1024) => 
       return res.status(400).json({ success: false, message: '파일 내용과 이미지 형식이 일치하지 않습니다' });
     }
 
-    fs.mkdirSync(uploadsDir, { recursive: true });
-    const normalizedExtension = detectedFormat === 'jpeg' ? '.jpg' : `.${detectedFormat}`;
-    const fileName = `${crypto.randomUUID()}${normalizedExtension}`;
-    const filePath = path.join(uploadsDir, fileName);
-    fs.writeFileSync(filePath, req.file.buffer, { flag: 'wx', mode: 0o600 });
-    req.file.filename = fileName;
-    req.file.path = filePath;
-    delete req.file.buffer;
-    next();
+    try {
+      await fs.promises.mkdir(uploadsDir, { recursive: true });
+      const normalizedExtension = detectedFormat === 'jpeg' ? '.jpg' : `.${detectedFormat}`;
+      const fileName = `${crypto.randomUUID()}${normalizedExtension}`;
+      const filePath = path.join(uploadsDir, fileName);
+      await fs.promises.writeFile(filePath, req.file.buffer, { flag: 'wx', mode: 0o600 });
+      req.file.filename = fileName;
+      req.file.path = filePath;
+      delete req.file.buffer;
+      next();
+    } catch (error) {
+      next(error);
+    }
   });
 };
 

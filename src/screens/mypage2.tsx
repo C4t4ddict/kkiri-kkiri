@@ -201,8 +201,6 @@ const styles = StyleSheet.create({
     padding: 15,
     margin: 10,
     borderRadius: 5,
-    borderLeftWidth: 4,
-    borderLeftColor: '#f44336',
   },
   errorText: {
     fontSize: 14,
