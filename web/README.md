@@ -2,6 +2,8 @@
 
 React Native 앱과 같은 Express API 및 MySQL 데이터베이스를 사용하는 웹 클라이언트입니다.
 
+구현 전에 [웹 설계 문서](../docs/web/README.md)의 시스템 구조, 화면 정의, 디자인·개발 규칙, ERD, API 계약을 확인합니다.
+
 ## 디렉터리 구조
 
 ```text
