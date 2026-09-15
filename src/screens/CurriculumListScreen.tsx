@@ -151,7 +151,6 @@ export default function CurriculumListScreen() {
               style={styles.card}
               onPress={() => navigation.navigate('CurriculumDetail', { id: item.curriculum_id })}
             >
-              <View style={[styles.cardAccent, { backgroundColor: brandColor }]} />
               <View style={styles.companyRow}>
                 <View style={[styles.companyLogo, { backgroundColor: `${brandColor}18` }]}>
                   <Text style={[styles.companyLogoText, { color: brandColor }]}>{item.organization_name.slice(0, 1)}</Text>
@@ -210,7 +209,6 @@ const styles = StyleSheet.create({
   sectionTitle: { marginTop: 3, color: colors.textMain, fontSize: 21, fontWeight: '900' },
   resultCount: { color: colors.textSub, fontSize: 12, fontWeight: '700' },
   card: { overflow: 'hidden', marginBottom: 12, padding: 18, borderWidth: 1, borderColor: '#E7E7EF', borderRadius: 20, backgroundColor: '#FFFFFF' },
-  cardAccent: { position: 'absolute', top: 0, left: 0, bottom: 0, width: 4 },
   companyRow: { flexDirection: 'row', alignItems: 'center' },
   companyLogo: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   companyLogoText: { fontSize: 17, fontWeight: '900' },

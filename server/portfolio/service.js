@@ -158,6 +158,7 @@ const getArchiveSource = async (db, teamId) => {
       t.created_at,
       t.due_date,
       t.activity_status,
+      t.status,
       tr.activity_name,
       tr.post_name,
       tr.activity_type,
@@ -196,6 +197,7 @@ const archiveTeam = async (db, teamId, reason = 'MANUAL', options = {}) => {
   if (useTransaction) await db.beginTransaction();
 
   try {
+    await db.query('SELECT team_id FROM teams WHERE team_id = ? FOR UPDATE', [teamId]);
     const source = await getArchiveSource(db, teamId);
     if (!source) {
       const error = new Error('팀을 찾을 수 없습니다');
@@ -236,7 +238,7 @@ const archiveTeam = async (db, teamId, reason = 'MANUAL', options = {}) => {
         period = VALUES(period),
         period_start = VALUES(period_start),
         period_end = VALUES(period_end),
-        completed_tasks = IF(VALUES(goals) = '', completed_tasks, VALUES(completed_tasks)),
+        completed_tasks = VALUES(completed_tasks),
         summary = VALUES(summary),
         archived_reason = VALUES(archived_reason),
         archived_at = VALUES(archived_at)`,
@@ -293,25 +295,13 @@ const archiveExpiredTeams = async (db) => {
      FROM teams t
      LEFT JOIN team_recruitments tr ON tr.recruitment_id = t.recruitment_id
      WHERE t.status <> 'ARCHIVED'
-       AND (
-         t.activity_status = 'COMPLETED'
-         OR (t.due_date IS NOT NULL AND t.due_date < CURDATE())
-         OR (
-           t.due_date IS NULL
-           AND tr.activity_period REGEXP '^[0-9]+주$'
-           AND DATE_ADD(
-             DATE(t.created_at),
-             INTERVAL CAST(REGEXP_SUBSTR(tr.activity_period, '[0-9]+') AS UNSIGNED) WEEK
-           ) < CURDATE()
-         )
-       )
+       AND t.activity_status = 'COMPLETED'
      ORDER BY t.team_id`,
   );
 
   const results = [];
   for (const team of teams) {
-    const reason = team.activity_status === 'COMPLETED' ? 'AUTO_COMPLETED' : 'PERIOD_EXPIRED';
-    results.push(await archiveTeam(db, team.team_id, reason));
+    results.push(await archiveTeam(db, team.team_id, 'AUTO_COMPLETED'));
   }
   return results;
 };
@@ -337,7 +327,8 @@ const normalizePortfolio = (row) => {
     ...row,
     period_start: formatDateOnly(row.period_start),
     period_end: formatDateOnly(row.period_end),
-    archived_at: row.archived_at || row.created_at,
+    archived_at: row.archived_reason === 'DRAFT' ? null : row.archived_at || row.created_at,
+    is_draft: row.archived_reason === 'DRAFT',
     completed_tasks: completedTasks,
     completed_task_count: countCompletedTasks(completedTasks),
     achievements: Array.isArray(achievements) ? achievements : [],
@@ -381,7 +372,7 @@ const listPastActivities = async (db, userId) => {
     LEFT JOIN portfolio_edits pe ON pe.portfolio_id = mp.portfolio_id AND pe.user_id = mp.user_id
     LEFT JOIN teams t ON t.team_id = mp.team_id
     LEFT JOIN team_recruitments tr ON tr.recruitment_id = mp.recruitment_id
-    WHERE mp.user_id = ?
+    WHERE mp.user_id = ? AND COALESCE(mp.archived_reason, '') <> 'DRAFT'
     ORDER BY COALESCE(mp.archived_at, mp.created_at) DESC, mp.portfolio_id DESC`,
     [userId],
   );
@@ -417,7 +408,68 @@ const getMiniPortfolio = async (db, userId, portfolioId) => {
   );
 
   if (!rows.length) return null;
+  if (rows[0].archived_reason === 'DRAFT') {
+    const source = await getArchiveSource(db, rows[0].team_id);
+    const member = source?.members.find(item => Number(item.user_id) === Number(userId));
+    if (!member) return null;
+    Object.assign(rows[0], buildDraftSnapshot(source, member));
+  }
   return mergePortfolioEdit(normalizePortfolio(rows[0]));
+};
+
+// Drafts and completed portfolios share an ID; user edits remain in portfolio_edits.
+const buildDraftSnapshot = ({ team, todos }, member) => {
+  const completed = todos.filter(todo => Number(todo.assigned_user_id) === Number(member.user_id));
+  const activityName = team.activity_name || team.team_name || team.post_name || `활동 ${team.team_id}`;
+  const role = member.part || (member.role === 'LEADER' ? '팀장' : '팀원');
+  const start = formatDateOnly(team.created_at);
+  const end = formatDateOnly(team.due_date) || getRelativePeriodEnd(team.created_at, team.activity_period);
+  return {
+    activity_name: activityName, resolved_activity_name: activityName,
+    activity_type: team.activity_type || '팀 활동', resolved_activity_type: team.activity_type || '팀 활동',
+    role, period_start: start, period_end: end, period: `${start || '-'} ~ ${end || '진행 중'}`,
+    completed_tasks: groupCompletedTasks(completed),
+    summary: `${activityName}에서 ${role} 역할을 맡아 완료 작업 ${completed.length}건을 수행했습니다.`,
+  };
+};
+
+const listPortfolioActivities = async (db, userId) => {
+  const [rows] = await db.query(`SELECT t.team_id, t.team_name, t.due_date, tm.part, tm.role,
+      mp.portfolio_id, pe.updated_at AS edited_at,
+      COALESCE(pe.custom_title, t.team_name) AS title,
+      COALESCE(pe.custom_summary, mp.summary, '') AS summary
+    FROM team_members tm JOIN teams t ON t.team_id = tm.team_id
+    LEFT JOIN miniportfolios mp ON mp.team_id = t.team_id AND mp.user_id = tm.user_id
+    LEFT JOIN portfolio_edits pe ON pe.portfolio_id = mp.portfolio_id AND pe.user_id = tm.user_id
+    WHERE tm.user_id = ? AND t.status <> 'ARCHIVED' AND t.activity_status <> 'COMPLETED'
+    ORDER BY t.created_at DESC, t.team_id DESC`, [userId]);
+  return rows;
+};
+
+const openDraftPortfolio = async (db, userId, teamId) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    // Serialize draft creation with activity completion; never turn an archive back into a draft.
+    await connection.query('SELECT team_id FROM teams WHERE team_id = ? FOR UPDATE', [teamId]);
+    const source = await getArchiveSource(connection, teamId);
+    const member = source?.members.find(item => Number(item.user_id) === Number(userId));
+    if (!member) { const error = new Error('참여 중인 활동만 관리할 수 있습니다'); error.statusCode = 403; throw error; }
+    const [existing] = await connection.query('SELECT portfolio_id FROM miniportfolios WHERE user_id = ? AND team_id = ?', [userId, teamId]);
+    if (!existing.length) {
+      if (source.team.activity_status === 'COMPLETED' || source.team.status === 'ARCHIVED') { const error = new Error('완료 기록을 준비 중입니다. 지난 활동을 다시 확인해주세요.'); error.statusCode = 409; throw error; }
+      const snapshot = buildDraftSnapshot(source, member);
+      await connection.query(`INSERT INTO miniportfolios
+        (user_id, team_id, recruitment_id, activity_name, activity_type, role, period, period_start, period_end, completed_tasks, summary, archived_reason)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT')`,
+      [userId, teamId, source.team.recruitment_id, snapshot.activity_name, snapshot.activity_type, snapshot.role,
+        snapshot.period, snapshot.period_start, snapshot.period_end, JSON.stringify(snapshot.completed_tasks), snapshot.summary]);
+    }
+    const [[row]] = await connection.query('SELECT portfolio_id FROM miniportfolios WHERE user_id = ? AND team_id = ?', [userId, teamId]);
+    await connection.commit();
+    return { portfolio_id: row.portfolio_id };
+  } catch (error) { await connection.rollback(); throw error; }
+  finally { connection.release(); }
 };
 
 const normalizeTextList = (value, maxItems = 20, maxLength = 300) =>
@@ -447,11 +499,7 @@ const sanitizePortfolioEdit = (input = {}) => ({
 });
 
 const updateMiniPortfolio = async (db, userId, portfolioId, input) => {
-  const [rows] = await db.query(
-    'SELECT portfolio_id FROM miniportfolios WHERE portfolio_id = ? AND user_id = ?',
-    [portfolioId, userId],
-  );
-  if (!rows.length) return null;
+  if (!await getMiniPortfolio(db, userId, portfolioId)) return null;
 
   const edit = sanitizePortfolioEdit(input);
   await db.query(
@@ -486,6 +534,9 @@ const updateMiniPortfolio = async (db, userId, portfolioId, input) => {
 };
 
 module.exports = {
+  buildDraftSnapshot,
+  listPortfolioActivities,
+  openDraftPortfolio,
   archiveExpiredTeams,
   archiveTeam,
   countCompletedTasks,

@@ -93,3 +93,61 @@ test('잘못된 시작일은 계획 생성을 거절한다', () => {
     /시작일은 YYYY-MM-DD 형식이어야 합니다/,
   );
 });
+
+test('날짜가 고정된 과제도 선택한 요일 이후로 옮기고 부모 기간을 확장한다', () => {
+  const plan = buildCurriculumPlan([
+    { node_id: 1, level: 'MONTHLY', relative_start_day: 0, relative_end_day: 0 },
+    { node_id: 2, parent_node_id: 1, level: 'WEEKLY', relative_start_day: 0, relative_end_day: 0 },
+    { node_id: 3, parent_node_id: 2, level: 'DAILY', relative_start_day: 0, estimated_minutes: 60 },
+  ], { startDate: '2026-09-08', availableWeekdays: [6], excludedDates: ['2026-09-12'], dailyMinutes: 60 });
+  assert.equal(plan.goals[2].scope_start_date, '2026-09-19');
+  assert.equal(plan.goals[0].scope_end_date, '2026-09-19');
+  assert.equal(plan.goals[1].scope_end_date, '2026-09-19');
+  assert.equal(plan.moved_goal_count, 1);
+});
+
+test('하루 학습량을 넘기면 다음 학습일로 넘기고 과제 순서를 보존한다', () => {
+  const tasks = [1, 2, 3, 4].map(node_id => ({ node_id, level: 'DAILY', relative_start_day: 0, estimated_minutes: 60, sort_order: node_id }));
+  const plan = buildCurriculumPlan(tasks, { startDate: '2026-09-08', availableWeekdays: [2, 4], dailyMinutes: 120 });
+  assert.deepEqual(plan.goals.map(goal => goal.scope_start_date), ['2026-09-08', '2026-09-08', '2026-09-10', '2026-09-10']);
+  assert.ok(plan.sessions.every(session => session.minutes <= 120));
+});
+
+test('긴 단일 과제는 단독 배치하고 과제 분할을 하지 않았음을 알린다', () => {
+  const tasks = [180, 30].map((minutes, index) => ({ node_id: index + 1, level: 'DAILY', estimated_minutes: minutes, relative_start_day: 0, sort_order: index }));
+  const plan = buildCurriculumPlan(tasks, { startDate: '2026-09-08', availableWeekdays: [2, 3], dailyMinutes: 60 });
+  assert.equal(plan.sessions.length, 2);
+  assert.equal(plan.oversized_goal_count, 1);
+  assert.match(plan.warnings[0], /단독 배치/);
+});
+
+test('빈 요일·잘못된 휴일·잘못된 학습량은 조용히 보정하지 않고 거절한다', () => {
+  for (const option of [{ availableWeekdays: [] }, { availableWeekdays: [9] }, { excludedDates: ['2026-02-30'] }, { excludedDates: '2026-09-08' }, { dailyMinutes: 0 }, { dailyMinutes: 481 }]) {
+    assert.throws(() => buildCurriculumPlan(nodes, { startDate: '2026-09-08', ...option }), error => error.code === 'INVALID_SCHEDULE' && error.statusCode === 400);
+  }
+});
+
+test('연말 휴일을 넘어도 사용 가능한 날짜만 배치하고 입력은 변경하지 않는다', () => {
+  const original = JSON.stringify(nodes);
+  const options = { startDate: '2026-12-31', availableWeekdays: [1], excludedDates: ['2027-01-04'], dailyMinutes: 90 };
+  const a = buildCurriculumPlan(nodes, options);
+  assert.equal(a.goals[2].scope_start_date, '2027-01-11');
+  assert.deepEqual(a, buildCurriculumPlan(nodes, options));
+  assert.equal(JSON.stringify(nodes), original);
+});
+
+test('추가 예시 과정은 학습 과제와 상위 목표가 빠짐없이 연결된다', () => {
+  const examples = require('../../seeds/curriculumExamples');
+  assert.equal(examples.length, 5);
+  for (const example of examples) {
+    assert.equal(example.organization_verified, false);
+    assert.equal(example.nodes.filter(node => node.level === 'DAILY').length, 12);
+    assert.equal(new Set(example.nodes.map(node => node.stable_key)).size, example.nodes.length);
+    const known = new Set();
+    for (const node of example.nodes) {
+      if (node.parent_stable_key) assert.ok(known.has(node.parent_stable_key));
+      known.add(node.stable_key);
+    }
+    assert.equal(example.nodes.filter(node => node.level === 'DAILY').reduce((sum, node) => sum + node.estimated_minutes, 0), example.weekly_hours * example.duration_weeks * 60);
+  }
+});

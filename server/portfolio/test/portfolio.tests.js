@@ -6,6 +6,7 @@ const {
   groupCompletedTasks,
   normalizePortfolio,
   sanitizePortfolioEdit,
+  buildDraftSnapshot,
 } = require('../service');
 const { buildTaskPages, createMiniPortfolioPdf } = require('../pdf');
 
@@ -111,4 +112,17 @@ test('완료 작업이 많아도 페이지 높이에 맞춰 분할한다', () =>
     assert.ok(usedHeight <= 634);
   });
   assert.equal(pages[1][0].offset > 0, true);
+});
+
+test('진행 중 초안은 종료 시각이 없고 내 완료 목표만 포함한다', () => {
+  const snapshot = buildDraftSnapshot({ team: { team_id: 1, team_name: '진행 중 활동', created_at: '2026-09-01' }, todos: [
+    { todo_id: 10, assigned_user_id: 1, scope_type: '일일', title: '내 완료 목표' },
+    { todo_id: 11, assigned_user_id: 2, scope_type: '일일', title: '다른 팀원 목표' },
+  ] }, { user_id: 1, part: '기획', role: 'MEMBER' });
+  const result = normalizePortfolio({ ...snapshot, archived_reason: 'DRAFT', created_at: '2026-09-16' });
+  assert.equal(result.is_draft, true);
+  assert.equal(result.archived_at, null);
+  assert.equal(result.completed_task_count, 1);
+  assert.equal(result.completed_tasks.daily[0].title, '내 완료 목표');
+  assert.equal(result.period, '2026-09-01 ~ 진행 중');
 });

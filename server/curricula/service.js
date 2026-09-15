@@ -140,7 +140,8 @@ const normalizeCurriculum = (row) => ({
   weekly_hours: Number(row.weekly_hours || 0),
   goal_count: Number(row.goal_count || 0),
   participant_count: Number(row.participant_count || 0),
-  is_verified: Boolean(row.is_verified),
+  is_verified: !String(row.organization_slug || '').startsWith('demo-') && Boolean(row.is_verified),
+  is_example: String(row.organization_slug || '').startsWith('demo-'),
 });
 
 const listCurricula = async (database, filters = {}) => {
@@ -164,7 +165,7 @@ const listCurricula = async (database, filters = {}) => {
       c.description, c.difficulty, c.duration_weeks, c.weekly_hours, c.cover_image_url,
       c.published_at, c.latest_version_id AS version_id,
       o.name AS organization_name, o.logo_url AS organization_logo_url,
-      o.brand_color, o.is_verified,
+      o.brand_color, o.is_verified, o.slug AS organization_slug,
       COUNT(DISTINCT n.node_id) AS goal_count,
       COUNT(DISTINCT ce.enrollment_id) AS participant_count
      FROM enterprise_curricula c
@@ -191,7 +192,7 @@ const getCurriculum = async (database, curriculumId, options = {}) => {
       c.description, c.difficulty, c.duration_weeks, c.weekly_hours, c.cover_image_url,
       c.published_at, v.version_id, v.version_number, v.changelog,
       o.name AS organization_name, o.logo_url AS organization_logo_url,
-      o.website_url AS organization_website_url, o.brand_color, o.is_verified,
+      o.website_url AS organization_website_url, o.brand_color, o.is_verified, o.slug AS organization_slug,
       (SELECT COUNT(*) FROM curriculum_enrollments ce WHERE ce.curriculum_id = c.curriculum_id) AS participant_count
      FROM enterprise_curricula c
      JOIN enterprise_organizations o ON o.organization_id = c.organization_id
@@ -229,12 +230,17 @@ const getCurriculum = async (database, curriculumId, options = {}) => {
 const previewCurriculum = async (database, curriculumId, input = {}) => {
   const curriculum = await getCurriculum(database, curriculumId);
   if (!curriculum) return null;
+  if (input.expected_version_id !== undefined && Number(input.expected_version_id) !== curriculum.version_id) {
+    throw Object.assign(new Error('과정이 변경되었습니다. 화면을 새로고침하고 일정을 다시 확인해주세요.'), { code: 'INVALID_SCHEDULE', statusCode: 409 });
+  }
   const startDate = String(input.start_date || new Date().toISOString().slice(0, 10));
   return {
     curriculum: { ...curriculum, nodes: undefined },
     plan: buildCurriculumPlan(curriculum.nodes, {
       startDate,
       availableWeekdays: input.available_weekdays,
+      dailyMinutes: input.daily_minutes,
+      excludedDates: input.excluded_dates,
       weeklyHours: curriculum.weekly_hours,
       durationWeeks: curriculum.duration_weeks,
     }),
@@ -263,6 +269,14 @@ const normalizeNodeInput = (node, index) => {
 };
 
 const createCurriculum = async (database, adminUserId, input = {}) => {
+  for (const key of ['cover_image_url', 'organization_logo_url']) {
+    const value = String(input[key] || '').trim();
+    if (value && (value.length > 500 || !/^https?:\/\//i.test(value))) {
+      const error = new Error('기업 이미지는 500자 이하의 HTTP(S) 주소로 입력해주세요');
+      error.statusCode = 400;
+      throw error;
+    }
+  }
   const organizationName = String(input.organization_name || '').trim();
   const title = String(input.title || '').trim();
   const summary = String(input.summary || '').trim();
@@ -403,9 +417,14 @@ const enrollCurriculum = async (database, userId, curriculumId, input = {}) => {
   }
   const curriculum = await getCurriculum(database, curriculumId);
   if (!curriculum) return null;
+  if (input.expected_version_id !== undefined && Number(input.expected_version_id) !== curriculum.version_id) {
+    throw Object.assign(new Error('과정이 변경되었습니다. 화면을 새로고침하고 일정을 다시 확인해주세요.'), { statusCode: 409 });
+  }
   const plan = buildCurriculumPlan(curriculum.nodes, {
     startDate,
     availableWeekdays: input.available_weekdays,
+    dailyMinutes: input.daily_minutes,
+    excludedDates: input.excluded_dates,
     weeklyHours: curriculum.weekly_hours,
     durationWeeks: curriculum.duration_weeks,
   });
@@ -446,6 +465,8 @@ const enrollCurriculum = async (database, userId, curriculumId, input = {}) => {
         plan.end_date,
         JSON.stringify({
           available_weekdays: plan.available_weekdays,
+          daily_minutes: plan.daily_minutes,
+          excluded_dates: plan.excluded_dates,
           weekly_hours: Number(input.weekly_hours || curriculum.weekly_hours),
         }),
       ],

@@ -24,9 +24,12 @@ const requestHealth = (url) => new Promise((resolve) => {
     response.on('end', () => {
       try {
         const payload = JSON.parse(body);
+        const databaseOperational = payload?.status === 'ready'
+          || (payload?.checks?.connection === true
+          && payload?.checks?.schema === true);
         resolve({
           reachable: true,
-          healthy: response.statusCode === 200 && payload.status === 'ok',
+          healthy: (response.statusCode === 200 && payload.status === 'ok') || databaseOperational,
           payload,
         });
       } catch {
@@ -41,8 +44,9 @@ const requestHealth = (url) => new Promise((resolve) => {
 const isKkiriHealthPayload = (payload) => Boolean(
   payload
   && payload.status === 'ok'
-  && Object.prototype.hasOwnProperty.call(payload, 'activity_cache_entries')
-  && Object.prototype.hasOwnProperty.call(payload, 'database'),
+  && (payload.service === 'kkiri-api'
+    || (Object.prototype.hasOwnProperty.call(payload, 'activity_cache_entries')
+      && Object.prototype.hasOwnProperty.call(payload, 'database'))),
 );
 
 const parseWindowsListeningPids = (output, port) => [...new Set(String(output || '')
@@ -96,7 +100,7 @@ const recycleStaleApi = async () => {
 };
 
 const waitForDatabase = async () => {
-  for (let attempt = 0; attempt < 40; attempt += 1) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
     const status = await requestHealth(dbHealthUrl);
     if (status.healthy) return true;
     await wait(500);

@@ -23,5 +23,6 @@ test('끼리끼리 health 응답만 오래된 API 재시작 대상으로 인정�
     activity_cache_entries: 1,
   }), true);
   assert.equal(isKkiriHealthPayload({ status: 'ok' }), false);
+  assert.equal(isKkiriHealthPayload({ status: 'ok', service: 'kkiri-api' }), true);
   assert.equal(isKkiriHealthPayload(null), false);
 });

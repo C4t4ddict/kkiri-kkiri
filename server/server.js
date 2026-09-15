@@ -8,6 +8,7 @@ const bodyParser = require('body-parser');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { Buffer } = require('node:buffer');
 const bcrypt = require('bcryptjs');
 
 try {
@@ -16,13 +17,15 @@ try {
   // dotenv는 개발 편의용입니다. 설치되어 있지 않으면 환경변수만 사용합니다.
 }
 
-const { attachAuth, getAuthenticatedUserId, issueAuthToken } = require('./lib/auth');
+const { attachAuth, getAuthenticatedUserId, isLoopbackAddress, issueAuthToken } = require('./lib/auth');
 const { getRequestMetrics, logger, requestLogger } = require('./lib/logger');
+const { createRateLimiter } = require('./lib/rateLimiter');
 const { createSecureImageUpload } = require('./lib/secureImageUpload');
 const { createTtlCache } = require('./lib/ttlCache');
 const { createMemoryRateLimiter } = require('./lib/rateLimit');
 const { extractPrizeDetails, extractPrizeSummary } = require('./lib/activityPrize');
 const { buildMonthTodoCalendar, findPeriodGoalCapacityConflict } = require('./lib/todoCalendar');
+const { buildLearningRoadmap } = require('./lib/learningRoadmap');
 const {
   ensureAwardsSchema,
   listAwards,
@@ -41,6 +44,8 @@ const {
   ensurePortfolioSchema,
   getMiniPortfolio,
   listPastActivities,
+  listPortfolioActivities,
+  openDraftPortfolio,
   updateMiniPortfolio,
 } = require('./portfolio/service');
 const { createMiniPortfolioPdf } = require('./portfolio/pdf');
@@ -48,6 +53,7 @@ const { startCrawlerScheduler } = require('./crawler/scheduler');
 const {
   canAccessRecruitment,
   getAccountIdentity,
+  isStrongPassword,
   isValidEmail,
   normalizeEmail,
 } = require('./auth/accountPolicy');
@@ -86,10 +92,15 @@ const {
 } = require('./messaging/service');
 const { createActivityDocumentsRouter } = require('./activity-documents/router');
 const { ensureActivityDocumentsSchema } = require('./activity-documents/service');
+const { ensureCalendarSchema } = require('./calendar/service');
+const { createCalendarRouter } = require('./calendar/router');
+const { ensureJourneySchema, deleteJourneyUserData } = require('./journey/service');
+const { createJourneyRouter } = require('./journey/router');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-const BCRYPT_SALT_ROUNDS = 10;
+const HOST = String(process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1'));
+const BCRYPT_SALT_ROUNDS = 12;
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const PUBLIC_MEDIA_BASE_URL = String(process.env.PUBLIC_MEDIA_BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
 const buildUploadUrl = (fileName) => `${PUBLIC_MEDIA_BASE_URL}/uploads/${encodeURIComponent(fileName)}`;
@@ -110,6 +121,13 @@ const isPasswordValid = async (inputPassword, savedPassword) => {
 };
 
 const hashPassword = (password) => bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
+
+const isLegacyPassword = (savedPassword) => Boolean(savedPassword) && !savedPassword.startsWith('$2');
+
+const getClientAddress = (req) => req.ip || req.socket?.remoteAddress || 'unknown';
+
+const canExposeDevelopmentVerificationCode = (req) =>
+  process.env.NODE_ENV === 'development' && isLoopbackAddress(getClientAddress(req));
 
 const normalizeLocalUrl = (url) =>
   url ? url.replace('http://localhost:3000', 'http://10.0.2.2:3000') : url;
@@ -284,12 +302,75 @@ const toClientUser = (user) => ({
   schoolName: user.school_name || null,
 });
 
-// Middleware 설정
-app.use(cors());
-app.use(compression({ threshold: 1024 }));
-const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
-if (Number.isSafeInteger(trustProxyHops) && trustProxyHops > 0) app.set('trust proxy', trustProxyHops);
+const toPublicClientUser = (user) => ({
+  id: user.id ?? user.user_id,
+  user_id: user.user_id ?? user.id,
+  name: user.name,
+  department: user.department,
+  profile_picture: normalizeLocalUrl(user.profile_picture),
+  self_intro: user.self_intro,
+  account_type: user.account_type || user.accountType || 'GENERAL',
+  accountType: user.account_type || user.accountType || 'GENERAL',
+  school_name: user.school_name || user.schoolName || null,
+  schoolName: user.school_name || user.schoolName || null,
+});
 
+const USER_PROFILE_SELECT = `
+  SELECT id AS user_id, email, name, department, student_number,
+    birth AS birth_date, profile_picture, self_intro, is_admin, email_verified,
+    account_type, school_domain, school_name
+  FROM users
+  WHERE id = ?
+`;
+
+const getUserProfileById = async (userId) => {
+  const [rows] = await portfolioDb.query(USER_PROFILE_SELECT, [userId]);
+  return rows.length ? toClientUser(rows[0]) : null;
+};
+
+// Middleware 설정
+app.disable('x-powered-by');
+const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
+if (Number.isInteger(trustProxyHops) && trustProxyHops > 0) app.set('trust proxy', trustProxyHops);
+
+const allowedCorsOrigins = new Set(
+  String(process.env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
+const isAllowedCorsOrigin = (origin) => {
+  if (!origin) return true;
+  if (allowedCorsOrigins.has(origin)) return true;
+  return process.env.NODE_ENV !== 'production'
+    && /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(origin);
+};
+
+app.use(requestLogger);
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  if (req.get('authorization') || /^\/(?:auth(?:\/|$)|login$|api\/login$)/.test(req.path)) {
+    res.setHeader('Cache-Control', 'no-store');
+  }
+  next();
+});
+app.use(cors({
+  origin: (origin, callback) => {
+    if (isAllowedCorsOrigin(origin)) return callback(null, true);
+    const error = new Error('허용되지 않은 출처입니다');
+    error.statusCode = 403;
+    return callback(error);
+  },
+  exposedHeaders: ['x-request-id', 'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset', 'Retry-After'],
+}));
+app.use(compression({ threshold: 1024 }));
 const apiRateLimiter = createMemoryRateLimiter({
   windowMs: Number(process.env.API_RATE_LIMIT_WINDOW_MS || 60_000),
   maximum: Number(process.env.API_RATE_LIMIT_MAX || 600),
@@ -311,8 +392,6 @@ const uploadRateLimiter = createMemoryRateLimiter({
   maxKeys: Number(process.env.RATE_LIMIT_MAX_KEYS || 10_000),
 });
 app.use(['/api', '/auth', '/teams', '/users', '/todos', '/notifications'], apiRateLimiter);
-app.use(['/api/login', '/login', '/api/register', '/register', '/auth'], authRateLimiter);
-app.use(['/auth/email-verification/request', '/auth/password-reset/request'], emailRateLimiter);
 app.use('/teams/:teamId/documents', (req, res, next) => {
   res.setHeader('Cache-Control', 'private, no-store');
   next();
@@ -333,11 +412,47 @@ app.use('/teams/:teamId/documents', (error, req, res, next) => {
   }
   return next(error);
 });
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '256kb' }));
 app.use(attachAuth);
-app.use(requestLogger);
 
-const privateApiPattern = /^(?:\/api\/(?:user(?:\/|$)|delete-user(?:\/|$)|upload(?:\/|$)|favorite-activities(?:\/|$)|application-templates(?:\/|$)|developer-feedback(?:\/|$)|friends(?:\/|$)|messages(?:\/|$)|my-(?:recruitments|applications)(?:\/|$)|applications(?:\/|$)|reviews(?:\/|$)|participations(?:\/|$)|team-join-offers(?:\/|$)|curriculum-enrollments(?:\/|$))|\/(?:users|teams|todos|notifications)(?:\/|$))/;
+const loginLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  keyGenerator: (req) => `${getClientAddress(req)}:${normalizeEmail(req.body?.email)}`,
+  message: '로그인 시도가 너무 많습니다. 15분 후 다시 시도해주세요.',
+});
+const loginIpLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  keyGenerator: getClientAddress,
+  message: '로그인 요청이 너무 많습니다. 15분 후 다시 시도해주세요.',
+});
+const authRequestLimiter = createRateLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  keyGenerator: getClientAddress,
+  message: '인증 요청이 너무 많습니다. 잠시 후 다시 시도해주세요.',
+});
+const authVerifyLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  keyGenerator: getClientAddress,
+  message: '인증 확인 시도가 너무 많습니다. 잠시 후 다시 시도해주세요.',
+});
+const uploadLimiter = createRateLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 60,
+  keyGenerator: (req) => String(getRequestUserId(req) || getClientAddress(req)),
+  message: '이미지 업로드 횟수가 너무 많습니다. 잠시 후 다시 시도해주세요.',
+});
+const databaseHealthLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 30,
+  keyGenerator: getClientAddress,
+  message: '데이터베이스 상태 확인 요청이 너무 많습니다. 잠시 후 다시 시도해주세요.',
+});
+
+const privateApiPattern = /^(?:\/api\/(?:me(?:\/|$)|user(?:\/|$)|delete-user(?:\/|$)|upload(?:\/|$)|favorite-activities(?:\/|$)|application-templates(?:\/|$)|developer-feedback(?:\/|$)|friends(?:\/|$)|messages(?:\/|$)|my-(?:recruitments|applications)(?:\/|$)|applications(?:\/|$)|reviews(?:\/|$)|participations(?:\/|$)|team-join-offers(?:\/|$)|curriculum-enrollments(?:\/|$))|\/(?:users|teams|todos|notifications)(?:\/|$))/;
 app.use((req, res, next) => {
   if (!privateApiPattern.test(req.path)) return next();
   if (!getRequestUserId(req)) return res.status(401).json({ message: '로그인이 필요합니다' });
@@ -386,11 +501,15 @@ let feedbackSchemaReady = Promise.resolve();
 let curriculumSchemaReady = Promise.resolve();
 let activityDiscoverySchemaReady = Promise.resolve();
 let messagingSchemaReady = Promise.resolve();
+let journeySchemaReady = Promise.resolve();
 const activityDocumentSchemaReady = ensureActivityDocumentsSchema(portfolioDb);
 activityDocumentSchemaReady.catch((schemaError) => {
   console.error('활동 문서 테이블 준비 오류:', schemaError);
 });
+let userPreferencesSchemaReady = Promise.resolve();
 let crawlerScheduler = null;
+const masterCalendarSchemaReady = ensureCalendarSchema(portfolioDb);
+masterCalendarSchemaReady.catch(error => console.error('캘린더 테이블 준비 오류:', error.message));
 
 const queuePortfolioJob = (job) => {
   const result = portfolioQueue.then(job, job);
@@ -514,6 +633,18 @@ const ensureTrafficIndexes = async () => {
       await queryWithLockRetry(portfolioDb, `ALTER TABLE \`${table}\` ADD INDEX \`${indexName}\` ${columns}`);
     }
   }
+};
+
+const ensureUserPreferencesSchema = async () => {
+  await portfolioDb.query(`CREATE TABLE IF NOT EXISTS user_notification_preferences (
+    user_id INT NOT NULL PRIMARY KEY,
+    matching_enabled TINYINT(1) NOT NULL DEFAULT 1,
+    activity_enabled TINYINT(1) NOT NULL DEFAULT 1,
+    todo_enabled TINYINT(1) NOT NULL DEFAULT 1,
+    notice_enabled TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 };
 
 const ensureTodoCompletionColumn = () => {
@@ -713,9 +844,10 @@ const ensureAdminSchema = async () => {
 
 const requireAdmin = createRequireAdmin({
   database: portfolioDb,
-  getRequestUserId,
   getSchemaReady: () => adminSchemaReady,
 });
+
+app.get('/api/admin/access', requireAdmin, (_req, res) => res.json({ allowed: true }));
 
 const ensureRecruitmentTeam = async (connection, recruitment) => {
   let teamId = Number(recruitment.team_id || 0);
@@ -766,6 +898,7 @@ db.getConnection((err, connection) => {
     authSchemaReady = ensureAuthVerificationSchema(portfolioDb);
     feedbackSchemaReady = ensureDeveloperFeedbackSchema(portfolioDb);
     activityDiscoverySchemaReady = ensureActivityDiscoverySchema();
+    userPreferencesSchemaReady = ensureUserPreferencesSchema();
     messagingSchemaReady = ensureMessagingSchema(portfolioDb);
     if (RUN_BACKGROUND_JOBS) crawlerScheduler = startCrawlerScheduler();
     curriculumSchemaReady = Promise.all([
@@ -784,6 +917,8 @@ db.getConnection((err, connection) => {
       .then(() => adminSchemaReady)
       .then(() => ensurePortfolioSchema(portfolioDb))
       .then(() => ensureAwardsSchema(portfolioDb));
+    journeySchemaReady = Promise.all([awardSchemaReady, activityDocumentSchemaReady]).then(() => ensureJourneySchema(portfolioDb));
+    journeySchemaReady.catch(error => console.error('팀 활동 흐름 테이블 준비 오류:', error.message));
     if (RUN_BACKGROUND_JOBS) {
       awardSchemaReady
         .then(() => runArchiveMaintenance())
@@ -828,22 +963,32 @@ app.get('/', (req, res) => {
 // Health 체크
 app.get('/api/health', (req, res) => {
   res.json({
+    service: 'kkiri-api',
     status: 'ok',
     uptime_seconds: Math.round(process.uptime()),
-    database: db.state,
-    activity_cache_entries: activityCache.size(),
     timestamp: new Date().toISOString()
   });
 });
 
 // 데이터베이스 연결 상태 확인
-app.get('/api/db-health', async (req, res) => {
+app.get('/api/ready', (req, res) => {
+  const ready = db.state === 'connected';
+  res.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'not_ready' });
+});
+
+app.get('/api/db-health', databaseHealthLimiter, async (req, res) => {
   const databaseName = process.env.DB_NAME || 'myappdb';
-  const requiredTables = ['users', 'activitys', 'teams', 'team_members', 'todos'];
+  const requiredTables = [
+    'users',
+    'activitys',
+    'teams',
+    'team_members',
+    'todos',
+    'reviews',
+    'user_notification_preferences',
+  ];
   try {
-    const [[connection]] = await portfolioDb.query(
-      'SELECT DATABASE() AS database_name, @@port AS port, CURRENT_USER() AS account',
-    );
+    const [[connection]] = await portfolioDb.query('SELECT DATABASE() AS database_name, @@port AS port');
     const [tableRows] = await portfolioDb.query(
       `SELECT table_name
        FROM information_schema.tables
@@ -869,7 +1014,21 @@ app.get('/api/db-health', async (req, res) => {
       SELECT
         SUM(CASE WHEN activity_status = 'IN_PROGRESS' AND status <> 'ARCHIVED' THEN 1 ELSE 0 END) AS active_teams,
         (SELECT COUNT(*) FROM team_members) AS memberships,
-        (SELECT COUNT(*) FROM team_members tm LEFT JOIN teams t ON t.team_id = tm.team_id WHERE t.team_id IS NULL) AS orphan_memberships
+        (SELECT COUNT(*) FROM team_members tm LEFT JOIN teams t ON t.team_id = tm.team_id WHERE t.team_id IS NULL) AS orphan_memberships,
+        (SELECT COUNT(*) FROM team_members tm LEFT JOIN users u ON u.id = tm.user_id WHERE u.id IS NULL) AS orphan_member_users,
+        (SELECT COUNT(*)
+         FROM reviews r
+         LEFT JOIN users reviewer ON reviewer.id = r.reviewer_id
+         LEFT JOIN users reviewee ON reviewee.id = r.reviewee_id
+         LEFT JOIN teams review_team ON review_team.team_id = r.related_team_id
+         LEFT JOIN team_members reviewer_member
+           ON reviewer_member.team_id = r.related_team_id AND reviewer_member.user_id = r.reviewer_id
+         LEFT JOIN team_members reviewee_member
+           ON reviewee_member.team_id = r.related_team_id AND reviewee_member.user_id = r.reviewee_id
+         WHERE reviewer.id IS NULL OR reviewee.id IS NULL OR review_team.team_id IS NULL
+           OR reviewer_member.user_id IS NULL OR reviewee_member.user_id IS NULL
+           OR r.reviewer_id = r.reviewee_id
+           OR (r.review_high + r.review_medium + r.review_low) <> 1) AS invalid_reviews
       FROM teams
     `);
     const [[crawlerTable]] = await portfolioDb.query(
@@ -891,32 +1050,18 @@ app.get('/api/db-health', async (req, res) => {
     const dataOk = sourcedActivities > 0
       && Number(stats.sourced_activities_with_images || 0) === sourcedActivities
       && Number(teamStats.orphan_memberships || 0) === 0
+      && Number(teamStats.orphan_member_users || 0) === 0
+      && Number(teamStats.invalid_reviews || 0) === 0
       && crawler?.status === 'completed'
       && Number(crawler?.error_count || 0) === 0;
     const available = schemaOk;
     db.state = 'connected';
     res.status(available ? 200 : 503).json({
       status: available ? 'ok' : 'degraded',
-      message: dataOk
-        ? '데이터베이스 연결·스키마·수집 데이터 품질을 확인했습니다'
-        : '데이터베이스 연결과 스키마는 정상이며 일부 수집 데이터 품질을 확인해주세요',
-      database: connection.database_name,
-      port: Number(connection.port),
-      account: connection.account,
-      checks: { connection: true, schema: schemaOk, data: dataOk, missing_tables: missingTables },
-      stats: {
-        activities: Number(stats.activities || 0),
-        sourced_activities: sourcedActivities,
-        sourced_activities_with_images: Number(stats.sourced_activities_with_images || 0),
-        fixture_activities: Number(stats.fixture_activities || 0),
-        hidden_fixture_activities: Number(stats.hidden_fixture_activities || 0),
-        activities_with_images: Number(stats.activities_with_images || 0),
-        open_activities: Number(stats.open_activities || 0),
-        active_teams: Number(teamStats.active_teams || 0),
-        memberships: Number(teamStats.memberships || 0),
-        orphan_memberships: Number(teamStats.orphan_memberships || 0),
-      },
-      crawler,
+      message: dataOk ? '데이터베이스 연결·스키마·수집 데이터 품질을 확인했습니다' : '데이터베이스 검증 항목을 확인해주세요',
+      checks: { connection: true, schema: schemaOk, data: dataOk },
+      ...(process.env.NODE_ENV !== 'production' && isLoopbackAddress(getClientAddress(req))
+        ? { database: connection.database_name, port: Number(connection.port) } : {}),
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
@@ -924,8 +1069,6 @@ app.get('/api/db-health', async (req, res) => {
     res.status(503).json({
       status: 'error',
       message: '데이터베이스 연결 또는 검증 쿼리에 실패했습니다',
-      database: databaseName,
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
       requestId: res.getHeader('x-request-id'),
     });
   }
@@ -937,9 +1080,19 @@ app.use((req, res, next) => {
   if (db.state === 'connected') return next();
   return res.status(503).json({
     message: '데이터베이스에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.',
-    database: process.env.DB_NAME || 'myappdb',
   });
 });
+
+app.use('/api/calendar', createCalendarRouter({
+  database: portfolioDb,
+  getSchemaReady: () => Promise.all([masterCalendarSchemaReady, todoCalendarSchemaReady, curriculumSchemaReady]),
+}));
+
+app.use('/api/journey', createJourneyRouter({
+  database: portfolioDb,
+  getSchemaReady: () => journeySchemaReady,
+  provisionCurriculumGoalsForMember,
+}));
 
 app.get('/api/curricula', async (req, res) => {
   if (!db || db.state === 'disconnected') return res.json([]);
@@ -984,8 +1137,8 @@ app.post('/api/curricula/:id/preview', async (req, res) => {
     res.json(preview);
   } catch (error) {
     logger.warn('curriculum_preview_failed', { curriculumId, error: error.message });
-    res.status(error.code === 'INVALID_START_DATE' ? 400 : 500).json({
-      message: error.code === 'INVALID_START_DATE' ? error.message : '개인 일정을 만들지 못했습니다',
+    res.status(error.statusCode || (['INVALID_START_DATE', 'INVALID_SCHEDULE'].includes(error.code) ? 400 : 500)).json({
+      message: ['INVALID_START_DATE', 'INVALID_SCHEDULE'].includes(error.code) ? error.message : '개인 일정을 만들지 못했습니다',
     });
   }
 });
@@ -1029,7 +1182,13 @@ app.get('/api/curriculum-enrollments/:id', async (req, res) => {
 
 const requireOpsToken = (req, res, next) => {
   const configuredToken = String(process.env.OPS_API_TOKEN || '');
-  if (!configuredToken || req.get('x-ops-token') !== configuredToken) {
+  const suppliedToken = String(req.get('x-ops-token') || '');
+  const configuredBuffer = Buffer.from(configuredToken);
+  const suppliedBuffer = Buffer.from(suppliedToken);
+  const validToken = configuredToken
+    && configuredBuffer.length === suppliedBuffer.length
+    && crypto.timingSafeEqual(configuredBuffer, suppliedBuffer);
+  if (!validToken) {
     return res.status(403).json({ message: '운영 API 접근 권한이 없습니다' });
   }
   next();
@@ -1054,7 +1213,7 @@ app.get('/api/ops/status', requireOpsToken, async (req, res) => {
       },
       backgroundJobs: {
         enabled: RUN_BACKGROUND_JOBS,
-        crawlerRunning,
+        crawlerRunning: Boolean(crawlerScheduler?.isRunning()),
       },
       crawlerRuns,
       timestamp: new Date().toISOString(),
@@ -1075,7 +1234,7 @@ const handleAuthError = (res, error, fallbackMessage) => {
   return res.status(500).json({ message: fallbackMessage });
 };
 
-app.post('/auth/email-verification/request', async (req, res) => {
+app.post('/auth/email-verification/request', authRequestLimiter, async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   if (!isValidEmail(email)) return res.status(400).json({ message: '올바른 이메일을 입력해주세요' });
   if (db.state !== 'connected') return res.status(503).json({ message: '데이터베이스에 연결할 수 없습니다' });
@@ -1104,7 +1263,7 @@ app.post('/auth/email-verification/request', async (req, res) => {
       message: '인증 코드를 전송했습니다',
       account_type: identity.accountType,
       school_domain: identity.schoolDomain,
-      ...(process.env.NODE_ENV === 'development' && result.developmentCode
+      ...(canExposeDevelopmentVerificationCode(req) && result.developmentCode
         ? { development_code: result.developmentCode }
         : {}),
     });
@@ -1113,7 +1272,7 @@ app.post('/auth/email-verification/request', async (req, res) => {
   }
 });
 
-app.post('/auth/email-verification/verify', async (req, res) => {
+app.post('/auth/email-verification/verify', authVerifyLimiter, async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const code = String(req.body?.code || '').trim();
   if (!isValidEmail(email) || !/^\d{6}$/.test(code)) {
@@ -1129,7 +1288,7 @@ app.post('/auth/email-verification/verify', async (req, res) => {
   }
 });
 
-app.post('/auth/password-reset/request', async (req, res) => {
+app.post('/auth/password-reset/request', authRequestLimiter, async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   if (!isValidEmail(email)) return res.status(400).json({ message: '올바른 이메일을 입력해주세요' });
   const genericResponse = { success: true, message: '가입된 이메일이면 인증 코드가 전송됩니다' };
@@ -1148,7 +1307,7 @@ app.post('/auth/password-reset/request', async (req, res) => {
     }
     res.json({
       ...genericResponse,
-      ...(process.env.NODE_ENV === 'development' && result.developmentCode
+      ...(canExposeDevelopmentVerificationCode(req) && result.developmentCode
         ? { development_code: result.developmentCode }
         : {}),
     });
@@ -1157,7 +1316,7 @@ app.post('/auth/password-reset/request', async (req, res) => {
   }
 });
 
-app.post('/auth/password-reset/verify', async (req, res) => {
+app.post('/auth/password-reset/verify', authVerifyLimiter, async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const code = String(req.body?.code || '').trim();
   if (!isValidEmail(email) || !/^\d{6}$/.test(code)) {
@@ -1183,11 +1342,11 @@ app.post('/auth/password-reset/verify', async (req, res) => {
   }
 });
 
-app.post('/auth/password-reset/confirm', async (req, res) => {
+app.post('/auth/password-reset/confirm', authVerifyLimiter, async (req, res) => {
   const token = String(req.body?.reset_token || '');
   const password = String(req.body?.password || '');
-  if (!token || password.length < 4) {
-    return res.status(400).json({ message: '비밀번호는 4자 이상 입력해주세요' });
+  if (!token || !isStrongPassword(password)) {
+    return res.status(400).json({ message: '비밀번호는 10자 이상이며 문자와 숫자를 포함해야 합니다' });
   }
   try {
     await authSchemaReady;
@@ -1202,56 +1361,15 @@ app.post('/auth/password-reset/confirm', async (req, res) => {
   }
 });
 
-// 새로운 로그인 API (LoginScreen0에서 사용)
-app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body;
-
-  if (!email || !password) {
-    return res.status(400).json({
-      success: false,
-      message: '이메일과 비밀번호를 입력해주세요'
-    });
+const handleLogin = async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const password = String(req.body?.password || '');
+  if (!isValidEmail(email) || !password) {
+    return res.status(400).json({ success: false, message: '이메일과 비밀번호를 입력해주세요' });
   }
 
-  // 더미 데이터로 테스트 (DB 연결 전)
-  if (!db || db.state !== 'connected') {
-    const allowDummyLogin = process.env.NODE_ENV === 'development'
-      && String(process.env.ALLOW_DUMMY_LOGIN || '').toLowerCase() === 'true';
-    if (!allowDummyLogin) {
-      return res.status(503).json({ success: false, message: '데이터베이스 연결을 준비하고 있습니다' });
-    }
-    console.log('더미 로그인 처리 (MySQL 미연결)');
-    
-    // 테스트용 계정
-    if (email === 'test@test.com' && password === 'test123') {
-      const dummyUser = toClientUser({
-        user_id: 1,
-        email: 'test@test.com',
-        name: '테스트 사용자',
-        department: '컴퓨터공학과',
-        student_number: '202012345',
-        birth: '2000-01-01',
-        profile_picture: null,
-        self_intro: '',
-        is_admin: false,
-      });
-      
-      return res.json({
-        success: true,
-        message: '로그인 성공',
-        user: dummyUser,
-        token: issueAuthToken(dummyUser.id),
-      });
-    } else {
-      return res.status(401).json({
-        success: false,
-        message: '이메일 또는 비밀번호가 잘못되었습니다'
-      });
-    }
-  }
-
-  // 실제 DB 쿼리
-  const query = `
+  try {
+    const [results] = await portfolioDb.query(`
     SELECT
       id AS user_id,
       email,
@@ -1269,147 +1387,35 @@ app.post('/api/login', async (req, res) => {
       school_name
     FROM users
     WHERE email = ?
-  `;
-  
-  try {
-    const [results] = await portfolioDb.query(query, [email]);
-    if (results.length === 0) {
-      return res.status(401).json({
-        success: false,
-        message: '이메일 또는 비밀번호가 잘못되었습니다'
-      });
+  `, [email]);
+    if (!results.length) {
+      return res.status(401).json({ success: false, message: '이메일 또는 비밀번호가 잘못되었습니다' });
     }
-
     const user = results[0];
-
     if (!await isPasswordValid(password, user.password)) {
-      return res.status(401).json({
-        success: false,
-        message: '이메일 또는 비밀번호가 잘못되었습니다'
-      });
+      return res.status(401).json({ success: false, message: '이메일 또는 비밀번호가 잘못되었습니다' });
     }
-
-    res.json({
+    if (isLegacyPassword(user.password)) {
+      await portfolioDb.query('UPDATE users SET password = ?, updated_at = NOW() WHERE id = ?', [
+        await hashPassword(password),
+        user.user_id,
+      ]);
+    }
+    return res.json({
       success: true,
       message: '로그인 성공',
       user: toClientUser(user),
       token: issueAuthToken(user.user_id),
     });
   } catch (error) {
-    logger.error('login_failed', { error: error.message });
+    logger.error('login_failed', { error: error.message, code: error.code });
     return res.status(500).json({ success: false, message: '서버 오류' });
   }
-});
+};
 
-app.get('/api/ready', (req, res) => {
-  const ready = db.state === 'connected';
-  res.status(ready ? 200 : 503).json({
-    status: ready ? 'ready' : 'not_ready',
-    database: db.state,
-    timestamp: new Date().toISOString(),
-  });
-});
-
-// 기존 로그인 API 호환성 (기존 LoginScreen에서 사용)
-app.post('/login', async (req, res) => {
-  console.log('기존 로그인 API 호출 - /login 라우트');
-  
-  const { email, password } = req.body;
-
-  if (!email || !password) {
-    return res.status(400).json({
-      success: false,
-      message: '이메일과 비밀번호를 모두 입력해주세요.'
-    });
-  }
-
-  // 더미 데이터로 테스트 (DB 연결 전)
-  if (!db || db.state !== 'connected') {
-    const allowDummyLogin = process.env.NODE_ENV === 'development'
-      && String(process.env.ALLOW_DUMMY_LOGIN || '').toLowerCase() === 'true';
-    if (!allowDummyLogin) {
-      return res.status(503).json({ success: false, message: '데이터베이스 연결을 준비하고 있습니다' });
-    }
-    console.log('더미 로그인 처리 (MySQL 미연결) - 기존 API');
-    
-    // 테스트용 계정
-    if (email === 'test@test.com' && password === 'test123') {
-      const dummyUser = toClientUser({
-        user_id: 1,
-        email: 'test@test.com',
-        name: '테스트 사용자',
-        department: '컴퓨터공학과',
-        student_number: '202012345',
-        birth: '2000-01-01',
-        profile_picture: null,
-        self_intro: '',
-        is_admin: false,
-      });
-      
-      return res.json({
-        success: true,
-        message: '로그인 성공',
-        user: dummyUser,
-        token: issueAuthToken(dummyUser.id),
-      });
-    } else {
-      return res.status(401).json({
-        success: false,
-        message: '이메일 또는 비밀번호를 확인해주세요.'
-      });
-    }
-  }
-
-  // 실제 DB 쿼리 (기존 API와 동일)
-  const query = `
-    SELECT
-      id AS user_id,
-      email,
-      password,
-      name,
-      department,
-      student_number,
-      birth AS birth_date,
-      profile_picture,
-      self_intro,
-      is_admin,
-      email_verified,
-      account_type,
-      school_domain,
-      school_name
-    FROM users
-    WHERE email = ?
-  `;
-  
-  try {
-    const [results] = await portfolioDb.query(query, [email]);
-    if (results.length === 0) {
-      return res.status(401).json({
-        success: false,
-        message: '이메일 또는 비밀번호를 확인해주세요.'
-      });
-    }
-
-    const user = results[0];
-
-    if (!await isPasswordValid(password, user.password)) {
-      return res.status(401).json({
-        success: false,
-        message: '이메일 또는 비밀번호를 확인해주세요.'
-      });
-    }
-
-    res.json({
-      success: true,
-      message: '로그인 성공',
-      user: toClientUser(user),
-      token: issueAuthToken(user.user_id),
-    });
-  } catch (error) {
-    logger.error('legacy_login_failed', { error: error.message });
-    return res.status(500).json({ success: false, message: '서버 오류' });
-  }
-});
+// 새로운 API와 기존 앱 호환 API가 동일한 보안 검증을 사용합니다.
+app.post('/api/login', loginIpLimiter, loginLimiter, handleLogin);
+app.post('/login', loginIpLimiter, loginLimiter, handleLogin);
 
 const registerUser = async (req, res) => {
   const email = normalizeEmail(req.body?.email);
@@ -1419,8 +1425,11 @@ const registerUser = async (req, res) => {
   const studentNumber = String(req.body?.student_number ?? req.body?.studentId ?? '').trim() || null;
   const birth = String(req.body?.birth_date ?? req.body?.birth ?? '').trim() || null;
 
-  if (!isValidEmail(email) || password.length < 4 || !name) {
-    return res.status(400).json({ success: false, message: '이메일, 비밀번호, 이름을 확인해주세요' });
+  if (!isValidEmail(email) || !isStrongPassword(password) || !name) {
+    return res.status(400).json({
+      success: false,
+      message: '이메일과 이름을 확인하고, 비밀번호는 10자 이상 문자와 숫자를 포함해주세요',
+    });
   }
   if (db.state !== 'connected') {
     return res.status(503).json({ success: false, message: '데이터베이스에 연결할 수 없습니다' });
@@ -1469,8 +1478,8 @@ const registerUser = async (req, res) => {
   }
 };
 
-app.post('/api/register', registerUser);
-app.post('/register', registerUser);
+app.post('/api/register', authRequestLimiter, registerUser);
+app.post('/register', authRequestLimiter, registerUser);
 
 app.get('/api/developer-feedback/mine', async (req, res) => {
   const userId = getRequestUserId(req);
@@ -2156,7 +2165,13 @@ app.get('/api/team-recruitments', async (req, res) => {
       tr.school_domain,
       tr.memo,
       tr.status,
-      tr.created_at
+      tr.created_at,
+      (
+        SELECT COUNT(*)
+        FROM applications application_count
+        WHERE application_count.recruitment_id = tr.recruitment_id
+          AND application_count.status IN ('PENDING', 'APPROVED')
+      ) AS active_application_count
     FROM team_recruitments tr
     LEFT JOIN activitys a ON a.activity_id = tr.activity_id
     LEFT JOIN enterprise_curricula c ON c.curriculum_id = tr.curriculum_id
@@ -3025,13 +3040,15 @@ app.get('/api/applications', (req, res) => {
     return res.json([]);
   }
 
+  const userId = getRequestUserId(req);
   const sql = `
-    SELECT application_id, recruitment_id, applicant_id, memo, status, created_at
+    SELECT application_id, recruitment_id, status, created_at
     FROM applications
+    WHERE applicant_id = ?
     ORDER BY created_at DESC, application_id DESC
   `;
 
-  db.query(sql, (err, results) => {
+  db.query(sql, [userId], (err, results) => {
     if (err) {
       console.error('지원 목록 조회 오류:', err);
       return res.status(500).json({ message: '서버 오류' });
@@ -3066,8 +3083,7 @@ app.get('/my-teams', (req, res) => {
     LEFT JOIN enterprise_curricula c ON c.curriculum_id = CASE WHEN t.source_type = 'ENTERPRISE_CURRICULUM' THEN t.source_id ELSE NULL END
     LEFT JOIN enterprise_organizations o ON o.organization_id = c.organization_id
     WHERE tm.user_id = ?
-      AND t.activity_status = 'IN_PROGRESS'
-      AND t.status <> 'ARCHIVED'
+      ${req.query.include === 'all' ? '' : "AND t.activity_status = 'IN_PROGRESS' AND t.status <> 'ARCHIVED'"}
     ORDER BY t.created_at DESC, t.team_id DESC
   `;
 
@@ -3086,7 +3102,13 @@ app.get('/my-teams', (req, res) => {
 });
 
 app.get('/users/:userId/teams', (req, res) => {
-  const { userId } = req.params;
+  const userId = Number(req.params.userId);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return res.status(400).json({ message: '사용자 정보가 올바르지 않습니다' });
+  }
+  if (getRequestUserId(req) !== userId) {
+    return res.status(403).json({ message: '본인의 활동만 볼 수 있습니다' });
+  }
 
   const sql = `
     SELECT
@@ -3147,6 +3169,24 @@ app.post('/teams/:teamId/complete', async (req, res) => {
     console.error('활동 마무리 오류:', error);
     res.status(error.statusCode || 500).json({ message: error.message || '서버 오류' });
   }
+});
+
+app.get('/api/portfolios/activities', async (req, res) => {
+  if (!req.authUserId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  try {
+    await awardSchemaReady;
+    res.json(await listPortfolioActivities(portfolioDb, req.authUserId));
+  } catch (error) { res.status(500).json({ message: '포트폴리오 활동 목록을 불러오지 못했습니다' }); }
+});
+
+app.post('/api/teams/:teamId/mini-portfolio', async (req, res) => {
+  if (!req.authUserId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  const teamId = Number(req.params.teamId);
+  if (!Number.isSafeInteger(teamId) || teamId <= 0) return res.status(400).json({ message: '활동 정보가 올바르지 않습니다' });
+  try {
+    await awardSchemaReady;
+    res.json(await openDraftPortfolio(portfolioDb, req.authUserId, teamId));
+  } catch (error) { res.status(error.statusCode || 500).json({ message: error.statusCode ? error.message : '포트폴리오를 열지 못했습니다' }); }
 });
 
 app.get('/users/:userId/past-activities', async (req, res) => {
@@ -3850,8 +3890,12 @@ app.post('/api/messages/:friendId', async (req, res) => {
 });
 
 app.get('/teams/:teamId/progress', (req, res) => {
-  const { teamId } = req.params;
+  const userId = getRequestUserId(req);
+  const teamId = Number(req.params.teamId);
   const { scope_type, start, end } = req.query;
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    return res.status(400).json({ message: '팀 정보가 올바르지 않습니다' });
+  }
 
   const exactSql = `
     SELECT
@@ -3859,12 +3903,16 @@ app.get('/teams/:teamId/progress', (req, res) => {
       SUM(CASE WHEN status = '완료' THEN 1 ELSE 0 END) AS done
     FROM todos
     WHERE team_id = ?
+      AND EXISTS (
+        SELECT 1 FROM team_members requester
+        WHERE requester.team_id = todos.team_id AND requester.user_id = ?
+      )
       AND scope_type = ?
       AND scope_start_date <= ?
       AND scope_end_date >= ?
   `;
 
-  db.query(exactSql, [teamId, scope_type, end, start], (err, rows) => {
+  db.query(exactSql, [teamId, userId, scope_type, end, start], (err, rows) => {
     if (err) {
       console.error('진행률 조회 오류:', err);
       return res.status(500).json({ message: '서버 오류' });
@@ -3883,10 +3931,14 @@ app.get('/teams/:teamId/progress', (req, res) => {
         SUM(CASE WHEN status = '완료' THEN 1 ELSE 0 END) AS done
       FROM todos
       WHERE team_id = ?
+        AND EXISTS (
+          SELECT 1 FROM team_members requester
+          WHERE requester.team_id = todos.team_id AND requester.user_id = ?
+        )
         AND scope_type = '전체'
     `;
 
-    db.query(fallbackSql, [teamId], (fallbackErr, fallbackRows) => {
+    db.query(fallbackSql, [teamId, userId], (fallbackErr, fallbackRows) => {
       if (fallbackErr) {
         console.error('진행률 fallback 조회 오류:', fallbackErr);
         return res.status(500).json({ message: '서버 오류' });
@@ -3903,6 +3955,56 @@ app.get('/teams/:teamId/progress', (req, res) => {
       });
     });
   });
+});
+
+app.get('/teams/:teamId/learning-roadmap', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const teamId = Number(req.params.teamId);
+
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    return res.status(400).json({ message: '활동 정보가 올바르지 않습니다' });
+  }
+
+  try {
+    const [teams] = await portfolioDb.query(
+      `SELECT t.team_id, t.team_name, t.created_at, t.due_date
+       FROM teams t
+       JOIN team_members tm ON tm.team_id = t.team_id
+       WHERE t.team_id = ?
+         AND tm.user_id = ?
+         AND t.activity_status = 'IN_PROGRESS'
+         AND t.status <> 'ARCHIVED'
+       LIMIT 1`,
+      [teamId, userId],
+    );
+
+    if (!teams.length) {
+      return res.status(404).json({ message: '진행 중인 활동을 찾을 수 없습니다' });
+    }
+
+    const [todos] = await portfolioDb.query(
+      `SELECT todo_id, title, status, scope_type, scope_start_date, scope_end_date
+       FROM todos
+       WHERE team_id = ?
+         AND assigned_user_id = ?
+       ORDER BY scope_start_date ASC, todo_id ASC
+       LIMIT 5000`,
+      [teamId, userId],
+    );
+    const team = teams[0];
+
+    res.json(buildLearningRoadmap({
+      teamId,
+      teamName: team.team_name,
+      activityStartDate: team.created_at,
+      activityEndDate: team.due_date,
+      todos,
+    }));
+  } catch (error) {
+    console.error('학습 로드맵 조회 오류:', error);
+    res.status(500).json({ message: '학습 로드맵을 불러오지 못했습니다' });
+  }
 });
 
 app.get('/teams/:teamId/daily-todos', (req, res) => {
@@ -3935,7 +4037,7 @@ app.get('/teams/:teamId/daily-todos', (req, res) => {
         SELECT 1 FROM team_members tm
         WHERE tm.team_id = td.team_id AND tm.user_id = ?
       )
-    ORDER BY FIELD(td.status, '진행중', '미진행', '완료'), td.updated_at DESC, td.todo_id DESC
+    ORDER BY td.todo_id ASC
     LIMIT 100
   `;
 
@@ -4091,7 +4193,7 @@ app.get('/teams/:teamId/todos', (req, res) => {
       AND td.scope_type = ?
       AND td.scope_start_date <= ?
       AND td.scope_end_date >= ?
-    ORDER BY td.updated_at DESC, td.todo_id DESC
+    ORDER BY td.todo_id ASC
   `;
 
   db.query(exactSql, [teamId, userId, assignedUserId, scope_type, end, start], (err, results) => {
@@ -4100,8 +4202,8 @@ app.get('/teams/:teamId/todos', (req, res) => {
       return res.status(500).json({ message: '서버 오류' });
     }
 
-    if ((results || []).length > 0) {
-      return res.json(results.map(todo => normalizeTodo(todo)));
+    if ((results || []).length > 0 || req.query.exact_period === '1') {
+      return res.json((results || []).map(todo => normalizeTodo(todo)));
     }
 
     const fallbackSql = `
@@ -4112,7 +4214,7 @@ app.get('/teams/:teamId/todos', (req, res) => {
         AND requester.user_id = ?
         AND td.assigned_user_id = ?
         AND td.scope_type = '전체'
-      ORDER BY td.updated_at DESC, td.todo_id DESC
+      ORDER BY td.todo_id ASC
       LIMIT 30
     `;
 
@@ -4143,19 +4245,18 @@ app.post('/teams/:teamId/todos', (req, res) => {
   }
 
   const memberSql = `
-    SELECT COUNT(*) AS count
-    FROM team_members
-    WHERE team_id = ?
-      AND user_id IN (?, ?)
+    SELECT
+      EXISTS(SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?) AS requester_member,
+      EXISTS(SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?) AS assignee_member
   `;
 
-  db.query(memberSql, [teamId, userId, assigned_user_id], (memberErr, memberRows) => {
+  db.query(memberSql, [teamId, userId, teamId, assigned_user_id], (memberErr, memberRows) => {
     if (memberErr) {
       console.error('팀원 투두 생성 권한 확인 오류:', memberErr);
       return res.status(500).json({ message: '서버 오류' });
     }
 
-    if (Number(memberRows?.[0]?.count || 0) < 2 && Number(userId) !== Number(assigned_user_id)) {
+    if (!Number(memberRows?.[0]?.requester_member) || !Number(memberRows?.[0]?.assignee_member)) {
       return res.status(403).json({ message: '팀원에게만 할 일을 추가할 수 있습니다' });
     }
 
@@ -4190,11 +4291,14 @@ app.post('/teams/:teamId/todos', (req, res) => {
 
 app.get('/todos/:teamId', (req, res) => {
   const userId = getRequestUserId(req);
-  const { teamId } = req.params;
+  const teamId = Number(req.params.teamId);
   const { scope_type, start, end } = req.query;
 
   if (!userId) {
     return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+  if (!Number.isInteger(teamId) || teamId <= 0) {
+    return res.status(400).json({ message: '팀 정보가 올바르지 않습니다' });
   }
 
   const exactSql = `
@@ -4202,20 +4306,24 @@ app.get('/todos/:teamId', (req, res) => {
     FROM todos
     WHERE team_id = ?
       AND assigned_user_id = ?
+      AND EXISTS (
+        SELECT 1 FROM team_members requester
+        WHERE requester.team_id = todos.team_id AND requester.user_id = ?
+      )
       AND scope_type = ?
       AND scope_start_date <= ?
       AND scope_end_date >= ?
-    ORDER BY updated_at DESC, todo_id DESC
+    ORDER BY todo_id ASC
   `;
 
-  db.query(exactSql, [teamId, userId, scope_type, end, start], (err, results) => {
+  db.query(exactSql, [teamId, userId, userId, scope_type, end, start], (err, results) => {
     if (err) {
       console.error('투두 조회 오류:', err);
       return res.status(500).json({ message: '서버 오류' });
     }
 
-    if ((results || []).length > 0) {
-      return res.json(results.map(todo => normalizeTodo(todo)));
+    if ((results || []).length > 0 || req.query.exact_period === '1') {
+      return res.json((results || []).map(todo => normalizeTodo(todo)));
     }
 
     const fallbackSql = `
@@ -4223,12 +4331,16 @@ app.get('/todos/:teamId', (req, res) => {
       FROM todos
       WHERE team_id = ?
         AND assigned_user_id = ?
+        AND EXISTS (
+          SELECT 1 FROM team_members requester
+          WHERE requester.team_id = todos.team_id AND requester.user_id = ?
+        )
         AND scope_type = '전체'
-      ORDER BY updated_at DESC, todo_id DESC
+      ORDER BY todo_id ASC
       LIMIT 30
     `;
 
-    db.query(fallbackSql, [teamId, userId], (fallbackErr, fallbackResults) => {
+    db.query(fallbackSql, [teamId, userId, userId], (fallbackErr, fallbackResults) => {
       if (fallbackErr) {
         console.error('투두 fallback 조회 오류:', fallbackErr);
         return res.status(500).json({ message: '서버 오류' });
@@ -4270,6 +4382,11 @@ app.post('/todos/period', async (req, res) => {
   const connection = await portfolioDb.getConnection();
   try {
     await connection.beginTransaction();
+    const [activeTeams] = await connection.query("SELECT team_id FROM teams WHERE team_id=? AND activity_status='IN_PROGRESS' AND status<>'ARCHIVED' FOR UPDATE",[teamId]);
+    if (!activeTeams.length) {
+      await connection.rollback();
+      return res.status(409).json({message:'완료한 활동에는 목표를 추가할 수 없습니다'});
+    }
     const [members] = await connection.query(
       'SELECT team_id FROM team_members WHERE team_id = ? AND user_id = ? FOR UPDATE',
       [teamId, userId],
@@ -4361,25 +4478,34 @@ app.post('/todos/period', async (req, res) => {
 
 app.post('/todos', (req, res) => {
   const userId = getRequestUserId(req);
-  const { team_id, title, scope_type, scope_start_date, scope_end_date } = req.body;
+  const teamId = Number(req.body?.team_id);
+  const title = String(req.body?.title || '').trim();
+  const { scope_type, scope_start_date, scope_end_date } = req.body;
 
   if (!userId) {
     return res.status(401).json({ message: '로그인이 필요합니다' });
   }
 
-  if (!team_id || !title || !scope_type || !scope_start_date || !scope_end_date) {
+  if (!Number.isInteger(teamId) || teamId <= 0 || !title || !scope_type || !scope_start_date || !scope_end_date) {
     return res.status(400).json({ message: '필수 값이 누락되었습니다' });
   }
+  if (title.length > 255) return res.status(400).json({ message: '할 일은 255자 이하로 입력해주세요' });
 
   const insertSql = `
     INSERT INTO todos (team_id, assigned_user_id, title, status, scope_type, scope_start_date, scope_end_date)
-    VALUES (?, ?, ?, '미진행', ?, ?, ?)
+    SELECT ?, ?, ?, '미진행', ?, ?, ? FROM teams t JOIN team_members tm ON tm.team_id=t.team_id
+    WHERE t.team_id=? AND tm.user_id=? AND t.activity_status='IN_PROGRESS' AND t.status<>'ARCHIVED'
   `;
 
-  db.query(insertSql, [team_id, userId, title, scope_type, scope_start_date, scope_end_date], (err, result) => {
+  db.query(insertSql, [teamId, userId, title, scope_type, scope_start_date, scope_end_date, teamId, userId], (err, result) => {
     if (err) {
       console.error('투두 생성 오류:', err);
       return res.status(500).json({ message: '서버 오류' });
+    }
+    if (!result.affectedRows) return res.status(403).json({message:'진행 중인 내 활동에만 작업을 추가할 수 있습니다'});
+
+    if (!result.affectedRows) {
+      return res.status(403).json({ message: '참여 중인 활동에만 할 일을 추가할 수 있습니다' });
     }
 
     const selectSql = `
@@ -4401,12 +4527,15 @@ app.post('/todos', (req, res) => {
 
 app.put('/todos/:todoId', (req, res) => {
   const userId = getRequestUserId(req);
-  const { todoId } = req.params;
+  const todoId = Number(req.params.todoId);
   const allowedFields = ['title', 'status'];
   const updates = allowedFields.filter(field => req.body[field] !== undefined);
 
   if (!userId) {
     return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+  if (!Number.isInteger(todoId) || todoId <= 0) {
+    return res.status(400).json({ message: '할 일 정보가 올바르지 않습니다' });
   }
 
   if (updates.length === 0) {
@@ -4425,12 +4554,17 @@ app.put('/todos/:todoId', (req, res) => {
     UPDATE todos
     SET ${setClause}${completionClause}
     WHERE todo_id = ?
-      AND team_id IN (
-        SELECT team_id FROM team_members WHERE user_id = ?
+      AND (
+        assigned_user_id = ?
+        OR EXISTS (
+          SELECT 1 FROM teams
+          WHERE teams.team_id = todos.team_id AND teams.leader_user_id = ?
+        )
       )
+      AND team_id IN (SELECT team_id FROM teams WHERE activity_status='IN_PROGRESS' AND status<>'ARCHIVED')
   `;
 
-  db.query(sql, [...values, todoId, userId], (err, result) => {
+  db.query(sql, [...values, todoId, userId, userId], (err, result) => {
     if (err) {
       console.error('투두 수정 오류:', err);
       return res.status(500).json({ message: '서버 오류' });
@@ -4446,19 +4580,27 @@ app.put('/todos/:todoId', (req, res) => {
 
 app.delete('/todos/:todoId', (req, res) => {
   const userId = getRequestUserId(req);
-  const { todoId } = req.params;
+  const todoId = Number(req.params.todoId);
 
   if (!userId) {
     return res.status(401).json({ message: '로그인이 필요합니다' });
+  }
+  if (!Number.isInteger(todoId) || todoId <= 0) {
+    return res.status(400).json({ message: '할 일 정보가 올바르지 않습니다' });
   }
 
   db.query(`
     DELETE FROM todos
     WHERE todo_id = ?
-      AND team_id IN (
-        SELECT team_id FROM team_members WHERE user_id = ?
+      AND (
+        assigned_user_id = ?
+        OR EXISTS (
+          SELECT 1 FROM teams
+          WHERE teams.team_id = todos.team_id AND teams.leader_user_id = ?
+        )
       )
-  `, [todoId, userId], (err, result) => {
+      AND team_id IN (SELECT team_id FROM teams WHERE activity_status='IN_PROGRESS' AND status<>'ARCHIVED')
+  `, [todoId, userId, userId], (err, result) => {
     if (err) {
       console.error('투두 삭제 오류:', err);
       return res.status(500).json({ message: '서버 오류' });
@@ -4681,98 +4823,102 @@ app.put('/teams/:teamId/name', (req, res) => {
 
 // ===== 사용자 관련 API =====
 
-// 사용자 정보 조회 API
-app.get('/api/user/:id', (req, res) => {
-  const userId = req.params.id;
-  
-  
-  if (!userId) {
-    return res.status(400).json({
-      success: false,
-      message: '사용자 ID가 필요합니다'
-    });
+app.get('/api/me', async (req, res) => {
+  const userId = getRequestUserId(req);
+  try {
+    const user = await getUserProfileById(userId);
+    if (!user) return res.status(401).json({ success: false, message: '유효하지 않은 로그인입니다' });
+    res.json({ success: true, user });
+  } catch (error) {
+    console.error('현재 사용자 조회 에러:', error);
+    res.status(500).json({ success: false, message: '회원정보를 불러오지 못했습니다' });
+  }
+});
+
+const serializeNotificationPreferences = (row = {}) => ({
+  matching: row.matching_enabled === undefined ? true : Boolean(row.matching_enabled),
+  activity: row.activity_enabled === undefined ? true : Boolean(row.activity_enabled),
+  todo: row.todo_enabled === undefined ? true : Boolean(row.todo_enabled),
+  notice: row.notice_enabled === undefined ? true : Boolean(row.notice_enabled),
+});
+
+app.get('/api/me/notification-preferences', async (req, res) => {
+  const userId = getRequestUserId(req);
+  try {
+    await userPreferencesSchemaReady;
+    const [rows] = await portfolioDb.query(
+      `SELECT matching_enabled, activity_enabled, todo_enabled, notice_enabled
+       FROM user_notification_preferences WHERE user_id = ?`,
+      [userId],
+    );
+    res.json({ success: true, preferences: serializeNotificationPreferences(rows[0]) });
+  } catch (error) {
+    console.error('알림 설정 조회 에러:', error);
+    res.status(500).json({ success: false, message: '알림 설정을 불러오지 못했습니다' });
+  }
+});
+
+app.put('/api/me/notification-preferences', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const keys = ['matching', 'activity', 'todo', 'notice'];
+  if (!keys.every((key) => typeof req.body?.[key] === 'boolean')) {
+    return res.status(400).json({ success: false, message: '알림 설정 값이 올바르지 않습니다' });
   }
 
-  // 더미 데이터 (DB 연결 전)
-  if (!db || db.state === 'disconnected') {
-    console.log('더미 사용자 데이터 (MySQL 미연결)');
-    const dummyUser = toClientUser({
-      user_id: parseInt(userId),
-      email: 'test@test.com',
-      name: '테스트 사용자',
-      department: '컴퓨터공학과',
-      student_number: '202012345',
-      birth: '2000-01-01',
-      profile_picture: null,
-      self_intro: '안녕하세요!',
-      is_admin: false,
-    });
-    
-    return res.json({
-      success: true,
-      user: dummyUser
-    });
+  try {
+    await userPreferencesSchemaReady;
+    await portfolioDb.query(
+      `INSERT INTO user_notification_preferences
+        (user_id, matching_enabled, activity_enabled, todo_enabled, notice_enabled)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         matching_enabled = VALUES(matching_enabled),
+         activity_enabled = VALUES(activity_enabled),
+         todo_enabled = VALUES(todo_enabled),
+         notice_enabled = VALUES(notice_enabled),
+         updated_at = NOW()`,
+      [userId, req.body.matching, req.body.activity, req.body.todo, req.body.notice],
+    );
+    res.json({ success: true, preferences: serializeNotificationPreferences({
+      matching_enabled: req.body.matching,
+      activity_enabled: req.body.activity,
+      todo_enabled: req.body.todo,
+      notice_enabled: req.body.notice,
+    }) });
+  } catch (error) {
+    console.error('알림 설정 저장 에러:', error);
+    res.status(500).json({ success: false, message: '알림 설정을 저장하지 못했습니다' });
   }
-  
-  // 실제 DB 쿼리
-  const userQuery = `SELECT id AS user_id, email, name, department, student_number,
-    birth AS birth_date, profile_picture, self_intro, is_admin, email_verified,
-    account_type, school_domain, school_name FROM users WHERE id = ?`;
-  
-  db.query(userQuery, [userId], (err, results) => {
-    if (err) {
-      console.error('사용자 정보 조회 에러:', err);
-      return res.status(500).json({
-        success: false,
-        message: '서버 오류'
-      });
-    }
-    
-    if (results.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: '사용자를 찾을 수 없습니다'
-      });
-    }
-    
-    const userData = toClientUser(results[0]);
-    
+});
+
+// 사용자 정보 조회 API
+app.get('/api/user/:id', async (req, res) => {
+  const userId = Number(req.params.id);
+  const requestUserId = getRequestUserId(req);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return res.status(400).json({ success: false, message: '사용자 ID가 필요합니다' });
+  }
+
+  try {
+    const user = await getUserProfileById(userId);
+    if (!user) return res.status(404).json({ success: false, message: '사용자를 찾을 수 없습니다' });
     res.json({
       success: true,
-      user: userData
+      user: requestUserId === userId ? user : toPublicClientUser(user),
     });
-  });
+  } catch (error) {
+    console.error('사용자 정보 조회 에러:', error);
+    res.status(500).json({ success: false, message: '서버 오류' });
+  }
 });
 
 // ===== MyPage 관련 API =====
 
 // 사용자 참여 활동 조회 (MyPage2에서 사용)
 app.get('/api/participations/user/:userId', (req, res) => {
-  const userId = req.params.userId;
-  
-  
-  // 더미 데이터 (DB 연결 전)
-  if (!db || db.state === 'disconnected') {
-    console.log('더미 참여 활동 데이터 (MySQL 미연결)');
-    const dummyParticipations = [
-      {
-        participation_id: 1,
-        user_id: parseInt(userId),
-        activity_id: 1,
-        participated_with: [2, 3, 4] // 함께 참여한 사용자 ID들
-      },
-      {
-        participation_id: 2,
-        user_id: parseInt(userId),
-        activity_id: 2,
-        participated_with: [3, 5]
-      }
-    ];
-    
-    return res.json({
-      success: true,
-      participations: dummyParticipations
-    });
+  const userId = Number(req.params.userId);
+  if (getRequestUserId(req) !== userId) {
+    return res.status(403).json({ success: false, message: '본인의 참여 활동만 볼 수 있습니다' });
   }
 
   // 실제 DB 쿼리 (참여 활동 조회)
@@ -4829,40 +4975,42 @@ app.get('/api/participations/user/:userId', (req, res) => {
 
 // 여러 사용자 정보 조회 (MyPage2에서 사용)
 app.post('/api/users/batch', (req, res) => {
-  const user_ids = req.body.user_ids || req.body.userIds;
-  
-  
-  if (!user_ids || !Array.isArray(user_ids) || user_ids.length === 0) {
+  const requestUserId = getRequestUserId(req);
+  const requestedIds = req.body.user_ids || req.body.userIds;
+  if (!Array.isArray(requestedIds) || requestedIds.length === 0 || requestedIds.length > 100) {
     return res.status(400).json({
       success: false,
-      message: '사용자 ID 배열이 필요합니다'
+      message: '1~100개의 사용자 ID 배열이 필요합니다'
     });
   }
-
-  // 더미 데이터 (DB 연결 전)
-  if (!db || db.state === 'disconnected') {
-    console.log('더미 배치 사용자 데이터 (MySQL 미연결)');
-    const dummyUsers = user_ids.map(id => ({
-      id: parseInt(id),
-      user_id: parseInt(id),
-      email: `user${id}@test.com`,
-      name: `사용자 ${id}`,
-      department: '컴퓨터공학과',
-      student_number: `20201234${id}`,
-      studentId: `20201234${id}`,
-    }));
-    
-    return res.json({
-      success: true,
-      users: dummyUsers
-    });
-  }
+  const userIds = [...new Set(requestedIds.map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+  if (!userIds.length) return res.status(400).json({ success: false, message: '올바른 사용자 ID가 필요합니다' });
 
   // 실제 DB 쿼리
-  const placeholders = user_ids.map(() => '?').join(',');
-  const query = `SELECT id, id AS user_id, email, name, department, student_number, student_number AS studentId, birth AS birth_date FROM users WHERE id IN (${placeholders})`;
+  const placeholders = userIds.map(() => '?').join(',');
+  const query = `
+    SELECT DISTINCT u.id, u.id AS user_id, u.name, u.department, u.profile_picture,
+      u.self_intro, u.account_type, u.school_name
+    FROM users u
+    WHERE u.id IN (${placeholders})
+      AND (
+        u.id = ?
+        OR EXISTS (
+          SELECT 1
+          FROM team_members requester
+          JOIN team_members target ON target.team_id = requester.team_id
+          WHERE requester.user_id = ? AND target.user_id = u.id
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM user_activity_participations requester_activity
+          JOIN user_activity_participations target_activity
+            ON target_activity.team_id = requester_activity.team_id
+          WHERE requester_activity.user_id = ? AND target_activity.user_id = u.id
+        )
+      )`;
   
-  db.query(query, user_ids, (err, results) => {
+  db.query(query, [...userIds, requestUserId, requestUserId, requestUserId], (err, results) => {
     if (err) {
       console.error('배치 사용자 정보 조회 에러:', err);
       return res.status(500).json({
@@ -4873,134 +5021,96 @@ app.post('/api/users/batch', (req, res) => {
     
     res.json({
       success: true,
-      users: results || []
+      users: (results || []).map(toPublicClientUser)
     });
   });
 });
 
+const verifyReviewTeamMembers = async (teamId, reviewerId, revieweeId) => {
+  const [members] = await portfolioDb.query(
+    `SELECT user_id FROM team_members
+     WHERE team_id = ? AND user_id IN (?, ?)`,
+    [teamId, reviewerId, revieweeId],
+  );
+  return new Set(members.map((member) => Number(member.user_id))).size === 2;
+};
+
 // 기존 평가 조회 (MyPage3에서 사용)
-app.get('/api/reviews/existing/:reviewerId/:revieweeId/:activityId', (req, res) => {
-  const { reviewerId, revieweeId, activityId } = req.params;
-  
-  console.log(`기존 평가 조회: 평가자 ${reviewerId}, 피평가자 ${revieweeId}, 활동 ${activityId}`);
-  
-  // 더미 데이터 (DB 연결 전)
-  if (!db || db.state === 'disconnected') {
-    console.log('더미 기존 평가 데이터 (MySQL 미연결)');
-    // 기존 평가가 없다고 가정
-    return res.json({
-      success: true,
-      existingReview: null
-    });
+app.get('/api/reviews/existing/:reviewerId/:revieweeId/:activityId', async (req, res) => {
+  const reviewerId = getRequestUserId(req);
+  const pathReviewerId = Number(req.params.reviewerId);
+  const revieweeId = Number(req.params.revieweeId);
+  const teamId = Number(req.params.activityId);
+
+  if (pathReviewerId !== reviewerId) {
+    return res.status(403).json({ success: false, message: '본인의 평가만 조회할 수 있습니다' });
+  }
+  if (![revieweeId, teamId].every((value) => Number.isInteger(value) && value > 0) || reviewerId === revieweeId) {
+    return res.status(400).json({ success: false, message: '평가 대상과 활동 정보가 올바르지 않습니다' });
   }
 
-  // 실제 DB 쿼리
-  const query = 'SELECT * FROM reviews WHERE reviewer_id = ? AND reviewee_id = ? AND related_team_id = ?';
-  
-  db.query(query, [reviewerId, revieweeId, activityId], (err, results) => {
-    if (err) {
-      console.error('기존 평가 조회 에러:', err);
-      return res.status(500).json({
-        success: false,
-        message: '서버 오류'
-      });
+  try {
+    if (!await verifyReviewTeamMembers(teamId, reviewerId, revieweeId)) {
+      return res.status(403).json({ success: false, message: '같은 팀의 팀원만 평가할 수 있습니다' });
     }
-    
-    const existingReview = results.length > 0 ? results[0] : null;
-    
-    res.json({
-      success: true,
-      existingReview: existingReview
-    });
-  });
+    const [results] = await portfolioDb.query(
+      'SELECT * FROM reviews WHERE reviewer_id = ? AND reviewee_id = ? AND related_team_id = ?',
+      [reviewerId, revieweeId, teamId],
+    );
+    res.json({ success: true, existingReview: results[0] || null });
+  } catch (error) {
+    console.error('기존 평가 조회 에러:', error);
+    res.status(500).json({ success: false, message: '서버 오류' });
+  }
 });
 
 // 평가 저장/수정 (MyPage3에서 사용)
-app.post('/api/reviews', (req, res) => {
-  const { reviewer_id, reviewee_id, related_team_id, review_high, review_medium, review_low, comment, is_update } = req.body;
-  const requestUserId = getRequestUserId(req);
-
-  if (!requestUserId) {
-    return res.status(401).json({ success: false, message: '로그인이 필요합니다' });
+app.post('/api/reviews', async (req, res) => {
+  const userId = getRequestUserId(req);
+  const revieweeId = Number(req.body?.reviewee_id);
+  const teamId = Number(req.body?.related_team_id);
+  if (!userId) return res.status(401).json({ message: '로그인이 필요합니다' });
+  if (req.body?.reviewer_id !== undefined && Number(req.body.reviewer_id) !== userId) {
+    return res.status(403).json({ message: '본인의 평가만 작성할 수 있습니다' });
   }
-  if (Number(reviewer_id) !== requestUserId) {
-    return res.status(403).json({ success: false, message: '본인의 평가만 작성할 수 있습니다' });
+  const ratings = ['high', 'medium', 'low'].map(level =>
+    req.body?.rating !== undefined ? Number(req.body.rating === level) : Number(req.body?.[`review_${level}`]));
+  const comment = typeof req.body?.comment === 'string' ? req.body.comment.trim() : '';
+  if (!Number.isSafeInteger(teamId) || teamId < 1 || !Number.isSafeInteger(revieweeId) || revieweeId < 1
+    || revieweeId === userId || !ratings.every(value => value === 0 || value === 1)
+    || ratings.reduce((a, b) => a + b, 0) !== 1 || !comment || comment.length > 500) {
+    return res.status(400).json({ message: '다른 팀원과 평가 하나를 선택하고 500자 이내의 코멘트를 입력해주세요' });
   }
-  
-  // 더미 응답 (DB 연결 전)
-  if (!db || db.state === 'disconnected') {
-    console.log('더미 평가 저장 (MySQL 미연결)');
-    return res.json({
-      success: true,
-      message: is_update ? '평가가 수정되었습니다' : '평가가 저장되었습니다'
-    });
-  }
-
-  if (is_update) {
-    // 기존 평가 수정
-    const updateQuery = `
-      UPDATE reviews 
-      SET review_high = ?, review_medium = ?, review_low = ?, comment = ?, updated_at = NOW()
-      WHERE reviewer_id = ? AND reviewee_id = ? AND related_team_id = ?
-    `;
-    
-    db.query(updateQuery, [review_high, review_medium, review_low, comment, reviewer_id, reviewee_id, related_team_id], (err, result) => {
-      if (err) {
-        console.error('평가 수정 에러:', err);
-        return res.status(500).json({
-          success: false,
-          message: '평가 수정 실패'
-        });
-      }
-      
-      res.json({
-        success: true,
-        message: '평가가 수정되었습니다'
-      });
-    });
-  } else {
-    // 새 평가 저장
-    const insertQuery = `
-      INSERT INTO reviews (reviewer_id, reviewee_id, related_team_id, review_high, review_medium, review_low, comment, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
-    `;
-    
-    db.query(insertQuery, [reviewer_id, reviewee_id, related_team_id, review_high, review_medium, review_low, comment], (err, result) => {
-      if (err) {
-        console.error('평가 저장 에러:', err);
-        return res.status(500).json({
-          success: false,
-          message: '평가 저장 실패'
-        });
-      }
-      
-      res.json({
-        success: true,
-        message: '평가가 저장되었습니다'
-      });
-    });
-  }
+  const connection = await portfolioDb.getConnection();
+  try {
+    await connection.beginTransaction();
+    // Lock the team to serialize repeated submissions without relying on a new unique index.
+    const [teams] = await connection.query('SELECT team_id FROM teams WHERE team_id=? FOR UPDATE', [teamId]);
+    const [members] = await connection.query('SELECT user_id FROM team_members WHERE team_id=? AND user_id IN (?,?)', [teamId, userId, revieweeId]);
+    if (!teams.length || members.length !== 2) {
+      await connection.rollback();
+      return res.status(403).json({ message: '같이 참여한 팀원만 평가할 수 있습니다' });
+    }
+    const [existing] = await connection.query('SELECT review_id FROM reviews WHERE reviewer_id=? AND reviewee_id=? AND related_team_id=? FOR UPDATE', [userId, revieweeId, teamId]);
+    if (existing.length) {
+      await connection.query('UPDATE reviews SET review_high=?,review_medium=?,review_low=?,comment=?,updated_at=NOW() WHERE reviewer_id=? AND reviewee_id=? AND related_team_id=?', [...ratings, comment, userId, revieweeId, teamId]);
+    } else {
+      await connection.query('INSERT INTO reviews (reviewer_id,reviewee_id,related_team_id,review_high,review_medium,review_low,comment,created_at) VALUES (?,?,?,?,?,?,?,NOW())', [userId, revieweeId, teamId, ...ratings, comment]);
+    }
+    await connection.commit();
+    return res.status(existing.length ? 200 : 201).json({ success: true, updated: Boolean(existing.length), message: '평가를 저장했습니다' });
+  } catch (error) {
+    await connection.rollback();
+    logger.error('review_save_failed', { error: error.message });
+    return res.status(500).json({ message: '평가를 저장하지 못했습니다' });
+  } finally { connection.release(); }
 });
 
 // 사용자의 평가 통계 조회 (MyPage4에서 사용)
 app.get('/api/user/:id/evaluations', (req, res) => {
-  const userId = req.params.id;
-  
-  
-  // 더미 데이터 (DB 연결 전)
-  if (!db || db.state === 'disconnected') {
-    console.log('더미 평가 통계 데이터 (MySQL 미연결)');
-    const dummyEvaluations = {
-      review_low: 1,
-      review_medium: 3,
-      review_high: 2
-    };
-    
-    return res.json({
-      success: true,
-      evaluations: dummyEvaluations,
-      debug: `사용자 ${userId}의 더미 평가 통계`
-    });
+  const userId = Number(req.params.id);
+  if (getRequestUserId(req) !== userId) {
+    return res.status(403).json({ success: false, message: '본인의 평가 통계만 볼 수 있습니다' });
   }
 
   // 실제 DB 쿼리 - 사용자가 받은 평가들의 합계
@@ -5036,13 +5146,9 @@ app.get('/api/user/:id/evaluations', (req, res) => {
 });
 
 app.get('/api/user/:id/reviews', (req, res) => {
-  const userId = req.params.id;
-
-  if (!db || db.state === 'disconnected') {
-    return res.json({
-      success: true,
-      reviews: [],
-    });
+  const userId = Number(req.params.id);
+  if (getRequestUserId(req) !== userId) {
+    return res.status(403).json({ success: false, message: '본인이 받은 평가만 볼 수 있습니다' });
   }
 
   const query = `
@@ -5057,9 +5163,10 @@ app.get('/api/user/:id/reviews', (req, res) => {
       r.comment,
       r.created_at,
       COALESCE(u.name, '이름 없음') AS reviewer_name,
-      COALESCE(tr.activity_name, tr.post_name, CONCAT('활동 ', r.related_team_id)) AS activity_title
+      COALESCE(t.team_name, tr.activity_name, tr.post_name, CONCAT('활동 ', r.related_team_id)) AS activity_title
     FROM reviews r
     LEFT JOIN users u ON u.id = r.reviewer_id
+    LEFT JOIN teams t ON t.team_id = r.related_team_id
     LEFT JOIN team_recruitments tr ON tr.team_id = r.related_team_id
     WHERE r.reviewee_id = ?
     ORDER BY r.created_at DESC, r.review_id DESC
@@ -5083,43 +5190,23 @@ app.get('/api/user/:id/reviews', (req, res) => {
 
 // 사용자의 활동 이력 조회 (MyPage4에서 사용)
 app.get('/api/user/:id/activities', (req, res) => {
-  const userId = req.params.id;
-  
-  
-  // 더미 데이터 (DB 연결 전)
-  if (!db || db.state === 'disconnected') {
-    console.log('더미 활동 이력 데이터 (MySQL 미연결)');
-    const dummyActivities = [
-      {
-        id: 1,
-        title: '2024 프로그래밍 대회',
-        comment: '열정적으로 참여해주셨습니다!'
-      },
-      {
-        id: 2,
-        title: 'AI 세미나',
-        comment: '적극적인 질문과 토론이 인상적이었습니다.'
-      }
-    ];
-    
-    return res.json({
-      success: true,
-      activities: dummyActivities
-    });
+  const userId = Number(req.params.id);
+  if (getRequestUserId(req) !== userId) {
+    return res.status(403).json({ success: false, message: '본인의 활동 이력만 볼 수 있습니다' });
   }
 
   // 실제 DB 쿼리 - 사용자가 참여한 활동들과 받은 코멘트들
   const query = `
     SELECT DISTINCT
-      a.team_id as id,
-      COALESCE(a.activity_name, a.post_name) as title,
+      t.team_id as id,
+      t.team_name as title,
       r.comment,
-      a.created_at
-    FROM team_recruitments a
-    JOIN user_activity_participations p ON a.team_id = p.team_id
-    LEFT JOIN reviews r ON p.team_id = r.related_team_id AND r.reviewee_id = ?
-    WHERE p.user_id = ?
-    ORDER BY a.created_at DESC
+      t.created_at
+    FROM team_members tm
+    JOIN teams t ON t.team_id = tm.team_id
+    LEFT JOIN reviews r ON t.team_id = r.related_team_id AND r.reviewee_id = ?
+    WHERE tm.user_id = ?
+    ORDER BY t.created_at DESC
   `;
   
   db.query(query, [userId, userId], (err, results) => {
@@ -5139,7 +5226,7 @@ app.get('/api/user/:id/activities', (req, res) => {
 });
 
 // 사용자 정보 업데이트 (MyPage1에서 사용)
-app.put('/api/user/:id', (req, res) => {
+app.put('/api/user/:id', async (req, res) => {
   const userId = Number(req.params.id);
   const requestUserId = getRequestUserId(req);
   const updateData = req.body;
@@ -5150,19 +5237,8 @@ app.put('/api/user/:id', (req, res) => {
   if (requestUserId !== userId) {
     return res.status(403).json({ success: false, message: '본인의 정보만 수정할 수 있습니다' });
   }
-  
-  
-  // 더미 응답 (DB 연결 전)
-  if (!db || db.state === 'disconnected') {
-    console.log('더미 사용자 정보 업데이트 (MySQL 미연결)');
-    return res.json({
-      success: true,
-      message: '사용자 정보가 업데이트되었습니다'
-    });
-  }
-
   // 실제 DB 쿼리
-  const allowedFields = ['email', 'name', 'department', 'student_number', 'birth_date', 'profile_picture', 'self_intro'];
+  const allowedFields = ['name', 'department', 'student_number', 'birth_date', 'self_intro'];
   const updateFields = [];
   const updateValues = [];
   
@@ -5184,23 +5260,18 @@ app.put('/api/user/:id', (req, res) => {
   updateValues.push(userId);
   const query = `UPDATE users SET ${updateFields.join(', ')}, updated_at = NOW() WHERE id = ?`;
   
-  db.query(query, updateValues, (err, result) => {
-    if (err) {
-      console.error('사용자 정보 업데이트 에러:', err);
-      return res.status(500).json({
-        success: false,
-        message: '사용자 정보 업데이트 실패'
-      });
-    }
-    
-    res.json({
-      success: true,
-      message: '사용자 정보가 업데이트되었습니다'
-    });
-  });
+  try {
+    const [result] = await portfolioDb.query(query, updateValues);
+    if (!result.affectedRows) return res.status(404).json({ success: false, message: '사용자를 찾을 수 없습니다' });
+    const user = await getUserProfileById(userId);
+    res.json({ success: true, message: '사용자 정보가 업데이트되었습니다', user });
+  } catch (error) {
+    console.error('사용자 정보 업데이트 에러:', error);
+    res.status(500).json({ success: false, message: '사용자 정보 업데이트 실패' });
+  }
 });
 
-app.put('/api/user/:id/password', async (req, res) => {
+app.put('/api/user/:id/password', authVerifyLimiter, async (req, res) => {
   const userId = Number(req.params.id);
   const requestUserId = getRequestUserId(req);
   const currentPassword = String(req.body?.current_password || '');
@@ -5214,8 +5285,11 @@ app.put('/api/user/:id/password', async (req, res) => {
     return res.status(403).json({ success: false, message: '본인의 비밀번호만 변경할 수 있습니다' });
   }
 
-  if (!currentPassword || newPassword.length < 4) {
-    return res.status(400).json({ success: false, message: '현재 비밀번호와 4자 이상의 새 비밀번호를 입력해주세요' });
+  if (!currentPassword || !isStrongPassword(newPassword)) {
+    return res.status(400).json({
+      success: false,
+      message: '현재 비밀번호와 10자 이상이며 문자와 숫자를 포함한 새 비밀번호를 입력해주세요',
+    });
   }
 
   try {
@@ -5223,11 +5297,9 @@ app.put('/api/user/:id/password', async (req, res) => {
     if (!rows.length) {
       return res.status(404).json({ success: false, message: '사용자를 찾을 수 없습니다' });
     }
-
     if (!await isPasswordValid(currentPassword, rows[0].password)) {
       return res.status(400).json({ success: false, message: '현재 비밀번호가 일치하지 않습니다' });
     }
-
     await portfolioDb.query(
       'UPDATE users SET password = ?, updated_at = NOW() WHERE id = ?',
       [await hashPassword(newPassword), userId],
@@ -5257,6 +5329,8 @@ app.delete('/api/delete-user/:id', async (req, res) => {
   const connection = await portfolioDb.getConnection();
   try {
     await connection.beginTransaction();
+    await journeySchemaReady;
+    await deleteJourneyUserData(connection, userId);
     await connection.query('DELETE FROM reviews WHERE reviewer_id = ? OR reviewee_id = ?', [userId, userId]);
     await connection.query('DELETE FROM user_activity_participations WHERE user_id = ?', [userId]);
     await connection.query('DELETE FROM users WHERE id = ?', [userId]);
@@ -5287,7 +5361,7 @@ const requireSelfUpload = (parameterName) => (req, res, next) => {
   next();
 };
 
-app.post('/api/upload', uploadRateLimiter, requireUploadUser, secureImageUpload, (req, res) => {
+app.post('/api/upload', requireUploadUser, uploadLimiter, secureImageUpload, (req, res) => {
   if (!req.file) {
     return res.status(400).json({ 
       success: false,
@@ -5302,7 +5376,7 @@ app.post('/api/upload', uploadRateLimiter, requireUploadUser, secureImageUpload,
   });
 });
 
-app.post('/api/upload/profile/:userId', uploadRateLimiter, requireSelfUpload('userId'), secureImageUpload, (req, res) => {
+app.post('/api/upload/profile/:userId', requireSelfUpload('userId'), uploadLimiter, secureImageUpload, (req, res) => {
   const requestUserId = getRequestUserId(req);
   const { userId } = req.params;
 
@@ -5327,7 +5401,7 @@ app.post('/api/upload/profile/:userId', uploadRateLimiter, requireSelfUpload('us
   });
 });
 
-app.post('/users/:userId/past-activities/:portfolioId/images', uploadRateLimiter, requireSelfUpload('userId'), secureImageUpload, async (req, res) => {
+app.post('/users/:userId/past-activities/:portfolioId/images', requireSelfUpload('userId'), uploadLimiter, secureImageUpload, async (req, res) => {
   const userId = Number(req.params.userId);
   const portfolioId = Number(req.params.portfolioId);
   const requestUserId = getRequestUserId(req);
@@ -5365,6 +5439,11 @@ app.get('/api/admin/overview', requireAdmin, async (req, res) => {
       error_message, created_at FROM crawler_errors ORDER BY created_at DESC LIMIT 20`),
   ]);
   res.json({ counts: countRows[0] || {}, crawlerRuns, crawlerErrors, crawlerRunning: Boolean(crawlerScheduler?.isRunning()) });
+});
+
+app.post('/api/admin/curricula/images', requireAdmin, uploadRateLimiter, secureImageUpload, (req, res) => {
+  if (!req.file) return res.status(400).json({ message: '이미지 파일이 필요합니다' });
+  return res.status(201).json({ imageUrl: buildUploadUrl(req.file.filename) });
 });
 
 app.post('/api/admin/curricula', requireAdmin, async (req, res) => {
@@ -5473,12 +5552,16 @@ app.use((error, req, res, next) => {
   logger.error('unhandled_request_error', {
     requestId: res.getHeader('x-request-id'),
     method: req.method,
-    path: req.originalUrl,
+    path: req.path,
     error: error.message,
   });
   if (res.headersSent) return next(error);
-  return res.status(500).json({
-    message: '서버 오류가 발생했습니다',
+  const errorStatus = Number(error.statusCode || error.status);
+  const statusCode = Number.isInteger(errorStatus) && errorStatus >= 400 && errorStatus < 600
+    ? errorStatus
+    : 500;
+  return res.status(statusCode).json({
+    message: statusCode === 403 ? '허용되지 않은 요청입니다' : '서버 오류가 발생했습니다',
     requestId: res.getHeader('x-request-id'),
   });
 });
@@ -5487,35 +5570,14 @@ app.use((error, req, res, next) => {
 app.use((req, res) => {
   res.status(404).json({
     error: 'Not Found',
-    message: `Cannot ${req.method} ${req.originalUrl}`,
-    availableRoutes: [
-      'GET /',
-      'GET /api/health',
-      'GET /api/ready',
-      'GET /api/db-health',
-      'POST /api/login (새로운 API - LoginScreen0 사용)',
-      'POST /login (기존 호환성 API)',
-      'POST /api/register (새로운 API)',
-      'POST /register (기존 호환성 API - RegisterScreen 사용)',
-      'GET /api/activities',
-      'GET /api/activities/:id',
-      'GET /api/user/:id',
-      'PUT /api/user/:id (사용자 정보 업데이트)',
-      'GET /api/participations/user/:userId (참여 활동 조회)',
-      'POST /api/users/batch (배치 사용자 조회)',
-      'GET /api/reviews/existing/:reviewerId/:revieweeId/:activityId (기존 평가 조회)',
-      'POST /api/reviews (평가 저장/수정)',
-      'GET /api/user/:id/evaluations (평가 통계 조회)',
-      'GET /api/user/:id/activities (활동 이력 조회)',
-      'DELETE /api/delete-user/:id (사용자 탈퇴)',
-      'POST /api/upload'
-    ]
+    message: '요청한 경로를 찾을 수 없습니다',
+    requestId: res.getHeader('x-request-id'),
   });
 });
 
 // 서버 시작
-const httpServer = app.listen(PORT, () => {
-  console.log(`🚀 끼리끼리 서버가 http://localhost:${PORT}에서 실행 중입니다`);
+const httpServer = app.listen(PORT, HOST, () => {
+  console.log(`🚀 끼리끼리 서버가 http://${HOST}:${PORT}에서 실행 중입니다`);
   console.log('');
   console.log('📋 사용 가능한 엔드포인트:');
   console.log('  🔍 GET  http://localhost:3000/api/health');

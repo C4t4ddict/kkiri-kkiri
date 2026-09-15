@@ -34,7 +34,10 @@ const logger = {
 
 const requestLogger = (req, res, next) => {
   const startedAt = process.hrtime.bigint();
-  const requestId = req.get('x-request-id') || cryptoRandomId();
+  const suppliedRequestId = String(req.get('x-request-id') || '');
+  const requestId = /^[A-Za-z0-9._:-]{1,64}$/.test(suppliedRequestId)
+    ? suppliedRequestId
+    : cryptoRandomId();
   res.setHeader('x-request-id', requestId);
   res.on('finish', () => {
     const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
@@ -47,7 +50,7 @@ const requestLogger = (req, res, next) => {
     const metadata = {
       requestId,
       method: req.method,
-      path: req.originalUrl,
+      path: req.path,
       status: res.statusCode,
       durationMs: Number(durationMs.toFixed(1)),
     };
