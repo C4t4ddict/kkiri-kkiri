@@ -455,9 +455,9 @@ const openDraftPortfolio = async (db, userId, teamId) => {
     const source = await getArchiveSource(connection, teamId);
     const member = source?.members.find(item => Number(item.user_id) === Number(userId));
     if (!member) { const error = new Error('참여 중인 활동만 관리할 수 있습니다'); error.statusCode = 403; throw error; }
+    if (source.team.activity_status === 'COMPLETED' || source.team.status === 'ARCHIVED') { const error = new Error('활동이 완료되었습니다. 지난 활동에서 포트폴리오를 확인해주세요.'); error.statusCode = 409; throw error; }
     const [existing] = await connection.query('SELECT portfolio_id FROM miniportfolios WHERE user_id = ? AND team_id = ?', [userId, teamId]);
     if (!existing.length) {
-      if (source.team.activity_status === 'COMPLETED' || source.team.status === 'ARCHIVED') { const error = new Error('완료 기록을 준비 중입니다. 지난 활동을 다시 확인해주세요.'); error.statusCode = 409; throw error; }
       const snapshot = buildDraftSnapshot(source, member);
       await connection.query(`INSERT INTO miniportfolios
         (user_id, team_id, recruitment_id, activity_name, activity_type, role, period, period_start, period_end, completed_tasks, summary, archived_reason)

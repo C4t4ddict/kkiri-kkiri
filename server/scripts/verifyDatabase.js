@@ -76,6 +76,12 @@ const run = async () => {
     );
     const tableNames = new Set(tables.map((row) => row.TABLE_NAME || row.table_name));
     const missingTables = requiredTables.filter((table) => !tableNames.has(table));
+    if (missingTables.length) {
+      console.log(JSON.stringify({ status: 'failed', connection: identity,
+        checks: { connection: true, schema: false }, missing_tables: missingTables }, null, 2));
+      process.exitCode = 1;
+      return;
+    }
     const orphanDocumentsSelect = tableNames.has('activity_documents')
       ? `(SELECT COUNT(*)
          FROM activity_documents activity_document
@@ -212,7 +218,8 @@ const run = async () => {
   }
 };
 
-run().catch((error) => {
+module.exports = { run };
+if (require.main === module) run().catch((error) => {
   console.error('DB 검증 실패:', error.message);
   process.exitCode = 1;
 });

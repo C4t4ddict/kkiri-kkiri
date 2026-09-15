@@ -23,7 +23,7 @@ const createRateLimiter = ({
     const retryAfterSeconds = Math.max(1, Math.ceil((resetAt - currentTime) / 1000));
     res.set('RateLimit-Limit', String(max));
     res.set('RateLimit-Remaining', '0');
-    res.set('RateLimit-Reset', String(Math.ceil(resetAt / 1000)));
+    res.set('RateLimit-Reset', String(retryAfterSeconds));
     res.set('Retry-After', String(retryAfterSeconds));
     return res.status(429).json({ message, retry_after_seconds: retryAfterSeconds });
   };
@@ -51,7 +51,7 @@ const createRateLimiter = ({
     const retryAfterSeconds = Math.max(1, Math.ceil((entry.resetAt - currentTime) / 1000));
     res.set('RateLimit-Limit', String(max));
     res.set('RateLimit-Remaining', String(Math.max(0, max - entry.count)));
-    res.set('RateLimit-Reset', String(Math.ceil(entry.resetAt / 1000)));
+    res.set('RateLimit-Reset', String(retryAfterSeconds));
 
     if (entry.count > max) {
       res.set('Retry-After', String(retryAfterSeconds));

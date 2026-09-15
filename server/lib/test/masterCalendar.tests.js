@@ -57,9 +57,13 @@ test('캘린더 라우터는 익명·레거시 헤더 인증을 거부하고 삭
   try {
     assert.equal((await fetch(url, { headers: { 'x-user-id': '7' } })).status, 401);
     assert.equal(queries.length, 0);
-    const result = await fetch(`${url}/events/99?user_id=999`, { method: 'DELETE', headers: { authorization: 'test-session' } });
-    assert.equal(result.status, 404);
-    assert.deepEqual(queries[0].values, [99, 7]);
-    assert.match(queries[0].sql, /user_id=\?/);
+    const headers = { authorization: 'test-session', 'Content-Type': 'application/json' };
+    const missing = await fetch(`${url}/events/99`, { method: 'DELETE', headers });
+    assert.equal(missing.status, 400);
+    assert.equal(queries.length, 0);
+    const result = await fetch(`${url}/events/99?user_id=999`, { method: 'DELETE', headers, body: JSON.stringify({ version: 3 }) });
+    assert.equal(result.status, 409);
+    assert.deepEqual(queries[0].values, [99, 7, 3]);
+    assert.match(queries[0].sql, /user_id=\?.*version=\?/s);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });

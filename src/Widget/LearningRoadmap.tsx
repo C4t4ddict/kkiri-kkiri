@@ -1,7 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,6 +11,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Icon from 'react-native-vector-icons/Ionicons';
 import colors from '../config/colors';
+import { API_BASE_URL } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import type { RootStackParamList } from '../types';
 
@@ -59,10 +59,6 @@ type LearningRoadmapData = {
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
-const API_BASE_URL = __DEV__
-  ? (Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000')
-  : 'https://your.api';
-
 const statusColors: Record<RoadmapSegment['status'], { background: string; text: string }> = {
   미진행: { background: '#F2F4F7', text: '#667085' },
   진행중: { background: colors.primarySurface, text: colors.primaryDark },
@@ -88,33 +84,38 @@ export default function LearningRoadmap({ teamId, refreshKey }: Props) {
   const [data, setData] = useState<LearningRoadmapData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
+  const requestVersion = useRef(0);
 
   const fetchRoadmap = useCallback(async () => {
+    const version = ++requestVersion.current;
+    setData(null);
     if (!teamId || !user?.id) {
       setData(null);
       setError(false);
+      setLoading(false);
       return;
     }
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/teams/${teamId}/learning-roadmap`, {
-        headers: { 'x-user-id': String(user.id) },
-      });
+      const response = await fetch(`${API_BASE_URL}/teams/${teamId}/learning-roadmap`);
       if (!response.ok) throw new Error(`학습 로드맵 조회 실패 (${response.status})`);
       const payload = await response.json();
+      if (version !== requestVersion.current) return;
       setData(payload && Array.isArray(payload.segments) ? payload : null);
       setError(false);
     } catch (fetchError) {
+      if (version !== requestVersion.current) return;
       setData(null);
       setError(true);
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   }, [teamId, user?.id]);
 
   useEffect(() => {
-    fetchRoadmap();
+    void fetchRoadmap();
+    return () => { requestVersion.current += 1; };
   }, [fetchRoadmap, refreshKey]);
 
   if (!teamId) return null;

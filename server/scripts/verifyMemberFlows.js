@@ -46,6 +46,8 @@ const run = async () => {
   let snapshot = null;
   let preferenceSnapshot = null;
   let teamId = 0;
+  let snapshotsReady = false;
+  let verificationError;
   try {
     const [teams] = await connection.query(`
       SELECT t.team_id
@@ -68,6 +70,7 @@ const run = async () => {
       'SELECT * FROM user_notification_preferences WHERE user_id = 1',
     );
     preferenceSnapshot = preferenceRows[0] || null;
+    snapshotsReady = true;
 
     const [loginOne, loginTwo] = await Promise.all([
       login('test@test.com'),
@@ -153,10 +156,15 @@ const run = async () => {
         review_authorization: true,
       },
       team_id: teamId,
-      users: [meOne.user.email, meTwo.user.email],
+      users: [Number(meOne.user.id), Number(meTwo.user.id)],
     }, null, 2));
+  } catch (error) {
+    verificationError = error;
+    throw error;
   } finally {
-    if (teamId) {
+    let restoreError;
+    try {
+    if (snapshotsReady && teamId) {
       if (snapshot) {
         await connection.query(
           `INSERT INTO reviews
@@ -176,7 +184,7 @@ const run = async () => {
       }
     }
 
-    if (preferenceSnapshot) {
+    if (snapshotsReady && preferenceSnapshot) {
       await connection.query(
         `INSERT INTO user_notification_preferences
           (user_id, matching_enabled, activity_enabled, todo_enabled, notice_enabled, created_at, updated_at)
@@ -188,10 +196,19 @@ const run = async () => {
           preferenceSnapshot.todo_enabled, preferenceSnapshot.notice_enabled,
           preferenceSnapshot.created_at, preferenceSnapshot.updated_at],
       );
-    } else {
+    } else if (snapshotsReady) {
       await connection.query('DELETE FROM user_notification_preferences WHERE user_id = 1');
     }
-    await connection.end();
+    } catch (error) {
+      restoreError = error;
+    } finally {
+      try { await connection.end(); }
+      catch (error) { restoreError ||= error; }
+    }
+    if (restoreError) {
+      if (!verificationError) throw restoreError;
+      console.error('QA 복원 또는 연결 종료 실패:', restoreError.code || restoreError.name);
+    }
   }
 };
 
