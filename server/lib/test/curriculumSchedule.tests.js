@@ -52,6 +52,7 @@ test('기업 커리큘럼의 상대 일정을 월간·주간·일일 목표로 �
   assert.deepEqual(plan.level_counts, { 월간: 1, 주간: 1, 일일: 1 });
   assert.equal(plan.goals[0].scope_type, '월간');
   assert.equal(plan.goals[2].scope_start_date, '2026-08-31');
+  assert.equal(plan.goals[2].scope_end_date, '2026-09-02');
   assert.equal(plan.total_minutes, 360);
 });
 
@@ -69,6 +70,18 @@ test('일일 목표는 사용자가 선택한 학습 가능 요일로 이동한�
   });
 
   assert.equal(plan.goals[0].scope_start_date, '2026-09-01');
+  assert.equal(plan.goals[0].scope_end_date, '2026-09-05');
+});
+
+test('다일 과제 이동 시 종료일과 상위 목표 기간을 함께 보존한다', () => {
+  const plan = buildCurriculumPlan([
+    { node_id: 1, level: 'WEEKLY', relative_start_day: 0, relative_end_day: 1 },
+    { node_id: 2, parent_node_id: 1, level: 'DAILY', relative_start_day: 0, relative_end_day: 2, estimated_minutes: 60 },
+  ], { startDate: '2026-09-08', availableWeekdays: [6], dailyMinutes: 60 });
+  assert.equal(plan.goals[1].scope_start_date, '2026-09-12');
+  assert.equal(plan.goals[1].scope_end_date, '2026-09-14');
+  assert.equal(plan.goals[0].scope_end_date, '2026-09-14');
+  assert.equal(plan.end_date, '2026-09-14');
 });
 
 test('목표 계층의 시간이 중복되어도 권장 주당 학습시간을 우선한다', () => {

@@ -1,11 +1,12 @@
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api';
 
 let authToken: string | null = null;
 let fetchInstalled = false;
 
-const isAppApiUrl = (input: RequestInfo) => {
-  const url = typeof input === 'string' ? input : input.url;
-  return /^http:\/\/(localhost|10\.0\.2\.2):3000(?:\/|$)/.test(url);
+const isAppApiUrl = (input: RequestInfo | URL) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  return url === API_BASE_URL || url.startsWith(`${API_BASE_URL}/`);
 };
 
 export const configureAuthTransport = (token?: string | null) => {
@@ -16,7 +17,7 @@ export const configureAuthTransport = (token?: string | null) => {
   if (fetchInstalled) return;
   fetchInstalled = true;
   const originalFetch = globalThis.fetch.bind(globalThis);
-  globalThis.fetch = (input: RequestInfo, init: RequestInit = {}) => {
+  globalThis.fetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
     if (!authToken || !isAppApiUrl(input)) return originalFetch(input, init);
     const requestHeaders = typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined;
     const headers = new Headers(init.headers || requestHeaders);

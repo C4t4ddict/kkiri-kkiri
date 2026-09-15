@@ -21,7 +21,8 @@ const textValue = (value, max, required = false) => {
   if (value != null && typeof value !== 'string')
     throw new JourneyError('입력 형식을 확인해주세요.');
   const text = (value || '').trim();
-  if ((required && !text) || text.length > max)
+  if (required && !text) throw new JourneyError('내용을 입력해주세요.');
+  if (text.length > max)
     throw new JourneyError(`내용을 ${max}자 이내로 입력해주세요.`);
   return text;
 };

@@ -54,6 +54,7 @@ const {
   canAccessRecruitment,
   getAccountIdentity,
   isStrongPassword,
+  passwordValidationError,
   isValidEmail,
   normalizeEmail,
 } = require('./auth/accountPolicy');
@@ -997,69 +998,15 @@ app.get('/api/db-health', databaseHealthLimiter, async (req, res) => {
     );
     const existingTables = new Set(tableRows.map((row) => row.TABLE_NAME || row.table_name));
     const missingTables = requiredTables.filter((table) => !existingTables.has(table));
-    const [[stats]] = await portfolioDb.query(`
-      SELECT
-        COUNT(*) AS activities,
-        SUM(CASE WHEN source_name IN ('위비티', '씽굿') THEN 1 ELSE 0 END) AS sourced_activities,
-        SUM(CASE WHEN source_name IN ('위비티', '씽굿')
-          AND main_image_url IS NOT NULL AND TRIM(main_image_url) <> '' THEN 1 ELSE 0 END) AS sourced_activities_with_images,
-        SUM(CASE WHEN source_name = 'local-demo' THEN 1 ELSE 0 END) AS fixture_activities,
-        SUM(CASE WHEN source_name = 'local-demo' AND COALESCE(is_hidden, 0) = 1 THEN 1 ELSE 0 END) AS hidden_fixture_activities,
-        SUM(CASE WHEN main_image_url IS NOT NULL AND TRIM(main_image_url) <> '' THEN 1 ELSE 0 END) AS activities_with_images,
-        SUM(CASE WHEN COALESCE(is_hidden, 0) = 0
-          AND (application_period_end IS NULL OR application_period_end >= CURDATE()) THEN 1 ELSE 0 END) AS open_activities
-      FROM activitys
-    `);
-    const [[teamStats]] = await portfolioDb.query(`
-      SELECT
-        SUM(CASE WHEN activity_status = 'IN_PROGRESS' AND status <> 'ARCHIVED' THEN 1 ELSE 0 END) AS active_teams,
-        (SELECT COUNT(*) FROM team_members) AS memberships,
-        (SELECT COUNT(*) FROM team_members tm LEFT JOIN teams t ON t.team_id = tm.team_id WHERE t.team_id IS NULL) AS orphan_memberships,
-        (SELECT COUNT(*) FROM team_members tm LEFT JOIN users u ON u.id = tm.user_id WHERE u.id IS NULL) AS orphan_member_users,
-        (SELECT COUNT(*)
-         FROM reviews r
-         LEFT JOIN users reviewer ON reviewer.id = r.reviewer_id
-         LEFT JOIN users reviewee ON reviewee.id = r.reviewee_id
-         LEFT JOIN teams review_team ON review_team.team_id = r.related_team_id
-         LEFT JOIN team_members reviewer_member
-           ON reviewer_member.team_id = r.related_team_id AND reviewer_member.user_id = r.reviewer_id
-         LEFT JOIN team_members reviewee_member
-           ON reviewee_member.team_id = r.related_team_id AND reviewee_member.user_id = r.reviewee_id
-         WHERE reviewer.id IS NULL OR reviewee.id IS NULL OR review_team.team_id IS NULL
-           OR reviewer_member.user_id IS NULL OR reviewee_member.user_id IS NULL
-           OR r.reviewer_id = r.reviewee_id
-           OR (r.review_high + r.review_medium + r.review_low) <> 1) AS invalid_reviews
-      FROM teams
-    `);
-    const [[crawlerTable]] = await portfolioDb.query(
-      `SELECT COUNT(*) AS table_count FROM information_schema.tables
-       WHERE table_schema = ? AND table_name = 'crawler_runs'`,
-      [databaseName],
-    );
-    let crawler = null;
-    if (Number(crawlerTable.table_count) > 0) {
-      const [runs] = await portfolioDb.query(
-        `SELECT run_id, source_name, status, discovered_count, saved_count, error_count,
-                started_at, finished_at
-         FROM crawler_runs ORDER BY run_id DESC LIMIT 1`,
-      );
-      crawler = runs[0] || null;
-    }
+    // Public readiness must not scan application data. Full relationship and
+    // crawler validation belongs to the explicit db:verify maintenance command.
     const schemaOk = missingTables.length === 0;
-    const sourcedActivities = Number(stats.sourced_activities || 0);
-    const dataOk = sourcedActivities > 0
-      && Number(stats.sourced_activities_with_images || 0) === sourcedActivities
-      && Number(teamStats.orphan_memberships || 0) === 0
-      && Number(teamStats.orphan_member_users || 0) === 0
-      && Number(teamStats.invalid_reviews || 0) === 0
-      && crawler?.status === 'completed'
-      && Number(crawler?.error_count || 0) === 0;
     const available = schemaOk;
     db.state = 'connected';
     res.status(available ? 200 : 503).json({
       status: available ? 'ok' : 'degraded',
-      message: dataOk ? '데이터베이스 연결·스키마·수집 데이터 품질을 확인했습니다' : '데이터베이스 검증 항목을 확인해주세요',
-      checks: { connection: true, schema: schemaOk, data: dataOk },
+      message: schemaOk ? '데이터베이스 연결과 필수 스키마를 확인했습니다' : '데이터베이스 스키마를 확인해주세요',
+      checks: { connection: true, schema: schemaOk },
       ...(process.env.NODE_ENV !== 'production' && isLoopbackAddress(getClientAddress(req))
         ? { database: connection.database_name, port: Number(connection.port) } : {}),
       timestamp: new Date().toISOString(),
@@ -1346,7 +1293,7 @@ app.post('/auth/password-reset/confirm', authVerifyLimiter, async (req, res) => 
   const token = String(req.body?.reset_token || '');
   const password = String(req.body?.password || '');
   if (!token || !isStrongPassword(password)) {
-    return res.status(400).json({ message: '비밀번호는 10자 이상이며 문자와 숫자를 포함해야 합니다' });
+    return res.status(400).json({ message: passwordValidationError(password) === 'TOO_LONG' ? '비밀번호가 너무 깁니다. UTF-8 기준 72바이트 이내로 입력해주세요.' : '비밀번호는 10자 이상이며 문자와 숫자를 포함해야 합니다' });
   }
   try {
     await authSchemaReady;
@@ -1428,7 +1375,7 @@ const registerUser = async (req, res) => {
   if (!isValidEmail(email) || !isStrongPassword(password) || !name) {
     return res.status(400).json({
       success: false,
-      message: '이메일과 이름을 확인하고, 비밀번호는 10자 이상 문자와 숫자를 포함해주세요',
+      message: passwordValidationError(password) === 'TOO_LONG' ? '비밀번호가 너무 깁니다. UTF-8 기준 72바이트 이내로 입력해주세요.' : '이메일과 이름을 확인하고, 비밀번호는 10자 이상 문자와 숫자를 포함해주세요',
     });
   }
   if (db.state !== 'connected') {
@@ -5288,7 +5235,7 @@ app.put('/api/user/:id/password', authVerifyLimiter, async (req, res) => {
   if (!currentPassword || !isStrongPassword(newPassword)) {
     return res.status(400).json({
       success: false,
-      message: '현재 비밀번호와 10자 이상이며 문자와 숫자를 포함한 새 비밀번호를 입력해주세요',
+      message: passwordValidationError(newPassword) === 'TOO_LONG' ? '비밀번호가 너무 깁니다. UTF-8 기준 72바이트 이내로 입력해주세요.' : '현재 비밀번호와 10자 이상이며 문자와 숫자를 포함한 새 비밀번호를 입력해주세요',
     });
   }
 

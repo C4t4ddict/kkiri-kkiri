@@ -27,6 +27,7 @@ test('제한 횟수를 초과한 동일 키 요청을 429로 차단한다', () =
   limiter(req, blocked, () => assert.fail('제한된 요청이 통과했습니다'));
   assert.equal(blocked.statusCode, 429);
   assert.equal(blocked.headers['Retry-After'], '60');
+  assert.equal(blocked.headers['RateLimit-Reset'], '60');
 
   currentTime += 60_001;
   let continued = false;
@@ -51,6 +52,7 @@ test('용량에 도달해도 기존 제한을 지우지 않고 새 키를 차단
     limiter({ ip }, response, () => assert.fail('용량 포화로 제한이 초기화되었습니다'));
     assert.equal(response.statusCode, 429);
     assert.equal(response.headers['RateLimit-Remaining'], '0');
+    assert.equal(response.headers['RateLimit-Reset'], response.headers['Retry-After']);
   }
   currentTime += 60_001;
   let continued = 0;

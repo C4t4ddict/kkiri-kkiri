@@ -25,9 +25,11 @@ function createCalendarRouter({ database, getSchemaReady }) {
   router.post('/events', handle(async (req, res) => res.status(201).json(await saveEvent(database, req.authUserId, req.body))));
   router.put('/events/:id', handle(async (req, res) => res.json(await saveEvent(database, req.authUserId, req.body, parseId(req.params.id)))));
   router.delete('/events/:id', handle(async (req, res) => {
+    const version = Number(req.body?.version);
+    if (!Number.isSafeInteger(version) || version < 1) throw new CalendarError('일정 버전을 확인해주세요.');
     const [result] = await database.query(`UPDATE calendar_events SET deleted_at=CURRENT_TIMESTAMP, version=version+1
-      WHERE event_id=? AND user_id=? AND deleted_at IS NULL`, [parseId(req.params.id), req.authUserId]);
-    if (!result.affectedRows) throw new CalendarError('일정을 찾을 수 없습니다.', 404);
+      WHERE event_id=? AND user_id=? AND deleted_at IS NULL AND version=?`, [parseId(req.params.id), req.authUserId, version]);
+    if (!result.affectedRows) throw new CalendarError('일정이 변경되었거나 삭제되었습니다. 다시 불러온 후 확인해주세요.', 409);
     res.json({ deleted: true });
   }));
   return router;

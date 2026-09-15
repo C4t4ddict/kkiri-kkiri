@@ -5,6 +5,7 @@ const {
   getAccountIdentity,
   getSchoolDomain,
   isStrongPassword,
+  passwordValidationError,
   normalizeEmail,
 } = require('../../auth/accountPolicy');
 
@@ -30,6 +31,14 @@ test('학교 이메일과 일반 이메일의 계정 유형을 구분한다', ()
     schoolName: 'school.ac.kr',
   });
   assert.equal(getAccountIdentity('person@gmail.com').accountType, 'GENERAL');
+});
+
+test('비밀번호 길이·바이트 상한·문자 조합 실패 이유를 구분한다', () => {
+  assert.equal(passwordValidationError(`${'가'.repeat(24)}1`), 'TOO_LONG');
+  assert.equal(passwordValidationError('a'.repeat(73)), 'TOO_LONG');
+  assert.equal(passwordValidationError('short1'), 'TOO_SHORT');
+  assert.equal(passwordValidationError('lettersalone'), 'MISSING_CHARACTER_TYPES');
+  assert.equal(passwordValidationError('securepass1'), null);
 });
 
 test('본교 모집은 인증된 같은 학교 사용자만 접근한다', () => {

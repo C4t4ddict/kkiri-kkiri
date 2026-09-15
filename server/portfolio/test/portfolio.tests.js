@@ -7,8 +7,31 @@ const {
   normalizePortfolio,
   sanitizePortfolioEdit,
   buildDraftSnapshot,
+  openDraftPortfolio,
 } = require('../service');
 const { buildTaskPages, createMiniPortfolioPdf } = require('../pdf');
+
+test('완료·보관 팀은 기존 포트폴리오가 있어도 초안 API에서 409를 반환한다', async () => {
+  for (const state of [{ activity_status: 'COMPLETED', status: 'ACTIVE' }, { activity_status: 'IN_PROGRESS', status: 'ARCHIVED' }]) {
+    let released = false;
+    let rolledBack = false;
+    let queriedPortfolio = false;
+    const connection = {
+      beginTransaction: async () => {}, commit: async () => assert.fail('완료 팀을 초안으로 열었습니다'),
+      rollback: async () => { rolledBack = true; }, release: () => { released = true; },
+      query: async sql => {
+        if (sql.includes('miniportfolios')) { queriedPortfolio = true; return [[{ portfolio_id: 99 }]]; }
+        if (sql.includes('FROM teams t')) return [[{ team_id: 1, ...state }]];
+        if (sql.includes('FROM team_members tm')) return [[{ user_id: 7 }]];
+        return [[]];
+      },
+    };
+    await assert.rejects(openDraftPortfolio({ getConnection: async () => connection }, 7, 1), error => error.statusCode === 409);
+    assert.equal(queriedPortfolio, false);
+    assert.equal(rolledBack, true);
+    assert.equal(released, true);
+  }
+});
 
 test('완료 작업을 월간·주간·일일 범위로 분류한다', () => {
   const grouped = groupCompletedTasks([

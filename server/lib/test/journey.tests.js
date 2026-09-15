@@ -7,6 +7,12 @@ const service = require('../../journey/service');
 const { createJourneyRouter } = require('../../journey/router');
 const { archiveExpiredTeams } = require('../../portfolio/service');
 
+test('필수 입력 누락은 길이 초과와 다른 안내를 반환한다', () => {
+  assert.throws(() => service.textValue('   ', 120, true), /내용을 입력해주세요/);
+  assert.throws(() => service.textValue('a'.repeat(121), 120, true), /120자 이내/);
+  assert.equal(service.textValue(undefined, 120), '');
+});
+
 const draft = () => ({
   activity_name: '팀 프로젝트',
   user_name: '작성자',

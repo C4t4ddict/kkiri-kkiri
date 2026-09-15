@@ -23,11 +23,9 @@ import { loadWidgetPrefs } from '../utils/widgetPrefs';
 import { WIDGET_COMPONENTS, WidgetPref, DEFAULT_WIDGET_PREFS } from '../constants/widgets';
 import Ringgraph from '../Widget/Ringgraph';
 import colors from '../config/colors';
+import { API_BASE_URL } from '../config/api';
 
 
-
-const API_BASE_URL =
-  Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 

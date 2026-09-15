@@ -94,6 +94,7 @@ const buildCurriculumPlan = (nodes, options = {}) => {
   let oversizedGoals = 0;
   for (const goal of dailyGoals) {
     const originalDay = goal.scope_start_date;
+    const durationDays = Math.round((parseDateOnly(goal.scope_end_date) - parseDateOnly(originalDay)) / DAY_MS);
     let candidate = parseDateOnly(originalDay > previousDay ? originalDay : previousDay);
     const minutes = goal.estimated_minutes || 60;
     let placed = false;
@@ -103,7 +104,7 @@ const buildCurriculumPlan = (nodes, options = {}) => {
       if (weekdays.includes(candidate.getUTCDay()) && !excluded.has(key)
         && (!dailyMinutes || used === 0 || used + minutes <= dailyMinutes)) {
         goal.scope_start_date = key;
-        goal.scope_end_date = key;
+        goal.scope_end_date = formatDateOnly(addDays(candidate, durationDays));
         previousDay = key;
         if (key !== originalDay) movedGoals += 1;
         if (dailyMinutes && minutes > dailyMinutes) oversizedGoals += 1;
