@@ -26,6 +26,16 @@ const request = async (url, method = 'GET', body, expected = 200, customToken = 
   }
   const spoof = await fetch(API + '/api/admin/access', { headers: { 'x-user-id': '1' } });
   assert.equal(spoof.status, 401);
+  const eventInput = { title: 'QA 일정 동시성', notes: '', start_date: '2026-09-16', end_date: '2026-09-16', all_day: true, important: false, completed: false, team_id: null };
+  const event = await request('/api/calendar/events', 'POST', eventInput, 201);
+  const eventUrl = `/api/calendar/events/${event.event_id}`;
+  await request(eventUrl, 'PUT', { ...eventInput, title: 'QA 최신 일정', version: 1 });
+  await request(eventUrl, 'DELETE', { version: 1 }, 409);
+  await request(eventUrl, 'DELETE', { version: 2 }, 409, member.token);
+  const calendar = await request('/api/calendar?start=2026-09-16&end=2026-09-16');
+  assert.equal(calendar.events.find(item => item.event_id === event.event_id).title, 'QA 최신 일정');
+  await request(eventUrl, 'DELETE', { version: 2 });
+  assert.equal((await request('/api/calendar?start=2026-09-16&end=2026-09-16')).events.some(item => item.event_id === event.event_id), false);
   const team = await request('/api/journey/teams', 'POST', { team_name: 'QA · 미니 포트폴리오 보존 검증', part: '서비스 기획', template_id: 'kickoff' });
   const teamId = team.team_id;
   const opened = await Promise.all([request(`/api/teams/${teamId}/mini-portfolio`, 'POST'), request(`/api/teams/${teamId}/mini-portfolio`, 'POST')]);
@@ -56,7 +66,7 @@ const request = async (url, method = 'GET', body, expected = 200, customToken = 
   assert.equal(completed.completed_task_count, 1);
   assert.equal((await request('/users/1/past-activities')).filter(item => item.portfolio_id === id).length, 1);
   assert.equal((await request('/api/portfolios/activities')).some(item => item.team_id === teamId), false);
-  assert.equal((await request(`/api/teams/${teamId}/mini-portfolio`, 'POST')).portfolio_id, id);
+  await request(`/api/teams/${teamId}/mini-portfolio`, 'POST', undefined, 409);
   const image = new FormData(); image.append('image', new Blob([readFileSync(path.join(__dirname, '../web/public/tutorial/curriculum-catalog.jpg'))], { type: 'image/jpeg' }), 'curriculum-preview.jpg');
   const uploaded = await request('/api/admin/curricula/images', 'POST', image, 201);
   assert.ok(uploaded.imageUrl);
@@ -68,5 +78,5 @@ const request = async (url, method = 'GET', body, expected = 200, customToken = 
   assert.equal(curriculum.cover_image_url, uploaded.imageUrl);
   assert.equal((await request(`/api/curricula/${curriculum.curriculum_id}`)).organization_logo_url, uploaded.imageUrl);
   console.log(JSON.stringify({ ok: true, database: health.database, archivedTeamId: teamId, portfolioId: id, curriculumId: curriculum.curriculum_id,
-    checks: ['admin allowlist+DB role+signed token', 'anonymous/member API denial', 'draft idempotency', 'cross-user isolation', 'draft not archived/awarded', 'live goals and reversal', 'completion preserves edits and ID', 'image upload+curriculum persistence'] }, null, 2));
+    checks: ['admin allowlist+DB role+signed token', 'anonymous/member API denial', 'calendar stale delete and ownership', 'draft idempotency', 'cross-user isolation', 'draft not archived/awarded', 'live goals and reversal', 'completion preserves edits and ID', 'completed team draft denial', 'image upload+curriculum persistence'] }, null, 2));
 })().catch(error => { console.error(error.message); process.exitCode = 1; });
