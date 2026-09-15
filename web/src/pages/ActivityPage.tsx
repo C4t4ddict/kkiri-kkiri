@@ -31,6 +31,7 @@ import type { ActivityDocument, HeatmapDay, TeamMember, TeamNotice, TeamSummary,
 import { PageState } from '../shared/ui/PageState';
 import { PageTitle } from '../shared/ui/PageTitle';
 import { UserAvatar } from '../shared/ui/UserAvatar';
+import { calendarDaysUntil as daysUntil } from '../shared/date/calendarDaysUntil';
 
 type ActivityDocumentSummary = Omit<ActivityDocument, 'content_markdown'>;
 
@@ -60,16 +61,6 @@ const nextStatus = (status: Todo['status']): Todo['status'] => status === '미�
   : status === '진행중'
     ? '완료'
     : '미진행';
-
-const daysUntil = (dateValue?: string | null) => {
-  if (!dateValue) return null;
-  const target = new Date(dateValue);
-  target.setHours(0, 0, 0, 0);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  if (Number.isNaN(target.getTime())) return null;
-  return Math.ceil((target.getTime() - today.getTime()) / 86_400_000);
-};
 
 const deadlineLabel = (days: number | null) => days === null
   ? '일정 미정'

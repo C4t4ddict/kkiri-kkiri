@@ -3,11 +3,11 @@ import { Link } from 'react-router-dom';
 import type { ActivityItem } from '../../shared/types/domain';
 import { ActivityPosterImage } from './ActivityPosterImage';
 import { getActivityCategoryLabel } from './activityCategory';
+import { calendarDaysUntil } from '../../shared/date/calendarDaysUntil';
 
 function Dday({ end }: { end?: string }) {
-  if (!end) return <span>일정 확인</span>;
-  const days = Math.ceil((new Date(end).getTime() - Date.now()) / 86400000);
-  return <span>{days < 0 ? '마감' : `접수중 D-${days}`}</span>;
+  const days = calendarDaysUntil(end);
+  return <span>{days === null ? '일정 확인' : days < 0 ? '마감' : days === 0 ? '오늘 마감' : `접수중 D-${days}`}</span>;
 }
 
 export function ActivityCard({ item }: { item: ActivityItem }) {

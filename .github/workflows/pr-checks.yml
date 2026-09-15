@@ -81,3 +81,4 @@ jobs:
           node scripts/test-home-shortcuts.cjs
           node scripts/test-web-theme.cjs
           node scripts/test-login-destination.cjs
+          node scripts/test-activity-deadline.cjs

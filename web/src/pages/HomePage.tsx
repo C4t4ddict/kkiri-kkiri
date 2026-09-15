@@ -10,6 +10,7 @@ import { UserAvatar } from '../shared/ui/UserAvatar';
 import { getApplicationStatusLabel } from '../features/applications/StatusPill';
 import { HomeShortcuts } from '../features/home/HomeShortcuts';
 import { PageState } from '../shared/ui/PageState';
+import { calendarDaysUntil } from '../shared/date/calendarDaysUntil';
 
 type Row = { id: string | number; title: string; meta?: string; badge?: string; to: string };
 
@@ -45,8 +46,8 @@ function RotatingHomeWordmark() {
 }
 
 const dday = (end?: string) => {
-  if (!end) return '일정 확인';
-  const days = Math.ceil((new Date(end).getTime() - Date.now()) / 86400000);
+  const days = calendarDaysUntil(end);
+  if (days === null) return '일정 확인';
   return days < 0 ? '마감' : days === 0 ? '오늘 마감' : `D-${days}`;
 };
 
