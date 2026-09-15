@@ -1,0 +1,98 @@
+/* Theme-aware declarations keep their original light colors as fallbacks.
+   Only dark mode assigns these semantic overrides, including lazy-loaded pages. */
+:root { color-scheme: light; }
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --theme-canvas: #141821;
+  --theme-surface: #1c2230;
+  --theme-surface-subtle: #232b3a;
+  --theme-surface-muted: #303b4f;
+  --theme-chrome: rgba(24, 30, 42, .96);
+  --theme-text: #edf0f7;
+  --theme-text-sub: #bac3d5;
+  --theme-text-muted: #9eaac0;
+  --theme-border: #3c475d;
+  --theme-border-accent: #7e6baa;
+  --theme-accent: #c7b5ff;
+  --theme-accent-soft: #302640;
+  --theme-danger: #ffb4ad;
+  --theme-danger-soft: #3c252a;
+  --theme-warning: #f6d193;
+  --theme-warning-soft: #382f22;
+  --theme-success: #95e1b4;
+  --theme-success-soft: #20382f;
+  --theme-info: #b2d1ff;
+  --theme-info-soft: #24334b;
+  --primary: #7553eb;
+  --primary-soft: var(--theme-accent-soft);
+  --text: var(--theme-text);
+  --text-sub: var(--theme-text-sub);
+  --border: var(--theme-border);
+  --shadow: 0 12px 32px rgba(0, 0, 0, .18);
+  --ring-1: #bea4ff;
+  --ring-1-end: #d2bfff;
+  --ring-2: #aa8de8;
+  --ring-2-end: #c2a8ff;
+  --ring-3: #957aca;
+  --ring-3-end: #bda2eb;
+  --ring-4: #856aae;
+  --ring-4-end: #b598d9;
+  --ring-track: #302b40;
+  background: var(--theme-canvas);
+  color: var(--theme-text);
+}
+body { background: inherit; }
+.theme-toggle { display: inline-flex; align-items: center; flex-shrink: 0; gap: 8px; min-height: 44px; padding: 0 10px; border: 1px solid var(--border); border-radius: 9px; color: var(--text-sub); background: var(--theme-surface, #fff); font: 500 13px/1.5 var(--font-sans); cursor: pointer; }
+.theme-toggle > svg { flex-shrink: 0; }
+.theme-toggle-label { white-space: nowrap; }
+.theme-toggle:focus-visible { outline: 2px solid var(--theme-accent, var(--primary)); outline-offset: 3px; }
+.theme-toggle-track { display: flex; align-items: center; width: 34px; height: 20px; padding: 3px; border-radius: 12px; background: #737f93; transition: background .15s ease; }
+.theme-toggle-track > span { width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .15s ease; }
+.theme-toggle[aria-checked="true"] .theme-toggle-track { background: #9d80ef; }
+.theme-toggle[aria-checked="true"] .theme-toggle-track > span { transform: translateX(14px); }
+.topbar-actions { display: flex; align-items: center; flex-shrink: 0; gap: 12px; }
+.standalone-theme-controls { position: fixed; z-index: 25; top: 16px; right: 20px; }
+html[data-theme="dark"] :is(input, textarea)::placeholder { color: var(--theme-text-muted); opacity: 1; }
+html[data-theme="dark"] :is(input, select, textarea) { color-scheme: dark; }
+html[data-theme="dark"] ::selection { color: #fff; background: #6441a6; }
+html[data-theme="dark"] .login-page { background: radial-gradient(ellipse at 50% 0, #352650, #141821 80%); }
+/* Logos stay on their source's white backing. Never invert user photos or assets. */
+.cp-organization-icon.has-logo { background: #fff; }
+html[data-theme="dark"] .activity-heatmap-grid > .heat-1, html[data-theme="dark"] .activity-heatmap-legend .heat-1 { background: #41325c; }
+html[data-theme="dark"] .activity-heatmap-grid > .heat-2, html[data-theme="dark"] .activity-heatmap-legend .heat-2 { background: #624593; }
+html[data-theme="dark"] .activity-heatmap-grid > .heat-3, html[data-theme="dark"] .activity-heatmap-legend .heat-3 { background: #895cc7; }
+html[data-theme="dark"] .activity-heatmap-grid > .heat-4, html[data-theme="dark"] .activity-heatmap-legend .heat-4 { background: #b187ea; }
+html[data-theme="dark"] .activity-heatmap-grid > .heat-4 em { color: #171322; }
+@media (max-width: 720px) {
+  .topbar { gap: 8px; padding-inline: 12px; }
+  .topbar-actions { gap: 8px; }
+  .theme-toggle { padding-inline: 8px; gap: 6px; }
+  .topbar .theme-toggle-label { display: none; }
+  .standalone-theme-controls { position: absolute; top: 12px; right: 14px; }
+  .login-page, .auth-support-page, .journey-public { padding-top: 72px; }
+}
+@media (max-width: 380px) {
+  .topbar .database-status { display: none; }
+  .topbar .mobile-wordmark { font-size: 21px; }
+}
+@media print {
+  .theme-toggle, .standalone-theme-controls { display: none; }
+  html[data-theme="dark"] {
+    color-scheme: light;
+    color: #101828; background: #fff;
+    --theme-canvas: initial; --theme-surface: initial; --theme-surface-subtle: initial;
+    --theme-surface-muted: initial; --theme-chrome: initial;
+    --theme-text: initial; --theme-text-sub: initial; --theme-text-muted: initial;
+    --theme-border: initial; --theme-border-accent: initial;
+    --theme-accent: initial; --theme-accent-soft: initial;
+    --theme-danger: initial; --theme-danger-soft: initial;
+    --theme-warning: initial; --theme-warning-soft: initial;
+    --theme-success: initial; --theme-success-soft: initial;
+    --theme-info: initial; --theme-info-soft: initial;
+    --text: #101828; --text-sub: #667085; --border: #e4e7ec;
+    --primary: #7a5af8; --primary-soft: #f4f1ff;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle-track, .theme-toggle-track > span { transition: none; }
+}

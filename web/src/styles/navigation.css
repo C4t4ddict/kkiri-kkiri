@@ -1,0 +1,100 @@
+.sidebar { padding-top: 28px; padding-bottom: 16px; }
+.sidebar > nav { display: flex; flex-direction: column; gap: 5px; margin-top: 28px; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+.sidebar nav a:hover { transform: none; }
+.sidebar .nav-group > a { min-height: 44px; padding-block: 10px; border-radius: 9px; }
+.sidebar .nav-children { display: grid; margin: 1px 0 5px 33px; gap: 1px; }
+.sidebar .nav-children a { min-height: 36px; padding: 7px 8px 7px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; }
+.sidebar .nav-children a.active { background: transparent; color: var(--theme-accent, var(--primary)); font-weight: 750; }
+.mobile-subnav { display: none; }
+.home-dashboard .home-search-hero { padding-bottom: 42px; }
+.home-featured-activities { margin: 0 0 26px; }
+.home-featured-activities > .state-card { margin: 0; padding: 30px 24px; border: 0; background: transparent; }
+.home-featured-activities .home-poster-row:empty { display: none; }
+.home-profile-shortcuts > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.home-profile-shortcuts > header h2 { margin: 0; font-size: 15px; }
+.home-profile-shortcuts > header button { padding: 5px 0 5px 12px; border: 0; background: transparent; color: var(--text-sub); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.shortcut-save-message { font-size: 12px; color: var(--text-sub); line-height: 1.6; }
+.shortcut-dialog { width: min(480px, calc(100% - 28px)); max-height: 85dvh; padding: 24px; overflow-y: auto; border: 1px solid var(--border); border-radius: 14px; color: var(--text); background: var(--theme-surface, #fff); }
+.shortcut-dialog::backdrop { background: rgba(10, 16, 28, .5); }
+.shortcut-dialog > header { display: flex; justify-content: space-between; align-items: center; }
+.shortcut-dialog h2 { margin: 0; font-size: 21px; }
+.shortcut-dialog > p { color: var(--text-sub); font-size: 14px; line-height: 1.7; }
+.shortcut-dialog :is(header, li) button { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--text-sub); }
+.shortcut-dialog button:disabled { opacity: .35; cursor: default; }
+.shortcut-dialog button:not(:disabled):hover { background: var(--primary-soft); }
+.shortcut-dialog :is(header, li) svg { width: 17px; height: 17px; }
+.shortcut-dialog ol { display: grid; padding: 0; margin: 20px 0; list-style: none; }
+.shortcut-dialog li { display: grid; grid-template-columns: 24px minmax(0,1fr) repeat(3,36px); align-items: center; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.shortcut-dialog li > span { color: var(--text-sub); font-size: 12px; }
+.shortcut-dialog fieldset { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin: 0; padding: 14px 0; border: 0; }
+.shortcut-dialog legend { font-size: 14px; font-weight: 700; }
+.shortcut-dialog label { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.shortcut-dialog input { accent-color: var(--primary); width: 16px; height: 16px; }
+.shortcut-dialog footer { display: flex; gap: 8px; margin-top: 20px; align-items: center; }
+.shortcut-reset { margin-right: auto; padding: 8px 0; background: transparent; border: 0; color: var(--text-sub); font-size: 12px; }
+.shortcut-dialog footer :is(.primary-button,.ghost-button) { min-height: 42px; padding: 8px 16px; }
+.account-section-tabs { display: flex; gap: 24px; margin: 0 0 24px; border-bottom: 1px solid var(--border); }
+.account-section-tabs a { padding: 12px 0; color: var(--text-sub); font-size: 15px; }
+.account-section-tabs a.active { color: var(--theme-accent, var(--primary)); border-bottom: 2px solid currentColor; font-weight: 700; }
+.portfolio-management { max-width: 1050px; margin-inline: auto; }
+.portfolio-management-note { display: flex; gap: 24px; align-items: center; justify-content: space-between; padding-bottom: 26px; border-bottom: 1px solid var(--border); }
+.portfolio-management-note p { max-width: 680px; margin: 0; font-size: 14px; line-height: 1.85; color: var(--text-sub); }
+.portfolio-management-note a { display: flex; gap: 6px; align-items: center; flex-shrink: 0; font-size: 14px; color: var(--theme-accent, var(--primary)); }
+.portfolio-list-title { display: flex; gap: 10px; margin: 28px 0 16px; font-size: 18px; }
+.portfolio-list-title span { color: var(--text-sub); font-weight: 400; }
+.portfolio-management-list { display: grid; gap: 14px; }
+.portfolio-management-list article { display: flex; align-items: center; justify-content: space-between; gap: 26px; padding: 24px; border: 1px solid var(--border); border-radius: 10px; background: var(--theme-surface, #fff); }
+.portfolio-management-list article > div:first-child { min-width: 0; }
+.portfolio-management-list :is(small,time) { color: var(--text-sub); font-size: 12px; }
+.portfolio-management-list h3 { margin: 8px 0; font-size: 19px; line-height: 1.6; overflow-wrap: anywhere; }
+.portfolio-management-list p { color: var(--text-sub); font-size: 14px; line-height: 1.8; overflow-wrap: anywhere; }
+.portfolio-list-actions { display: grid; flex-shrink: 0; gap: 12px; justify-items: center; }
+.portfolio-list-actions button { min-height: 44px; padding: 10px 15px; gap: 8px; white-space: nowrap; font-size: 14px; }
+.portfolio-list-actions a { color: var(--text-sub); font-size: 13px; }
+.portfolio-draft-notice { padding: 16px 0; color: var(--text-sub); font-size: 14px; line-height: 1.7; }
+.portfolio-sheet > header { padding: 30px; }
+.portfolio-sheet > header h1 { font-size: clamp(24px, 2.4vw, 34px); overflow-wrap: anywhere; }
+.portfolio-sheet .portfolio-actions { position: static; margin-top: 22px; flex-wrap: wrap; }
+.portfolio-sheet .portfolio-actions button { min-height: 44px; white-space: nowrap; }
+.portfolio-summary { flex-wrap: wrap; }
+.portfolio-columns :is(p,li), .portfolio-task-grid p { overflow-wrap: anywhere; }
+.friends-page .messages-layout { display: block; max-width: 800px; min-height: 0; margin-inline: auto; }
+.friends-page .message-sidebar { max-height: none; border: 0; }
+.friends-page .conversation-list { padding: 18px; }
+.cp-course-image { display: grid; place-content: center; aspect-ratio: 2.4; overflow: hidden; margin-bottom: 22px; border-radius: 6px; background: var(--theme-surface-subtle, #f5f5f8); }
+.cp-course-image img { width: 100%; height: 100%; object-fit: contain; }
+.cp-course-image:has(img) { display: block; }
+.cp-course-image.is-logo { background: #fff; padding: 24px; }
+.cp-course-image.is-placeholder { gap: 7px; justify-items: center; color: var(--text-sub); }
+.cp-course-image.is-placeholder span { font-size: 14px; }
+.cp-course-image.is-placeholder small { font-size: 11px; opacity: .8; }
+.studio-image-fields { display: grid; grid-template-columns: minmax(150px, .75fr) minmax(0,1.25fr); gap: 20px; align-items: start; }
+.studio-image-fields > div:last-child { display: grid; gap: 14px; }
+.studio-image-fields input { min-width: 0; max-width: 100%; }
+.studio-image-fields small { font-size: 12px; line-height: 1.7; color: var(--text-sub); }
+:is(.shortcut-dialog,.portfolio-management,.home-profile-shortcuts,.nav-children) :is(button,a,input):focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+@media (min-width: 721px) and (max-width: 1190px) {
+  .sidebar { padding-inline: 14px; }
+  .sidebar .nav-group > a { padding-inline: 10px; gap: 10px; font-size: 13px; }
+  .sidebar .nav-group > a svg { flex-shrink: 0; }
+  .sidebar .nav-group > a span { white-space: nowrap; }
+}
+@media (max-width: 720px) {
+  .mobile-subnav { display: flex; gap: 20px; overflow-x: auto; padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--theme-surface, #fff); }
+  .mobile-subnav a { flex-shrink: 0; padding: 13px 0; font-size: 13px; color: var(--text-sub); }
+  .mobile-subnav a.active { color: var(--theme-accent, var(--primary)); border-bottom: 2px solid currentColor; font-weight: 700; }
+  .mobile-nav { grid-template-columns: repeat(7,minmax(0,1fr)); }
+  .mobile-nav a { min-width: 0; font-size: 11px; }
+}
+@media (max-width: 600px) {
+  .home-dashboard .home-search-hero { padding-bottom: 34px; }
+  .home-featured-activities { margin-bottom: 22px; }
+  .home-featured-activities > header { gap: 12px; }
+  .home-featured-activities > header > a { flex-shrink: 0; font-size: 12px; }
+  .portfolio-management-note { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .portfolio-management-list article { align-items: stretch; flex-direction: column; gap: 12px; padding: 20px; }
+  .portfolio-list-actions { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; }
+  .studio-image-fields { grid-template-columns: minmax(0,1fr); }
+  .shortcut-dialog { padding: 20px; }
+  .cp-course-image { margin-bottom: 18px; }
+}

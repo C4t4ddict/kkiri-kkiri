@@ -1,0 +1,57 @@
+.activity-progress {
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) 190px minmax(270px, 1fr);
+  align-items: center;
+  gap: 24px;
+  margin-top: 22px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.activity-progress-copy { min-width: 0; }
+.activity-progress h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.activity-progress .activity-progress-total { margin: 6px 0 2px; color: var(--theme-text, #101828); line-height: 1.15; }
+.activity-progress-total strong { font-size: 48px; font-weight: 750; letter-spacing: -2px; }
+.activity-progress-total > span { margin-left: 4px; font-size: 22px; font-weight: 600; }
+.activity-progress-count { margin: 10px 0 0; color: var(--text-sub); font-size: 15px; }
+.activity-progress-count b { color: var(--theme-text, #101828); font-weight: 600; }
+.activity-progress-status { margin: 8px 0 0; font-size: 14px; color: var(--text-sub); line-height: 1.6; }
+.activity-progress-copy > small { display: block; margin-top: 12px; color: var(--text-sub); font-size: 12px; line-height: 1.6; }
+.activity-progress-rings { display: block; width: 190px; height: 190px; max-width: 100%; justify-self: center; }
+.activity-progress-ring-fill { transition: stroke-dashoffset .65s ease, opacity .2s ease; animation: activity-ring-reveal 1s cubic-bezier(.22, 1, .36, 1) backwards; }
+@keyframes activity-ring-reveal { from { stroke-dashoffset: var(--ring-circumference); } }
+.activity-progress-legend { min-width: 0; }
+.activity-progress-legend > p { display: flex; justify-content: space-between; gap: 12px; margin: 0 0 8px; color: var(--text-sub); font-size: 13px; }
+.activity-progress-legend > p > span { font-size: 12px; }
+.activity-progress-legend ul { display: grid; gap: 2px; padding: 0; margin: 0; list-style: none; }
+.activity-progress-legend li { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto 48px; align-items: center; gap: 10px; min-height: 38px; font-size: 14px; }
+.activity-progress-dot { width: 8px; height: 8px; border-radius: 50%; }
+.activity-progress-label { line-height: 1.5; }
+.activity-progress-fraction { color: var(--text-sub); font-size: 13px; white-space: nowrap; }
+.activity-progress-legend strong { text-align: right; font-size: 16px; font-weight: 650; }
+.activity-progress-state { display: block; min-height: 216px; }
+.activity-progress-state p { color: var(--text-sub); line-height: 1.7; }
+.activity-progress-state button { min-height: 44px; margin-left: 8px; border: 0; background: none; color: var(--theme-accent, var(--primary-dark)); text-decoration: underline; font: inherit; }
+@media (max-width: 1150px) and (min-width: 721px) {
+  .activity-progress { grid-template-columns: minmax(0, 1fr) 190px; }
+  .activity-progress-legend { grid-column: 1 / -1; }
+  .activity-progress-legend ul { grid-template-columns: 1fr 1fr; column-gap: 32px; }
+}
+@media (max-width: 900px) and (min-width: 721px) {
+  .activity-progress-legend ul { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .activity-progress { grid-template-columns: minmax(0, 1fr) 132px; gap: 18px 8px; padding-top: 20px; }
+  .activity-progress-rings { width: 132px; height: 132px; }
+  .activity-progress-total strong { font-size: 40px; }
+  .activity-progress-copy > small { font-size: 12px; }
+  .activity-progress-legend { grid-column: 1 / -1; }
+}
+@media (max-width: 380px) {
+  .activity-progress { grid-template-columns: minmax(0, 1fr) 104px; }
+  .activity-progress-rings { width: 104px; height: 104px; }
+  .activity-progress-legend li { gap: 7px; grid-template-columns: 8px minmax(0, 1fr) auto 48px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .activity-progress-ring-fill { animation: none; transition: none; }
+}

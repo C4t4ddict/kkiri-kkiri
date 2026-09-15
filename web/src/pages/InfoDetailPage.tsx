@@ -112,6 +112,7 @@ export function InfoDetailPage() {
         <section className="related-recruitments">
           <div className="aside-title"><div><h3>함께 준비할 팀</h3></div><em>{recruitments.length}</em></div>
           {recruitments.length ? recruitments.slice(0, 5).map((item) => <Link to={`/matching/${item.recruitment_id}`} className="aside-recruitment" key={item.recruitment_id}><span><UsersRound /></span><div><strong>{item.post_name}</strong><small>{item.meeting_type || '방식 협의'} · {item.required_members || '-'}명 모집</small></div></Link>) : <p className="aside-empty">아직 모집 중인 팀이 없습니다.</p>}
+          <div className="button-row"><Link className="ghost-button" to={`/matching/new?activity=${activity.activity_id}`}>팀원 모집하기</Link><Link className="text-link" to={`/activity/new?activity=${activity.activity_id}&title=${encodeURIComponent(activity.title)}`}>이미 모인 팀으로 시작</Link></div>
         </section>
 
         <section className="reading-guide"><CheckCircle2 /><div><strong>읽기 전 확인하세요</strong><p>접수 일정과 자격 조건은 주최기관 사정에 따라 바뀔 수 있으니 공식 공고를 함께 확인해주세요.</p></div></section>

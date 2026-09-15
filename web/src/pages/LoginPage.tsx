@@ -1,93 +1,85 @@
-import { FormEvent, useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { FormEvent, useRef, useState } from 'react';
+import { ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../app/AuthContext';
 import { api } from '../shared/api/client';
 import type { User } from '../shared/types/domain';
+import { loginDestination } from '../shared/auth/loginDestination';
+import { ThemeToggle } from '../shared/ui/ThemeToggle';
+import './login.css';
 
 export function LoginPage() {
   const { login, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const destination = loginDestination(location.state?.from);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const submitting = useRef(false);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (submitting.current) return;
+    submitting.current = true;
     setLoading(true);
     setError('');
     try {
       const result = await api<{ token: string; user: User }>('/api/login', {
         method: 'POST',
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
       login(result.token, result.user);
-      const destination = typeof location.state?.from === 'string' ? location.state.from : '/';
       navigate(destination, { replace: true });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '로그인에 실패했습니다');
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
   };
 
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to={destination} replace />;
 
-  const asciiFrames = [
-    String.raw`       .                 *
-      /|\               /|\
-     / | \      +      / | \
-    o--+--o .......... o--+--o
-       |       kkiri      |
-       o ................. o`,
-    String.raw`             .     *
-       |                 |
-    o--+--o ....+..... o--+--o
-     \ | /    kkiri     \ | /
-      \|/                 \|/
-       ' ................. '`,
-    String.raw`       *           .
-      \|/               \|/
-       o ......+......... o
-      /|\     kkiri      /|\
-     o-+-o ............ o-+-o
-       |                 |`,
-    String.raw`       +                 .
-       |                 |
-     .-o-.             .-o-.
-    /  |  \... kkiri ../  |  \
-    o--+--o           o--+--o
-        * ............. +`,
-  ];
-
-  return <main className="login-page">
-    <div className="login-backdrop-copy" aria-hidden="true">KKIRI · CONNECT · CREATE · GROW ·</div>
-    <section className="login-panel">
-      <div className="login-brand">
-        <Link className="login-wordmark" to="/"><span><Sparkles size={20} /></span>끼리끼리</Link>
-        <p>같이 시작하고, 함께 완성하는 활동 공간</p>
+  return <div className="learning-login">
+    <header className="learning-login-header">
+      <Link className="learning-login-wordmark" to="/" aria-label="끼리끼리 홈">끼리끼리</Link>
+      <div className="learning-login-header-actions">
+        <Link to="/info">활동 둘러보기 <ArrowRight size={16} aria-hidden="true" /></Link>
+        <ThemeToggle />
       </div>
-      <div className="login-ascii" aria-hidden="true">
-        <div className="login-ascii-bar"><span>●</span><span>●</span><span>●</span><em>kkiri_network.exe</em></div>
-        <div className="login-ascii-stage">
-          {asciiFrames.map((frame, index) => <pre key={frame} style={{ animationDelay: `${index * 1.2}s` }}>{frame}</pre>)}
+    </header>
+    <main className="learning-login-main">
+      <section className="learning-login-intro" aria-labelledby="learning-login-title">
+        <p className="learning-login-kicker">스스로 시작하고, 함께 이어가는 배움</p>
+        <h1 id="learning-login-title">나의 속도로 배우고.<br /><span>우리의 경험으로 남기고.</span></h1>
+        <p className="learning-login-description">목표를 정하는 순간부터, 함께 만든 결과가<br className="learning-login-break" /> 나만의 포트폴리오가 될 때까지.</p>
+      </section>
+      <form className="learning-login-form" onSubmit={submit} aria-label="로그인" aria-busy={loading}>
+        <label htmlFor="login-email">이메일</label>
+        <input id="login-email" name="email" type="email" autoComplete="username" inputMode="email" autoCapitalize="none" spellCheck={false} value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" required disabled={loading} />
+        <div className="learning-login-password-label">
+          <label htmlFor="login-password">비밀번호</label>
+          <Link to="/forgot-password">비밀번호 찾기</Link>
         </div>
-        <div className="login-ascii-status"><span>&gt; FINDING YOUR PEOPLE_</span><span>[ ONLINE ]</span></div>
-      </div>
-      <form className="login-card" onSubmit={submit}>
-        <div className="login-copy">
-          <span>WELCOME BACK</span>
-          <h1>다시 만나서 반가워요</h1>
-          <p>모바일 앱과 같은 계정으로 로그인하세요.</p>
+        <div className="learning-login-password">
+          <input id="login-password" name="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="비밀번호를 입력하세요" required disabled={loading} />
+          <button type="button" aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'} aria-pressed={showPassword} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOff size={20} aria-hidden="true" /> : <Eye size={20} aria-hidden="true" />}</button>
         </div>
-        <label>이메일<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" required /></label>
-        <label>비밀번호<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="비밀번호" required /></label>
-        {error && <div className="form-error">{error}</div>}
-        <button className="primary-button" disabled={loading}>{loading ? '로그인 중…' : '로그인'}</button>
-        <div className="auth-links"><Link to="/register">회원가입</Link><Link to="/forgot-password">비밀번호 찾기</Link></div>
+        {error && <p className="learning-login-error" role="alert">{error}</p>}
+        <button className="learning-login-submit" type="submit" disabled={loading}>{loading ? '로그인 중…' : '로그인'}<ArrowRight size={19} aria-hidden="true" /></button>
+        <p className="learning-login-signup">아직 끼리끼리 계정이 없나요? <Link to="/register">회원가입</Link></p>
       </form>
-    </section>
-  </main>;
+      <p className="learning-login-account-note">앱에서 사용하던 계정으로 그대로 시작하세요.</p>
+    </main>
+    <footer className="learning-login-footer" aria-label="끼리끼리의 학습 흐름">
+      <ol>
+        <li><span aria-hidden="true">01</span><div><strong>내가 정한 목표</strong><p>관심에서 출발하는 학습 계획</p></div></li>
+        <li><span aria-hidden="true">02</span><div><strong>함께하는 실행</strong><p>팀을 만나 쌓아가는 활동 기록</p></div></li>
+        <li><span aria-hidden="true">03</span><div><strong>나에게 남는 경험</strong><p>활동이 끝나면 미니 포트폴리오로</p></div></li>
+      </ol>
+    </footer>
+  </div>;
 }

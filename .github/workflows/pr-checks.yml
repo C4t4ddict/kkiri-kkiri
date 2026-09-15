@@ -59,3 +59,26 @@ jobs:
 
       - name: 서버 테스트 실행
         run: npm test
+
+  web:
+    name: 웹 빌드 및 회귀 테스트
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix web
+      - run: npm --prefix web run build
+      - name: 웹 회귀 테스트
+        run: |
+          node scripts/test-goal-progress.cjs
+          node scripts/test-home-shortcuts.cjs
+          node scripts/test-web-theme.cjs
+          node scripts/test-login-destination.cjs
+          node scripts/test-activity-deadline.cjs
