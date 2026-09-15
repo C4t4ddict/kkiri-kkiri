@@ -8,7 +8,7 @@ test('앱 origin의 문자열·URL·Request에만 인증을 전달한다', async
   try {
     configureAuthTransport('qa-token');
     for (const input of [`${API_BASE_URL}/api/me`, new URL(`${API_BASE_URL}/api/me`), new Request(`${API_BASE_URL}/api/me`)]) {
-      await fetch(input);
+      await (fetch as (value: RequestInfo | URL) => Promise<Response>)(input);
       const call = transport.mock.calls.at(-1) as unknown as [RequestInfo, RequestInit];
       expect(new Headers(call[1].headers).get('Authorization')).toBe('Bearer qa-token');
     }
