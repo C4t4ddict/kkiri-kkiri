@@ -18,10 +18,11 @@ export const configureAuthTransport = (token?: string | null) => {
   fetchInstalled = true;
   const originalFetch = globalThis.fetch.bind(globalThis);
   globalThis.fetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
-    if (!authToken || !isAppApiUrl(input)) return originalFetch(input, init);
-    const requestHeaders = typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined;
+    const requestInput = input instanceof URL ? input.href : input;
+    if (!authToken || !isAppApiUrl(requestInput)) return originalFetch(requestInput, init);
+    const requestHeaders = typeof Request !== 'undefined' && requestInput instanceof Request ? requestInput.headers : undefined;
     const headers = new Headers(init.headers || requestHeaders);
     if (!headers.has('Authorization')) headers.set('Authorization', `Bearer ${authToken}`);
-    return originalFetch(input, { ...init, headers });
+    return originalFetch(requestInput, { ...init, headers });
   };
 };

@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { StatusBar, Platform } from 'react-native';
+import { StatusBar } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import AppHeader from '../components/AppHeader';
 import NotificationBell from '../components/NotificationBell';
