@@ -48,7 +48,7 @@ function CalendarDialog({ item, day, teams, onClose, onSaved }: {
   const remove = async () => {
     if (!original || busy) return;
     setBusy(true); setError('');
-    try { await api(`/api/calendar/events/${original.event_id}`, { method: 'DELETE' }); onSaved(day, '일정을 삭제했습니다.'); }
+    try { await api(`/api/calendar/events/${original.event_id}`, { method: 'DELETE', body: JSON.stringify({ version: original.version }) }); onSaved(day, '일정을 삭제했습니다.'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : '삭제하지 못했습니다.'); setBusy(false); }
   };
   return <dialog className="mc-dialog" ref={dialog} aria-labelledby="mc-dialog-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
